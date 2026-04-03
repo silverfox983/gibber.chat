@@ -28,16 +28,17 @@ class AuthService with ChangeNotifier {
   ConnectionStatus getAccountStatus(String accountId) {
     if (_xmppConnections.containsKey(accountId)) {
       final state = _xmppConnections[accountId]?.state;
-      if (state == xmpp.XmppConnectionState.Ready)
+      if (state == xmpp.XmppConnectionState.Ready) {
         return ConnectionStatus.online;
+      }
       // Use Authenticating if Connecting is not available
-      if (state == xmpp.XmppConnectionState.Authenticating)
+      if (state == xmpp.XmppConnectionState.Authenticating) {
         return ConnectionStatus.connecting;
+      }
       return ConnectionStatus.offline;
     }
     if (_ircConnections.containsKey(accountId)) {
-      return ConnectionStatus
-          .online; // irc_dart is simpler, if it's in the map it's connected
+      return ConnectionStatus.online;
     }
     if (_discordConnections.containsKey(accountId)) {
       return ConnectionStatus.online;
@@ -151,8 +152,9 @@ class AuthService with ChangeNotifier {
     final input = rawInput.trim();
 
     // 1. Specific Discord Domain Check (for saved accounts)
-    if (input.toLowerCase().endsWith('@discord.com'))
+    if (input.toLowerCase().endsWith('@discord.com')) {
       return ConnectionProtocol.discord;
+    }
 
     // 2. Raw Discord Token Check
     // Discord tokens are typically 50-70 characters of base64-like characters
@@ -173,11 +175,14 @@ class AuthService with ChangeNotifier {
     }
 
     // 3. IRC Detection
-    if (input.startsWith('irc.') || input.contains('#'))
+    if (input.startsWith('irc.') || input.contains('#')) {
       return ConnectionProtocol.irc;
+    }
 
     // 4. XMPP Detection (Must contain @ but not be Discord)
-    if (input.contains('@')) return ConnectionProtocol.xmpp;
+    if (input.contains('@')) {
+      return ConnectionProtocol.xmpp;
+    }
 
     return ConnectionProtocol.none;
   }
@@ -186,8 +191,9 @@ class AuthService with ChangeNotifier {
   final Map<String, bool> _omemoEnabled = {};
   bool _isStrictVerificationEnabled = false;
 
-  bool isOmemoEnabled(String chatId) =>
-      _omemoEnabled[chatId.toLowerCase()] ?? false;
+  bool isOmemoEnabled(String chatId) {
+    return _omemoEnabled[chatId.toLowerCase()] ?? false;
+  }
   bool get isStrictVerificationEnabled => _isStrictVerificationEnabled;
 
   Future<void> setStrictVerification(bool enabled) async {
@@ -392,7 +398,6 @@ class AuthService with ChangeNotifier {
   }
 
   /// Map Gibber status to Discord status
-  /// Map Gibber status to Discord status
   discord.CurrentUserStatus _mapStatusToDiscord(ContactStatus status) {
     switch (status) {
       case ContactStatus.online:
@@ -410,7 +415,9 @@ class AuthService with ChangeNotifier {
   // --- MEDIA & FILE TRANSFERS (XEP-0363) ---
 
   Stream<double>? getUploadProgress(String? accountId) {
-    if (accountId == null) return null;
+    if (accountId == null) {
+      return null;
+    }
     return _uploadServices[accountId]?.uploadProgress;
   }
 
@@ -658,17 +665,23 @@ class AuthService with ChangeNotifier {
         pass,
         localPort,
         host: '127.0.0.1',
-        resource: configData?.customResource ?? 'flutter_chat_app_$id',
+        resource: configData?.customResource ?? 'gibber_mobile',
         wsPath: configData?.wsPath,
       );
 
+      // DOMAIN GUARD: Ensure SASL identity is explicitly the target domain
+      debugPrint('XMPP: Preparing connection for ${jid.fullJid} (Domain: ${jid.domain}, Pass Length: ${pass.length})');
+
       if (configData != null) {
-        if (configData.ackEnabled != null)
+        if (configData.ackEnabled != null) {
           accountSettings.ackEnabled = configData.ackEnabled!;
-        if (configData.smResumable != null)
+        }
+        if (configData.smResumable != null) {
           accountSettings.smResumable = configData.smResumable!;
-        if (configData.reconnectionTimeout != null)
+        }
+        if (configData.reconnectionTimeout != null) {
           accountSettings.reconnectionTimeout = configData.reconnectionTimeout!;
+        }
       }
 
       final conn = xmpp.Connection(accountSettings);
@@ -677,6 +690,11 @@ class AuthService with ChangeNotifier {
 
       _xmppConnections[id] = conn;
       _xmppJids[id] = jid.fullJid ?? fullJidStr; // Store JID
+
+      // --- CRITICAL: Connect to start the milkshake! ---
+      debugPrint('XMPP: Calling conn.connect() for $id...');
+      conn.connect();
+      // --------------------------------------------------
 
       conn.connectionStateStream.listen((state) {
         debugPrint('XMPP Account $id State: $state');
@@ -1298,9 +1316,11 @@ class AuthService with ChangeNotifier {
 
       conn.connect();
     } catch (e) {
+      debugPrint('XMPP Proxy Error: $e');
+      rethrow;
+    } finally {
       _xmppConnecting = false;
       notifyListeners();
-      throw Exception('XMPP Connection Failed: $e');
     }
   }
 
@@ -1885,14 +1905,16 @@ class AuthService with ChangeNotifier {
               final isExplicitBot = rawToken.toLowerCase().startsWith('bot ');
               final token = isExplicitBot ? rawToken.replaceFirst(RegExp(r'^Bot ', caseSensitive: false), '') : rawToken;
 
-              // 2. Select Intents (Adaptive)
-              var intentsValue = discord.GatewayIntents.allUnprivileged.value;
+              // 2. Select Intents (Adaptive nyxx 6.x constructor path)
+              var intents = discord.GatewayIntents.allUnprivileged;
               if (!useMinimalIntents) {
-                intentsValue |= discord.GatewayIntents.messageContent.value |
-                          discord.GatewayIntents.guildPresences.value |
-                          discord.GatewayIntents.guildMembers.value;
+                intents = discord.GatewayIntents(
+                  intents.value |
+                      discord.GatewayIntents.messageContent.value |
+                      discord.GatewayIntents.guildPresences.value |
+                      discord.GatewayIntents.guildMembers.value,
+                );
               }
-              final intents = discord.GatewayIntents(intentsValue);
 
               debugPrint('Discord: Connecting with intents ${intents.value} (Minimal: $useMinimalIntents)');
               
@@ -1933,16 +1955,19 @@ class AuthService with ChangeNotifier {
                     } catch (_) {}
 
                     String msg = 'Discord connection closed abruptly.';
-                    if (code == 4004)
+                    if (code == 4004) {
                       msg =
                           'Discord Authentication Failed. Verify your token is correct and is a BOT token.';
-                    if (code == 4014)
+                    }
+                    if (code == 4014) {
                       msg =
                           'Discord Disallowed Intent. Enable "Message Content Intent" in the Discord Developer Portal.';
+                    }
 
                     if (!errorCompleter.isCompleted &&
-                        !readyCompleter.isCompleted)
+                        !readyCompleter.isCompleted) {
                       errorCompleter.complete(msg);
+                    }
                   }
                 },
                 onError: (e, stack) {
@@ -2180,16 +2205,14 @@ class AuthService with ChangeNotifier {
                 },
               );
 
-              _discordConnecting = false;
-              notifyListeners();
               return actualAccountId;
-            } catch (e) {
-              _discordConnecting = false;
+            } catch (e, stack) {
+              debugPrint('Discord Login Error: $e\n$stack');
               final errorStr = e.toString();
               if (errorStr.contains('401') ||
                   errorStr.toLowerCase().contains('unauthorized')) {
                 _lastDiagnostic =
-                    'Discord Error: Unauthorized. Ensure your token is a BOT token. Self-botting on user accounts may require different keys.';
+                    'Discord Error: Unauthorized. Ensure your token is a BOT token.';
               } else if (errorStr.contains('4013') ||
                   errorStr.contains('intent')) {
                 _lastDiagnostic =
@@ -2199,6 +2222,9 @@ class AuthService with ChangeNotifier {
               }
               notifyListeners();
               throw Exception(_lastDiagnostic);
+            } finally {
+              _discordConnecting = false;
+              notifyListeners();
             }
           },
           (error, stack) {
@@ -2579,7 +2605,9 @@ class AuthService with ChangeNotifier {
     String? url, {
     String? accountId,
   }) async {
-    if (url == null) return;
+    if (url == null) {
+      return;
+    }
     final cached = await AvatarCacheService().hasAvatar(
       userId,
       protocol: 'Discord',
@@ -3173,8 +3201,9 @@ class AuthService with ChangeNotifier {
   }) async {
     final id = accountId ?? _activeAccountId;
     final conn = _xmppConnections[id];
-    if (conn == null || conn.state != xmpp.XmppConnectionState.Ready)
+    if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
       return 'XMPP not connected';
+    }
 
     try {
       // 1. Initial MUC joining presence (XEP-0045 7.2.1)
@@ -3241,8 +3270,9 @@ class AuthService with ChangeNotifier {
   }) async {
     final id = accountId ?? _activeAccountId;
     final conn = _xmppConnections[id];
-    if (conn == null || conn.state != xmpp.XmppConnectionState.Ready)
+    if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
       return 'XMPP not connected';
+    }
     try {
       final roomJidObj = xmpp.Jid.fromFullJid('$roomJid/$nick');
       final presence = xmpp.PresenceStanza();
@@ -3784,8 +3814,9 @@ class AuthService with ChangeNotifier {
     final item = xmpp.XmppElement()
       ..name = 'item'
       ..addAttribute(xmpp.XmppAttribute('jid', jid));
-    if (nickname != null)
+    if (nickname != null) {
       item.addAttribute(xmpp.XmppAttribute('name', nickname));
+    }
     query.addChild(item);
     iq.addChild(query);
     conn.writeStanza(iq);

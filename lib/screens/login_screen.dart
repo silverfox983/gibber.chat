@@ -351,20 +351,31 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ],
         if (authService.lastDiagnostic != null) ...[
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.black26,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              authService.lastDiagnostic!,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 11,
-                fontStyle: FontStyle.italic,
+              color: Colors.redAccent.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(
+                color: Colors.redAccent.withValues(alpha: 0.3),
               ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    authService.lastDiagnostic!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

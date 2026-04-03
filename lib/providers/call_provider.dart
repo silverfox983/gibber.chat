@@ -98,7 +98,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _authService!.setJingleProceedCallback(_onJingleProceedReceived);
 
     await _initializeSipService();
-    _autoRegisterSip();
+    // SIP auto-registration disabled (using stable XMPP Jingle for phone calls)
+    // _autoRegisterSip();
 
     // ATTACH: Observe App Lifecycle to handle background leaks
     WidgetsBinding.instance.addObserver(this);
@@ -363,19 +364,20 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       final offer = await _rtcManager.createOffer();
       debugPrint('CallProvider: Offer created');
 
-      final isGateway =
-          toJid.contains('cheogram.com') &&
-          (toJid.contains('+') || toJid.endsWith('@cheogram.com/tel'));
+      final isGateway = toJid.toLowerCase().contains('cheogram') || toJid.contains('+');
+      debugPrint('CallProvider: [ROUTING] isGateway=$isGateway for $toJid');
 
       if (isGateway) {
-        signaling.sendSessionInitiateViaMessage(
+        debugPrint('CallProvider: [PSTN] Direct IQ Protocol Forced');
+        signaling.sendSessionInitiate(
           toJid,
           _sessionId!,
           offer.sdp!,
           isVideo: _isVideo,
         );
       } else {
-        signaling.sendSessionInitiate(
+        debugPrint('CallProvider: [CHAT] XEP-0353 Message Protocol Forced');
+        signaling.sendSessionInitiateViaMessage(
           toJid,
           _sessionId!,
           offer.sdp!,
@@ -566,14 +568,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       return;
     }
 
-    // PHONE NUMBER DETECTION - Route through SIP for phone calls
+    // PHONE NUMBER DETECTION - Route through XMPP Jingle for phone calls (More stable than SIP)
     // Check if it looks like a phone number (contains digits, maybe with +)
     final cleanNumber = toJid.replaceAll(RegExp(r'[^\d+]'), '');
     if (isPhoneNumber(cleanNumber)) {
       debugPrint(
-        'CallProvider: Phone number detected ($cleanNumber), routing through SIP',
+        'CallProvider: Phone number detected ($cleanNumber), routing through stable XMPP Jingle',
       );
-      await _startSipCall(cleanNumber, accountId: accountId, isVideo: false);
+      // Route through XMPP Jingle exactly like a normal chat call, let the gateway handle PSTN bridging
+      await _startXmppCall(cleanNumber, accountId: accountId, isVideo: false);
       return;
     }
 
@@ -612,8 +615,17 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _rtcManager.setSpeakerphone(isVideo);
     _isSpeakerOn = isVideo;
 
+    // JID NORMALIZATION: Ensure phone numbers have the gateway suffix
+    String effectiveJid = toJid;
+    if (effectiveJid.startsWith('+') || RegExp(r'^\d+$').hasMatch(effectiveJid)) {
+      if (!effectiveJid.contains('@')) {
+        effectiveJid = '$effectiveJid@cheogram.com';
+        debugPrint('CallProvider: Normalized phone JID to $effectiveJid');
+      }
+    }
+
     _state = CallState.outgoing;
-    _remoteJid = toJid;
+    _remoteJid = effectiveJid;
     _isVideo = isVideo;
     _callAccountId = accountId;
     _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -660,7 +672,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: Local renderer attached');
 
       // Attach listeners before creating offer to capture candidates
-      _setupRtcListeners(toJid, signaling);
+      _setupRtcListeners(effectiveJid, signaling);
       debugPrint('CallProvider: RTC listeners attached');
 
       // MONITOR: Attach stats listener to expose volume to UI
@@ -686,33 +698,26 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       final offer = await _rtcManager.createOffer();
       debugPrint('CallProvider: Offer created');
 
-      // Detect if target is a gateway (phone number via cheogram, etc.)
-      // Gateways like cheogram.com require XEP-0353 (MESSAGE-based Jingle)
-      final isGateway =
-          toJid.contains('cheogram.com') &&
-          (toJid.contains('+') || toJid.endsWith('@cheogram.com/tel'));
-
+      final isGateway = effectiveJid.toLowerCase().contains('cheogram') || effectiveJid.contains('+');
+      
       if (isGateway) {
-        debugPrint(
-          'CallProvider: [XEP-0353] Gateway detected, using MESSAGE-based Jingle',
-        );
-        signaling.sendSessionInitiateViaMessage(
-          toJid,
+        debugPrint('CallProvider: === GATEWAY PROTOCOL ENFORCED (Direct Jingle IQ) ===');
+        signaling.sendSessionInitiate(
+          effectiveJid,
           _sessionId!,
           offer.sdp!,
           isVideo: isVideo,
         );
-        // Start timeout timer for XEP-0353 flow
-        _startCallTimeoutTimer();
       } else {
-        signaling.sendSessionInitiate(
-          toJid,
+        debugPrint('CallProvider: === CHAT PROTOCOL ENFORCED (XEP-0353 Message) ===');
+        signaling.sendSessionInitiateViaMessage(
+          effectiveJid,
           _sessionId!,
           offer.sdp!,
           isVideo: isVideo,
         );
       }
-      debugPrint('CallProvider: Session initiate sent');
+      debugPrint('CallProvider: Session initiate dispatched via ${isGateway ? "IQ" : "MESSAGE"}');
 
       // Play ringback tone
       _playRingback();
@@ -839,22 +844,19 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: Sending session accept...');
 
       // Detect if caller is a gateway (phone number via cheogram, etc.)
-      final isGateway =
-          _remoteJid!.contains('cheogram.com') &&
-          (_remoteJid!.contains('+') || _remoteJid!.contains('/tel'));
-
+      final isGateway = _remoteJid!.toLowerCase().contains('cheogram') || _remoteJid!.contains('+');
       if (isGateway) {
         debugPrint(
-          'CallProvider: [XEP-0353] Gateway detected, using MESSAGE-based session-accept',
+          'CallProvider: [PSTN] Direct IQ Protocol Forced (Session Accept)',
         );
-        signaling.sendSessionAcceptViaMessage(
+        signaling.sendSessionAccept(
           _remoteJid!,
           _sessionId!,
           answer.sdp!,
           isVideo: _isVideo,
         );
       } else {
-        signaling.sendSessionAccept(
+        signaling.sendSessionAcceptViaMessage(
           _remoteJid!,
           _sessionId!,
           answer.sdp!,
@@ -947,7 +949,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         'CallProvider:   sdpMid: ${candidate.sdpMid}, type: ${_extractCandidateType(candidate.candidate ?? "")}',
       );
       if (isGateway) {
-        signaling.sendTransportInfoViaMessage(
+        signaling.sendTransportInfo(
           toJid,
           _sessionId!,
           candidate.toMap(),
@@ -967,7 +969,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: ========== CALL PROVIDER ON TRACK ==========');
       debugPrint('CallProvider: === REMOTE TRACK RECEIVED ===');
       debugPrint('CallProvider: Stream id: ${stream.id}');
-      // NOTE: stream.active is NOT implemented on Android - do not access it!
+      
+      // CRITICAL: stream.active is NOT implemented on Android - do not access it!
+      
       debugPrint(
         'CallProvider: Stream audio tracks: ${stream.getAudioTracks().length}',
       );
@@ -976,17 +980,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       );
 
       // CRITICAL: Cancel ICE timeout timer - we have media!
-      // Even if ICE state is "New" (common with gateways like cheogram),
-      // if we have a remote track, the call is connected
       _callTimeoutTimer?.cancel();
       _callTimeoutTimer = null;
       debugPrint('CallProvider: ICE timeout cancelled - media received');
 
       // CRITICAL: Always set srcObject to ensure renderer has the stream
-      debugPrint('CallProvider: Attaching stream to remote renderer');
-      debugPrint(
-        'CallProvider: Remote renderer hash: ${_remoteRenderer.hashCode}',
-      );
       _remoteRenderer.srcObject = stream;
       debugPrint(
         'CallProvider: Remote renderer srcObject set: ${_remoteRenderer.srcObject != null}',
@@ -1010,33 +1008,28 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       _callStartTime ??= DateTime.now();
       _log('Call connected (media established)', isSent: false);
 
-      // AUDIO PATH: Force speaker ON FIRST for voice calls
+      // AUDIO PATH: Force speaker ON for voice calls with Android Route Force
       debugPrint('CallProvider: Configuring audio output...');
       if (!_isVideo) {
-        // For voice calls, force speaker ON
-        debugPrint('CallProvider: Voice call - forcing speaker ON');
-        _rtcManager.setSpeakerphone(true);
-        _isSpeakerOn = true;
-        debugPrint('CallProvider: Speaker ON set, _isSpeakerOn = true');
+        debugPrint('CallProvider: Voice call - applying Android Speaker Route Force');
+        
+        // Android Speaker Force: toggling sometimes triggers the correct routing
+        _rtcManager.setSpeakerphone(false); 
+        Future.delayed(const Duration(milliseconds: 50), () {
+          _rtcManager.setSpeakerphone(true);
+          _isSpeakerOn = true;
+          debugPrint('CallProvider: Speaker ON forced, _isSpeakerOn = true');
+        });
       } else {
         debugPrint('CallProvider: Video call - using current speaker setting');
         _rtcManager.setSpeakerphone(_isSpeakerOn);
       }
 
       // Ensure audio is enabled on all tracks
-      debugPrint('CallProvider: Calling ensureAudioEnabled...');
       _rtcManager.ensureAudioEnabled();
 
       // Set remote volume to max
-      debugPrint('CallProvider: Setting remote audio volume to 1.0');
       _rtcManager.setRemoteAudioVolume(1.0);
-
-      // Verify remote audio track is playing
-      for (var track in stream.getAudioTracks()) {
-        debugPrint(
-          'CallProvider: Final audio track state - id: ${track.id}, enabled: ${track.enabled}, label: ${track.label}',
-        );
-      }
 
       // AUDIO DELAYS: Multiple ensures for Android to properly configure audio
       debugPrint('CallProvider: Scheduling delayed audio fixes...');
@@ -1046,9 +1039,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         _rtcManager.ensureAudioEnabled();
         if (!_isVideo) {
           _rtcManager.setSpeakerphone(true);
-          debugPrint('CallProvider: [DELAY 200ms] Speaker ON');
         }
       });
+
 
       Future.delayed(const Duration(milliseconds: 500), () {
         debugPrint('CallProvider: [DELAY 500ms] Audio fix #2');
@@ -1242,14 +1235,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         _authService?.getJingleService(_callAccountId ?? '') ??
         _authService?.jingleSignaling;
     if (_remoteJid != null && _sessionId != null) {
-      final isGateway =
-          _remoteJid!.contains('cheogram.com') &&
-          (_remoteJid!.contains('+') || _remoteJid!.contains('/tel'));
+      final isGateway = _remoteJid!.toLowerCase().contains('cheogram') || _remoteJid!.contains('+');
+      debugPrint('CallProvider: [TEARDOWN] isGateway=$isGateway for $_remoteJid');
 
       if (isGateway) {
-        signaling?.sendSessionTerminateViaMessage(_remoteJid!, _sessionId!);
-      } else {
+        debugPrint('CallProvider: [PSTN] Direct IQ Terminate');
         signaling?.sendSessionTerminate(_remoteJid!, _sessionId!);
+      } else {
+        debugPrint('CallProvider: [CHAT] XEP-0353 Message Terminate');
+        signaling?.sendSessionTerminateViaMessage(_remoteJid!, _sessionId!);
       }
       _log('Call ended', isSent: true);
     }
@@ -1261,15 +1255,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         _authService?.getJingleService(_callAccountId ?? '') ??
         _authService?.jingleSignaling;
     if (_remoteJid != null && _sessionId != null) {
-      // Detect if target is a gateway
-      final isGateway =
-          _remoteJid!.contains('cheogram.com') &&
-          (_remoteJid!.contains('+') || _remoteJid!.contains('/tel'));
+      final isGateway = _remoteJid!.toLowerCase().contains('cheogram') || _remoteJid!.contains('+');
+      debugPrint('CallProvider: [DECLINE] isGateway=$isGateway for $_remoteJid');
 
       if (isGateway) {
-        signaling?.sendSessionTerminateViaMessage(_remoteJid!, _sessionId!);
-      } else {
+        debugPrint('CallProvider: [PSTN] Direct IQ Decline');
         signaling?.sendSessionTerminate(_remoteJid!, _sessionId!);
+      } else {
+        debugPrint('CallProvider: [CHAT] XEP-0353 Message Decline');
+        signaling?.sendSessionTerminateViaMessage(_remoteJid!, _sessionId!);
       }
       _log('Call declined', isSent: true);
     }

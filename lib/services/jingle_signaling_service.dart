@@ -422,7 +422,7 @@ class JingleSignalingService {
     jingle.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
     jingle.addAttribute(XmppAttribute('action', 'session-initiate'));
     jingle.addAttribute(XmppAttribute('sid', sessionId));
-    jingle.addAttribute(XmppAttribute('initiator', connection.fullJid.fullJid));
+    // initiator attribute removed for domain transparency (XEP-0166)
 
     final contents = _generateContentsFromSdp(sdp, 'initiator', sessionId);
     for (var content in contents) {
@@ -456,7 +456,7 @@ class JingleSignalingService {
     jingle.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
     jingle.addAttribute(XmppAttribute('action', 'session-accept'));
     jingle.addAttribute(XmppAttribute('sid', sessionId));
-    jingle.addAttribute(XmppAttribute('responder', connection.fullJid.fullJid));
+    // responder attribute removed for domain transparency (XEP-0166)
 
     final contents = _generateContentsFromSdp(sdp, 'responder', sessionId);
     for (var content in contents) {
@@ -578,7 +578,7 @@ class JingleSignalingService {
     jingle.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
     jingle.addAttribute(XmppAttribute('action', 'session-initiate'));
     jingle.addAttribute(XmppAttribute('sid', sessionId));
-    jingle.addAttribute(XmppAttribute('initiator', connection.fullJid.fullJid));
+    // initiator attribute removed for domain transparency (XEP-0166)
 
     final contents = _generateContentsFromSdp(sdp, 'initiator', sessionId);
     for (var content in contents) {
@@ -609,7 +609,7 @@ class JingleSignalingService {
     jingle.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
     jingle.addAttribute(XmppAttribute('action', 'session-accept'));
     jingle.addAttribute(XmppAttribute('sid', sessionId));
-    jingle.addAttribute(XmppAttribute('responder', connection.fullJid.fullJid));
+    // responder attribute removed for domain transparency (XEP-0166)
 
     final contents = _generateContentsFromSdp(sdp, 'responder', sessionId);
     for (var content in contents) {
@@ -1063,9 +1063,7 @@ class JingleSignalingService {
         XmppAttribute('xmlns', 'urn:xmpp:jingle:apps:rtp:1'),
       );
       description.addAttribute(XmppAttribute('media', mediaType));
-      // Keep the text value for legacy/bridge support
-      description.textValue = sdp;
-
+      
       final transport = xmpp.XmppElement();
       transport.name = 'transport';
       transport.addAttribute(
@@ -1148,6 +1146,7 @@ class JingleSignalingService {
       for (var pt in ptMap.values) {
         description.addChild(pt);
       }
+
       content.addChild(description);
       content.addChild(transport);
       contents.add(content);
@@ -1156,6 +1155,65 @@ class JingleSignalingService {
     // Store content order for candidate mapping
     _sessionContentMap[sessionId] = contentNames;
     return contents;
+  }
+
+  /// Pure Jingle IQ: Send transport-info (ICE candidates)
+  void sendTransportInfo(
+    String toJid,
+    String sessionId,
+    Map<String, dynamic> candidateMap, {
+    bool isVideo = true,
+  }) {
+    final iq = xmpp.IqStanza(
+      DateTime.now().millisecondsSinceEpoch.toString(),
+      xmpp.IqStanzaType.SET,
+    );
+    iq.toJid = xmpp.Jid.fromFullJid(toJid);
+
+    final jingle = xmpp.XmppElement();
+    jingle.name = 'jingle';
+    jingle.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
+    jingle.addAttribute(XmppAttribute('action', 'transport-info'));
+    jingle.addAttribute(XmppAttribute('sid', sessionId));
+
+    final mid = candidateMap['sdpMid'] ?? '0';
+    final contentNames =
+        _sessionContentMap[sessionId] ??
+        (isVideo ? ['audio', 'video'] : ['audio']);
+    int midIdx = int.tryParse(mid) ?? 0;
+    final contentName = (midIdx < contentNames.length)
+        ? contentNames[midIdx]
+        : (isVideo ? 'video' : 'audio');
+
+    final content = xmpp.XmppElement();
+    content.name = 'content';
+    content.addAttribute(XmppAttribute('name', contentName));
+    content.addAttribute(XmppAttribute('creator', 'initiator'));
+
+    final transport = xmpp.XmppElement();
+    transport.name = 'transport';
+    transport.addAttribute(
+      XmppAttribute('xmlns', 'urn:xmpp:jingle:transports:ice-udp:1'),
+    );
+
+    final candidate = xmpp.XmppElement();
+    candidate.name = 'candidate';
+    candidate.addAttribute(XmppAttribute('id', mid));
+    candidate.addAttribute(
+      XmppAttribute('label', candidateMap['sdpMLineIndex'].toString()),
+    );
+
+    _addCandidateAttributes(candidate, candidateMap['candidate']);
+
+    transport.addChild(candidate);
+    content.addChild(transport);
+    jingle.addChild(content);
+    iq.addChild(jingle);
+
+    debugPrint(
+      'Jingle: Sending transport-info (IQ) to $toJid',
+    );
+    connection.writeStanza(iq);
   }
 
   void _extractAndFireCandidates(

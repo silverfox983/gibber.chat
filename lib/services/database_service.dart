@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:flutter/foundation.dart';
 import '../models/chat_models.dart';
 
 class DatabaseService {
@@ -317,6 +318,13 @@ class DatabaseService {
     final db = await database;
     final batch = db.batch();
     for (var message in messages) {
+      final msgId = message.id ?? '';
+      final convId = message.conversationId ?? '';
+      if (msgId.isEmpty || convId.isEmpty) {
+        debugPrint('DatabaseService: Skipping batch item with empty ID/ConvID');
+        continue;
+      }
+
       batch.insert(
         'messages',
         message.toMap(),
@@ -325,21 +333,19 @@ class DatabaseService {
 
       // Ensure conversation exists (Phase 16 Sync Restoration)
       batch.insert('conversations', {
-        'id':
-            message.conversationId ??
-            'temp_${DateTime.now().microsecondsSinceEpoch}',
-        'name': message.senderName ?? message.conversationId ?? 'Recipient',
-        'protocol': message.protocol,
+        'id': convId,
+        'name': message.senderName ?? convId,
+        'protocol': message.protocol ?? 'XMPP',
         'account_id': message.accountId ?? '',
         'is_group': message.isGroup ? 1 : 0,
-        'last_message_id': message.id,
+        'last_message_id': msgId,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
       batch.update(
         'conversations',
-        {'last_message_id': message.id},
+        {'last_message_id': msgId},
         where: 'LOWER(id) = LOWER(?)',
-        whereArgs: [message.conversationId],
+        whereArgs: [convId],
       );
     }
     await batch.commit(noResult: true);

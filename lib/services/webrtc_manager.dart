@@ -42,7 +42,7 @@ class WebRTCManager {
       },
     ],
     'iceTransportPolicy': 'all',
-    'sdpSemantics': 'plan-b',
+    'sdpSemantics': 'unified-plan',
     'iceCandidatePoolSize': 10,
   };
 
@@ -367,10 +367,10 @@ class WebRTCManager {
 
     debugPrint('WebRTC: Creating offer...');
 
-    // Use offer options to explicitly control SDP content - audio only
+    // Use offer options to explicitly control SDP content
     final offerOptions = <String, dynamic>{
       'offerToReceiveAudio': true,
-      'offerToReceiveVideo': false, // Audio-only call
+      'offerToReceiveVideo': _currentIsVideo,
       'voiceActivityDetection': true,
     };
 
