@@ -1,0 +1,14 @@
+﻿Analyzing chat_app...                                           
+
+   info - 'background' is deprecated and shouldn't be used. Use surface instead. This feature was deprecated after v3.18.0-0.1.pre - lib\main.dart:26:11 - deprecated_member_use
+   info - 'onBackground' is deprecated and shouldn't be used. Use onSurface instead. This feature was deprecated after v3.18.0-0.1.pre - lib\main.dart:27:11 - deprecated_member_use
+   info - The private field _xmppMessages could be 'final' - lib\main.dart:57:30 - prefer_final_fields
+   info - The private field _ircMessages could be 'final' - lib\main.dart:58:30 - prefer_final_fields
+   info - The private field _xmppContacts could be 'final' - lib\main.dart:59:30 - prefer_final_fields
+warning - The value of the field '_xmppContacts' isn't used - lib\main.dart:59:30 - unused_field
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\main.dart:274:47 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\main.dart:279:31 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\main.dart:368:47 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\main.dart:373:31 - deprecated_member_use
+warning - Unused import: 'package:flutter/material.dart' - test\widget_test.dart:8:8 - unused_import
+
