@@ -1,3 +1,4 @@
+import 'dart:convert' as json;
 import 'dart:typed_data';
 
 enum MessageType { text, image, file, voice, stream, call, system }
@@ -43,6 +44,7 @@ class ChatMessage {
   final bool isGroup;
   MessageStatus status;
   final String? replyToId;
+  final String? replyPreview;
   final String? replacesId;
   final Map<String, List<String>> reactions;
   bool isEdited;
@@ -64,11 +66,13 @@ class ChatMessage {
     this.isGroup = false,
     this.status = MessageStatus.sent,
     this.replyToId,
+    this.replyPreview,
     this.replacesId,
-    this.reactions = const {},
+    Map<String, List<String>>? reactions,
     this.isEdited = false,
     this.editTimestamp,
-  }) : conversationId = conversationId?.split('/').first.toLowerCase();
+  }) : conversationId = conversationId?.split('/').first.toLowerCase(),
+       reactions = _dedupeReactionMap(reactions ?? const {});
 
   Map<String, dynamic> toMap() {
     return {
@@ -87,10 +91,66 @@ class ChatMessage {
       'is_group': isGroup ? 1 : 0,
       'status': status.index,
       'reply_to_id': replyToId,
+      'reply_preview': replyPreview,
       'replaces_id': replacesId,
+      'reactions_json': reactions.isEmpty ? null : _encodeReactions(reactions),
       'is_edited': isEdited ? 1 : 0,
       'edit_timestamp': editTimestamp?.toIso8601String(),
     };
+  }
+
+  static String _encodeReactions(Map<String, List<String>> reactions) {
+    final safe = reactions.map(
+      (key, value) => MapEntry(key, List<String>.from(value)),
+    );
+    return json.jsonEncode(safe);
+  }
+
+  static Map<String, List<String>> _decodeReactions(dynamic raw) {
+    if (raw == null) return {};
+    if (raw is Map<String, dynamic>) {
+      return _dedupeReactionMap(
+        raw.map((key, value) => MapEntry(key, List<String>.from(value as List))),
+      );
+    }
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        // Stored as JSON string in DB.
+        final dynamic decoded = _jsonDecode(raw);
+        if (decoded is Map<String, dynamic>) {
+          return _dedupeReactionMap(
+            decoded.map(
+              (key, value) => MapEntry(key, List<String>.from(value as List)),
+            ),
+          );
+        }
+      } catch (_) {
+        return {};
+      }
+    }
+    return {};
+  }
+
+  static Map<String, List<String>> _dedupeReactionMap(
+    Map<String, List<String>> raw,
+  ) {
+    return raw.map((emoji, senders) {
+      final seen = <String>{};
+      final deduped = <String>[];
+      for (final sender in senders) {
+        final id = sender.trim();
+        if (id.isEmpty) continue;
+        if (seen.add(id)) {
+          deduped.add(id);
+        }
+      }
+      return MapEntry(emoji, deduped);
+    });
+  }
+
+  static dynamic _jsonDecode(String value) {
+    // Avoid top-level dart:convert import churn in this shared model file.
+    return const _ChatJsonCodec().decode(value);
   }
 
   factory ChatMessage.fromMap(Map<String, dynamic> map) {
@@ -110,12 +170,22 @@ class ChatMessage {
       isGroup: (map['is_group'] ?? 0) == 1,
       status: MessageStatus.values[map['status'] ?? 1],
       replyToId: map['reply_to_id'],
+      replyPreview: map['reply_preview'],
       replacesId: map['replaces_id'],
+      reactions: _decodeReactions(map['reactions_json']),
       isEdited: map['is_edited'] == 1,
       editTimestamp: map['edit_timestamp'] != null
           ? DateTime.tryParse(map['edit_timestamp'])
           : null,
     );
+  }
+}
+
+class _ChatJsonCodec {
+  const _ChatJsonCodec();
+
+  dynamic decode(String value) {
+    return json.jsonDecode(value);
   }
 }
 

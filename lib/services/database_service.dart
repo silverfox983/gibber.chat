@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:flutter/foundation.dart';
@@ -21,7 +22,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'pidgin_chat.db');
     return await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -42,7 +43,9 @@ class DatabaseService {
             reply_to_id TEXT,
             replaces_id TEXT,
             is_edited INTEGER DEFAULT 0,
-            edit_timestamp TEXT
+            edit_timestamp TEXT,
+            reactions_json TEXT,
+            reply_preview TEXT
           )
         ''');
         await db.execute(
@@ -184,6 +187,14 @@ class DatabaseService {
             'ALTER TABLE messages ADD COLUMN edit_timestamp TEXT',
           );
         }
+        if (oldVersion < 10) {
+          await db.execute(
+            'ALTER TABLE messages ADD COLUMN reactions_json TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE messages ADD COLUMN reply_preview TEXT',
+          );
+        }
       },
     );
   }
@@ -318,7 +329,7 @@ class DatabaseService {
     final db = await database;
     final batch = db.batch();
     for (var message in messages) {
-      final msgId = message.id ?? '';
+      final msgId = message.id;
       final convId = message.conversationId ?? '';
       if (msgId.isEmpty || convId.isEmpty) {
         debugPrint('DatabaseService: Skipping batch item with empty ID/ConvID');
@@ -368,6 +379,19 @@ class DatabaseService {
       updates['edit_timestamp'] = DateTime.now().toIso8601String();
     }
     await db.update('messages', updates, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> updateMessageReactions(
+    String id,
+    Map<String, List<String>> reactions,
+  ) async {
+    final db = await database;
+    await db.update(
+      'messages',
+      {'reactions_json': json.encode(reactions)},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<void> clearConversationMessages(String conversationId) async {

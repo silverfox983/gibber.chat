@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/chat_models.dart';
 import '../services/auth_service.dart';
@@ -29,6 +30,9 @@ class ChatProvider with ChangeNotifier {
   final List<void Function()> _batchQueue = [];
   final List<ChatMessage> _toPersist = [];
   bool _isSyncing = false;
+  bool _isLoadingOlderMessages = false;
+  final Set<String> _pendingQuoteBackfills = {};
+  final Map<String, DateTime> _quoteBackfillAttempts = {};
   List<ChatMessage> _globalSearchResults = [];
   String? _playingMessageId;
 
@@ -38,6 +42,7 @@ class ChatProvider with ChangeNotifier {
   String get messageSearchQuery => _messageSearchQuery;
   int get selectedSidebarTab => _selectedSidebarTab;
   bool get isSyncing => _isSyncing;
+  bool get isLoadingOlderMessages => _isLoadingOlderMessages;
   List<ChatMessage> get globalSearchResults => _globalSearchResults;
   String? get playingMessageId => _playingMessageId;
 
@@ -240,25 +245,54 @@ class ChatProvider with ChangeNotifier {
     String conversationId,
     AuthService authService,
   ) async {
-    final conv = _conversations.firstWhere((c) => c.id == conversationId);
-    if (conv.messages.isEmpty) return;
+    if (_isLoadingOlderMessages) {
+      return;
+    }
+    final conv = _conversations.firstWhere(
+      (c) => c.id == conversationId,
+      orElse: () => Conversation(
+        id: conversationId,
+        name: conversationId,
+        messages: const [],
+        protocol: 'XMPP',
+      ),
+    );
+    if (conv.messages.isEmpty) {
+      return;
+    }
 
     final oldestId = conv.messages.first.id;
     final accountId = conv.accountId ?? authService.activeAccountId;
     if (accountId == null) return;
 
+    _isLoadingOlderMessages = true;
+    notifyListeners();
+
     if (conv.protocol == 'XMPP') {
-      await authService.fetchOlderHistory(
-        accountId,
-        conversationId,
-        beforeId: oldestId,
-      );
+      try {
+        await authService.fetchOlderHistory(
+          accountId,
+          conversationId,
+          beforeId: oldestId,
+        );
+      } finally {
+        _isLoadingOlderMessages = false;
+        notifyListeners();
+      }
     } else if (conv.protocol == 'Discord') {
-      await authService.fetchDiscordHistory(
-        conversationId,
-        accountId: accountId,
-        beforeId: oldestId,
-      );
+      try {
+        await authService.fetchDiscordHistory(
+          conversationId,
+          accountId: accountId,
+          beforeId: oldestId,
+        );
+      } finally {
+        _isLoadingOlderMessages = false;
+        notifyListeners();
+      }
+    } else {
+      _isLoadingOlderMessages = false;
+      notifyListeners();
     }
   }
 
@@ -488,9 +522,75 @@ class ChatProvider with ChangeNotifier {
     );
     if (msgIndex != -1) {
       final msg = _conversations[index].messages[msgIndex];
-      msg.reactions[emoji] = [...(msg.reactions[emoji] ?? []), fromJid];
-      notifyListeners();
+      var targetEmoji = emoji;
+      var senderId = fromJid;
+      var isRemoval = false;
+
+      if (emoji.trimLeft().startsWith('{')) {
+        try {
+          final decoded = jsonDecode(emoji);
+          if (decoded is Map<String, dynamic>) {
+            targetEmoji = (decoded['emoji'] ?? emoji).toString();
+            senderId = (decoded['userId'] ?? fromJid).toString();
+            isRemoval = decoded['op']?.toString() == 'remove';
+          }
+        } catch (_) {
+          // Non-JSON payload (XMPP) falls back to original values.
+        }
+      }
+
+      final updated = _applyReactionMutation(
+        msg,
+        emoji: targetEmoji,
+        senderId: senderId,
+        isRemoval: isRemoval,
+      );
+      if (updated) {
+        notifyListeners();
+        DatabaseService().updateMessageReactions(msg.id, msg.reactions);
+      }
     }
+  }
+
+  String _canonicalReactionSenderId(String rawSenderId) {
+    final trimmed = rawSenderId.trim().toLowerCase();
+    if (trimmed.isEmpty) return '';
+    return trimmed.split('/').first;
+  }
+
+  bool _applyReactionMutation(
+    ChatMessage msg, {
+    required String emoji,
+    required String senderId,
+    required bool isRemoval,
+  }) {
+    final normalizedEmoji = emoji.trim();
+    final normalizedSender = _canonicalReactionSenderId(senderId);
+    if (normalizedEmoji.isEmpty || normalizedSender.isEmpty) return false;
+
+    final existing = List<String>.from(msg.reactions[normalizedEmoji] ?? const []);
+    final deduped = <String>{};
+    for (final sender in existing) {
+      final canonical = _canonicalReactionSenderId(sender);
+      if (canonical.isNotEmpty) {
+        deduped.add(canonical);
+      }
+    }
+    final hadDuplicates = deduped.length != existing.length;
+    final changedByOp = isRemoval
+        ? deduped.remove(normalizedSender)
+        : deduped.add(normalizedSender);
+
+    if (deduped.isEmpty) {
+      final hadEntry = msg.reactions.containsKey(normalizedEmoji);
+      if (hadEntry) {
+        msg.reactions.remove(normalizedEmoji);
+      }
+      return hadDuplicates || hadEntry || changedByOp;
+    }
+
+    msg.reactions[normalizedEmoji] = deduped.toList();
+    return hadDuplicates || changedByOp;
   }
 
   void _handleReceipt(String fromJid, String msgId) {
@@ -853,13 +953,82 @@ class ChatProvider with ChangeNotifier {
       if (msgIdx != -1) {
         final msg = convo.messages[msgIdx];
         final myId = convo.protocol == 'Discord'
-            ? 'me'
-            : auth.activeAccountId ?? 'me';
-        msg.reactions[emoji] = [...(msg.reactions[emoji] ?? []), myId];
-        notifyListeners();
+            ? ((convo.accountId ?? auth.activeAccountId ?? '').split('@').first)
+            : (auth.activeAccountId ?? 'me');
+        final updated = _applyReactionMutation(
+          msg,
+          emoji: emoji,
+          senderId: myId.isNotEmpty ? myId : 'me',
+          isRemoval: false,
+        );
+        if (updated) {
+          notifyListeners();
+          await DatabaseService().updateMessageReactions(msg.id, msg.reactions);
+        }
       }
     } catch (e) {
       debugPrint('Error adding reaction: $e');
+    }
+  }
+
+  Future<void> ensureQuotedMessageLoaded(
+    ChatMessage message,
+    AuthService auth,
+  ) async {
+    final replyToId = message.replyToId?.trim();
+    final rawConversationId = message.conversationId?.trim();
+    if (replyToId == null ||
+        replyToId.isEmpty ||
+        rawConversationId == null ||
+        rawConversationId.isEmpty) {
+      return;
+    }
+
+    final conversationId = rawConversationId.split('/').first.toLowerCase();
+    final key = '$conversationId|$replyToId';
+    final lastAttempt = _quoteBackfillAttempts[key];
+    if (lastAttempt != null &&
+        DateTime.now().difference(lastAttempt) < const Duration(seconds: 20)) {
+      return;
+    }
+    if (_pendingQuoteBackfills.contains(key)) {
+      return;
+    }
+
+    _quoteBackfillAttempts[key] = DateTime.now();
+    _pendingQuoteBackfills.add(key);
+    try {
+      final existing = await DatabaseService().getMessageById(replyToId);
+      if (existing != null) return;
+
+      final convo = _conversations.cast<Conversation?>().firstWhere(
+        (c) => c?.id == conversationId,
+        orElse: () => null,
+      );
+      final protocol = (message.protocol ?? convo?.protocol ?? '').toUpperCase();
+      final accountId =
+          (message.accountId ?? convo?.accountId ?? auth.activeAccountId)
+              ?.trim();
+      if (accountId == null || accountId.isEmpty) return;
+
+      if (protocol == 'DISCORD') {
+        await auth.fetchDiscordMessageById(
+          conversationId,
+          replyToId,
+          accountId: accountId,
+        );
+      } else if (protocol == 'XMPP') {
+        final anchorId = message.id.trim().isNotEmpty ? message.id : null;
+        await auth.fetchOlderHistory(
+          accountId,
+          conversationId,
+          beforeId: anchorId,
+        );
+      }
+    } catch (e) {
+      debugPrint('Quote backfill failed for $key: $e');
+    } finally {
+      _pendingQuoteBackfills.remove(key);
     }
   }
 
