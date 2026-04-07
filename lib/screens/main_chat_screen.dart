@@ -255,6 +255,18 @@ class _MainChatScreenState extends State<MainChatScreen> {
     });
   }
 
+  bool _isDiscordVoiceChat(Conversation chat) {
+    return chat.protocol == 'Discord' && chat.name.contains('🔊');
+  }
+
+  bool _canStartVoiceCall(Conversation chat) {
+    return chat.protocol == 'XMPP' || _isDiscordVoiceChat(chat);
+  }
+
+  bool _canStartVideoCall(Conversation chat) {
+    return chat.protocol == 'XMPP';
+  }
+
   /*
   void _onCallErrorChanged() {
     ...
@@ -995,15 +1007,15 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   ],
                 ),
           actions: [
-            if (activeChat.protocol == 'XMPP' || activeChat.name.contains('🔊'))
+            if (_canStartVoiceCall(activeChat))
               IconButton(
                 icon: Icon(
-                  activeChat.name.contains('🔊')
+                  _isDiscordVoiceChat(activeChat)
                       ? Icons.keyboard_voice_rounded
                       : Icons.call_rounded,
                   color: Theme.of(context).colorScheme.primary,
                 ),
-                tooltip: activeChat.name.contains('🔊')
+                tooltip: _isDiscordVoiceChat(activeChat)
                     ? 'Join Voice'
                     : 'Start Audio Call',
                 onPressed: () {
@@ -1098,12 +1110,14 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     activeChat.id,
                     accountId: activeChat.accountId,
                     isVideo: false,
+                    protocol: activeChat.protocol,
                   );
                 } else if (val == 'video') {
                   Provider.of<CallProvider>(context, listen: false).startCall(
                     activeChat.id,
                     accountId: activeChat.accountId,
                     isVideo: true,
+                    protocol: activeChat.protocol,
                   );
                 } else if (val == 'security') {
                   Navigator.push(
@@ -1132,6 +1146,23 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   ),
                   const PopupMenuDivider(),
                 ],
+                if (_canStartVoiceCall(activeChat))
+                  PopupMenuItem(
+                    value: 'call',
+                    child: ListTile(
+                      leading: Icon(
+                        _isDiscordVoiceChat(activeChat)
+                            ? Icons.keyboard_voice_rounded
+                            : Icons.call_outlined,
+                      ),
+                      title: Text(
+                        _isDiscordVoiceChat(activeChat)
+                            ? 'Join Voice'
+                            : 'Voice Call',
+                      ),
+                    ),
+                  ),
+                if (_canStartVideoCall(activeChat))
                 if (activeChat.protocol == 'XMPP' || activeChat.protocol == 'Discord') ...[
                   const PopupMenuItem(
                     value: 'call',
@@ -3447,6 +3478,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   : conv.protocol == 'Discord'
                         ? const Color(0xFF5865F2).withValues(alpha: 0.1)
                         : conv.protocol == 'IRC'
+                        ? Theme.of(
+                            context,
+                          ).colorScheme.secondary.withValues(alpha: 0.15)
+                        : Colors.grey[100]),
                             ? Colors.green.withValues(alpha: 0.1)
                             : Colors.grey[100],
               backgroundImage: conv.avatarBytes != null
@@ -3465,6 +3500,20 @@ class _MainChatScreenState extends State<MainChatScreen> {
                               size: 18,
                             )
                           : conv.protocol == 'IRC'
+                          ? Icon(
+                              Icons.alternate_email,
+                              color: isActive
+                                  ? Colors.white
+                                  : Theme.of(context).colorScheme.secondary,
+                              size: 18,
+                            )
+                          : Text(
+                              conv.name[0],
+                              style: TextStyle(
+                                color: isActive ? Colors.white : Colors.black54,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                               ? Icon(
                                   Icons.tag,
                                   color: isActive

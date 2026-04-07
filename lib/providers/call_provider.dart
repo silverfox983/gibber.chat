@@ -569,9 +569,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     String? protocol,
   }) async {
     _lastError = null;
-    final activeProtocol =
-        protocol ??
-        (_remoteJid != null ? 'XMPP' : 'XMPP'); // Default to XMPP if unknown
+    final activeProtocol = protocol ?? 'XMPP';
+
+    // IRC does not support voice/video calls in this client.
+    if (activeProtocol == 'IRC') {
+      _lastError = 'Voice and video calling are not supported for IRC chats.';
+      _state = CallState.idle;
+      notifyListeners();
+      return;
+    }
 
     // DISCORD VOICE SPECIAL CASE
     if (activeProtocol == 'Discord') {
