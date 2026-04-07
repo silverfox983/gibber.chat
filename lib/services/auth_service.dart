@@ -118,6 +118,14 @@ class AuthService with ChangeNotifier {
       _roomParticipantStreamController.stream;
 
   final Map<String, Set<String>> _serverFeatures = {};
+
+  String _emojiToText(dynamic emoji) {
+    final name = emoji?.name?.toString();
+    if (name != null && name.isNotEmpty) {
+      return name;
+    }
+    return emoji?.toString() ?? '';
+  }
   final Map<String, String?> _uploadServiceJids = {};
 
   final Map<String, IrcConnection> _ircConnections = {};
@@ -2062,6 +2070,7 @@ class AuthService with ChangeNotifier {
                         protocol: 'Discord',
                         conversationId: convId,
                         isGroup: isGroup,
+                        replyToId: event.message.referencedMessage?.id.toString(),
                       ),
                     );
                   },
@@ -2096,12 +2105,63 @@ class AuthService with ChangeNotifier {
                         conversationId: convId,
                         isGroup: event.guild != null,
                         replacesId: msg.id.toString(),
+                        replyToId: msg.referencedMessage?.id.toString(),
+                        isEdited: msg.editedTimestamp != null,
+                        editTimestamp: msg.editedTimestamp,
                       ),
                     );
                   },
                   onError: (e) {
                     debugPrint(
                       'Discord ($actualAccountId) MessageUpdate Error: $e',
+                    );
+                  },
+                ),
+              );
+
+              // Handle Reaction Adds
+              _discordSubs[actualAccountId]!.add(
+                client.onMessageReactionAdd.listen(
+                  (event) {
+                    final emojiText = _emojiToText(event.emoji);
+                    if (emojiText.isEmpty) return;
+                    _jingleEventController.add(
+                      JingleEvent(
+                        action: JingleAction.transportInfo,
+                        sessionId: 'reaction',
+                        fromJid: event.channelId.toString(),
+                        reason: event.messageId.toString(),
+                        sdp: jsonEncode({
+                          'emoji': emojiText,
+                          'userId': event.userId.toString(),
+                          'op': 'add',
+                        }),
+                        accountId: actualAccountId,
+                      ),
+                    );
+                  },
+                ),
+              );
+
+              // Handle Reaction Removes
+              _discordSubs[actualAccountId]!.add(
+                client.onMessageReactionRemove.listen(
+                  (event) {
+                    final emojiText = _emojiToText(event.emoji);
+                    if (emojiText.isEmpty) return;
+                    _jingleEventController.add(
+                      JingleEvent(
+                        action: JingleAction.transportInfo,
+                        sessionId: 'reaction',
+                        fromJid: event.channelId.toString(),
+                        reason: event.messageId.toString(),
+                        sdp: jsonEncode({
+                          'emoji': emojiText,
+                          'userId': event.userId.toString(),
+                          'op': 'remove',
+                        }),
+                        accountId: actualAccountId,
+                      ),
                     );
                   },
                 ),
@@ -2627,6 +2687,7 @@ class AuthService with ChangeNotifier {
           type: file != null ? type : MessageType.text,
           fileName: fileName ?? file?.path.split(Platform.pathSeparator).last,
           filePath: file?.path,
+          replyToId: replyToId,
         ),
       );
     } catch (e) {

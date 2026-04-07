@@ -2463,10 +2463,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   Widget _buildReplyQuote(ChatMessage msg) {
+    final fallbackText = msg.replyPreview?.trim();
     return FutureBuilder<ChatMessage?>(
       future: DatabaseService().getMessageById(msg.replyToId ?? ''),
       builder: (context, snapshot) {
-        final text = snapshot.data?.text ?? '...';
+        final text = snapshot.data?.text ?? (fallbackText?.isNotEmpty == true ? fallbackText! : '...');
         return Container(
           margin: const EdgeInsets.only(bottom: 4),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

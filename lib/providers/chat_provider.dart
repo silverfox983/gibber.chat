@@ -242,9 +242,21 @@ class ChatProvider with ChangeNotifier {
     String conversationId,
     AuthService authService,
   ) async {
-    if (_isLoadingOlderMessages) return;
-    final conv = _conversations.firstWhere((c) => c.id == conversationId);
-    if (conv.messages.isEmpty) return;
+    if (_isLoadingOlderMessages) {
+      return;
+    }
+    final conv = _conversations.firstWhere(
+      (c) => c.id == conversationId,
+      orElse: () => Conversation(
+        id: conversationId,
+        name: conversationId,
+        messages: const [],
+        protocol: 'XMPP',
+      ),
+    );
+    if (conv.messages.isEmpty) {
+      return;
+    }
 
     final oldestId = conv.messages.first.id;
     final accountId = conv.accountId ?? authService.activeAccountId;
