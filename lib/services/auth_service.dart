@@ -51,6 +51,43 @@ class AuthService with ChangeNotifier {
   );
   bool get ircConnected => _ircConnections.isNotEmpty;
   bool get discordConnected => _discordConnections.isNotEmpty;
+  List<String> get connectedAccountIds {
+    final ids = <String>{
+      ..._xmppConnections.keys,
+      ..._ircConnections.keys,
+      ..._discordConnections.keys,
+    };
+    final sorted = ids.toList()..sort();
+    return sorted;
+  }
+  List<String> get authenticatedAccountIds =>
+      List.unmodifiable(_authenticatedAccountIds);
+  List<String> getAccountsStatusLines() {
+    final lines = <String>[];
+    for (final account in _savedAccounts) {
+      final id = account.fullJid;
+      final status = getAccountStatus(id);
+      final statusText = switch (status) {
+        ConnectionStatus.online => 'Online',
+        ConnectionStatus.connecting => 'Connecting',
+        ConnectionStatus.offline => 'Offline',
+      };
+      lines.add('${account.protocol}: ${account.user} - $statusText');
+    }
+    if (lines.isEmpty) {
+      // Include transient in-memory accounts if saved list is empty.
+      for (final id in connectedAccountIds) {
+        final status = getAccountStatus(id);
+        final statusText = switch (status) {
+          ConnectionStatus.online => 'Online',
+          ConnectionStatus.connecting => 'Connecting',
+          ConnectionStatus.offline => 'Offline',
+        };
+        lines.add('$id - $statusText');
+      }
+    }
+    return lines;
+  }
   bool get isConnecting =>
       _xmppConnecting || _ircConnecting || _discordConnecting;
   bool get isAuthenticated => _authenticatedAccountIds.isNotEmpty;

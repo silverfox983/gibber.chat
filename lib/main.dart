@@ -11,6 +11,7 @@ import './screens/main_chat_screen.dart';
 import './screens/call_screen.dart';
 import './services/avatar_cache_service.dart';
 import './services/call_history_service.dart';
+import './services/account_status_notification_service.dart';
 import './providers/theme_provider.dart';
 import './theme/app_theme.dart';
 
@@ -82,6 +83,8 @@ class _ChatAppState extends State<ChatApp> {
   CallProvider? _callProvider;
   CallHistoryService? _callHistoryService;
   ThemeProvider? _themeProvider;
+  final AccountStatusNotificationService _accountStatusNotifications =
+      AccountStatusNotificationService.instance;
 
   @override
   void initState() {
@@ -109,6 +112,7 @@ class _ChatAppState extends State<ChatApp> {
       // LINKING: Connect providers to AuthService for unified signaling
       _chatProvider!.initialize(_authService!);
       _callProvider!.initialize(_authService!, _callHistoryService!);
+      _accountStatusNotifications.start(_authService!);
       
       setState(() {});
     } catch (e, stack) {
@@ -117,6 +121,12 @@ class _ChatAppState extends State<ChatApp> {
         _startupError = 'CRASH IN $_errorSource: $e';
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _accountStatusNotifications.stop();
+    super.dispose();
   }
 
   @override
