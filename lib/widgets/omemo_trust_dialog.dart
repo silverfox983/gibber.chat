@@ -66,6 +66,7 @@ class _OmemoTrustDialogState extends State<OmemoTrustDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return AlertDialog(
       title: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -74,7 +75,11 @@ class _OmemoTrustDialogState extends State<OmemoTrustDialog> {
           const SizedBox(height: 4),
           Text(
             'Managing identity for ${widget.chatName}',
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal, color: Colors.black54),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.normal,
+              color: colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -109,10 +114,17 @@ class _OmemoTrustDialogState extends State<OmemoTrustDialog> {
                                 margin: const EdgeInsets.only(left: 8),
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: Colors.blue.withValues(alpha: 0.1),
+                                  color: colorScheme.primaryContainer,
                                   borderRadius: BorderRadius.circular(4),
                                 ),
-                                child: const Text('YOU', style: TextStyle(color: Colors.blue, fontSize: 9, fontWeight: FontWeight.bold)),
+                                child: Text(
+                                  'YOU',
+                                  style: TextStyle(
+                                    color: colorScheme.onPrimaryContainer,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
                           ],
                         ),
@@ -120,12 +132,19 @@ class _OmemoTrustDialogState extends State<OmemoTrustDialog> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const SizedBox(height: 4),
-                            Text(_getStatusText(trustLevel), style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[700])),
+                            Text(
+                              _getStatusText(trustLevel),
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
                             const SizedBox(height: 4),
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.05),
+                                color: colorScheme.surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
