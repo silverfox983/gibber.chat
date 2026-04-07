@@ -255,6 +255,18 @@ class _MainChatScreenState extends State<MainChatScreen> {
     });
   }
 
+  bool _isDiscordVoiceChat(Conversation chat) {
+    return chat.protocol == 'Discord' && chat.name.contains('🔊');
+  }
+
+  bool _canStartVoiceCall(Conversation chat) {
+    return chat.protocol == 'XMPP' || _isDiscordVoiceChat(chat);
+  }
+
+  bool _canStartVideoCall(Conversation chat) {
+    return chat.protocol == 'XMPP';
+  }
+
   /*
   void _onCallErrorChanged() {
     ...
@@ -993,15 +1005,15 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   ],
                 ),
           actions: [
-            if (activeChat.protocol == 'XMPP' || activeChat.name.contains('🔊'))
+            if (_canStartVoiceCall(activeChat))
               IconButton(
                 icon: Icon(
-                  activeChat.name.contains('🔊')
+                  _isDiscordVoiceChat(activeChat)
                       ? Icons.keyboard_voice_rounded
                       : Icons.call_rounded,
                   color: Theme.of(context).colorScheme.primary,
                 ),
-                tooltip: activeChat.name.contains('🔊')
+                tooltip: _isDiscordVoiceChat(activeChat)
                     ? 'Join Voice'
                     : 'Start Audio Call',
                 onPressed: () {
@@ -1096,12 +1108,14 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     activeChat.id,
                     accountId: activeChat.accountId,
                     isVideo: false,
+                    protocol: activeChat.protocol,
                   );
                 } else if (val == 'video') {
                   Provider.of<CallProvider>(context, listen: false).startCall(
                     activeChat.id,
                     accountId: activeChat.accountId,
                     isVideo: true,
+                    protocol: activeChat.protocol,
                   );
                 } else if (val == 'security') {
                   Navigator.push(
@@ -1130,20 +1144,30 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   ),
                   const PopupMenuDivider(),
                 ],
-                const PopupMenuItem(
-                  value: 'call',
-                  child: ListTile(
-                    leading: Icon(Icons.call_outlined),
-                    title: Text('Voice Call'),
+                if (_canStartVoiceCall(activeChat))
+                  PopupMenuItem(
+                    value: 'call',
+                    child: ListTile(
+                      leading: Icon(
+                        _isDiscordVoiceChat(activeChat)
+                            ? Icons.keyboard_voice_rounded
+                            : Icons.call_outlined,
+                      ),
+                      title: Text(
+                        _isDiscordVoiceChat(activeChat)
+                            ? 'Join Voice'
+                            : 'Voice Call',
+                      ),
+                    ),
                   ),
-                ),
-                const PopupMenuItem(
-                  value: 'video',
-                  child: ListTile(
-                    leading: Icon(Icons.videocam_outlined),
-                    title: Text('Video Call'),
+                if (_canStartVideoCall(activeChat))
+                  const PopupMenuItem(
+                    value: 'video',
+                    child: ListTile(
+                      leading: Icon(Icons.videocam_outlined),
+                      title: Text('Video Call'),
+                    ),
                   ),
-                ),
                 const PopupMenuItem(
                   value: 'security',
                   child: ListTile(
@@ -3379,6 +3403,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   ? Theme.of(context).colorScheme.primary
                   : (conv.protocol == 'Discord'
                         ? const Color(0xFF5865F2).withValues(alpha: 0.1)
+                        : conv.protocol == 'IRC'
+                        ? Theme.of(
+                            context,
+                          ).colorScheme.secondary.withValues(alpha: 0.15)
                         : Colors.grey[100]),
               backgroundImage: conv.avatarBytes != null
                   ? MemoryImage(conv.avatarBytes!)
@@ -3393,6 +3421,14 @@ class _MainChatScreenState extends State<MainChatScreen> {
                               color: isActive
                                   ? Colors.white
                                   : const Color(0xFF5865F2),
+                              size: 18,
+                            )
+                          : conv.protocol == 'IRC'
+                          ? Icon(
+                              Icons.alternate_email,
+                              color: isActive
+                                  ? Colors.white
+                                  : Theme.of(context).colorScheme.secondary,
                               size: 18,
                             )
                           : Text(

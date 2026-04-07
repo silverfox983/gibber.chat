@@ -37,6 +37,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.initState();
     final authService = Provider.of<AuthService>(context, listen: false);
     final profile = authService.currentProfile;
+    final xmppAccounts = authService.savedAccounts
+        .where((a) => a.protocol == 'XMPP')
+        .toList();
     
     _nameController = TextEditingController(text: profile?.displayName ?? '');
     _nickController = TextEditingController(text: profile?.nickName ?? '');
@@ -44,8 +47,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _localStatus = authService.myStatus;
     _statusMsgController = TextEditingController(text: authService.myStatusMessage ?? '');
     
-    if (authService.savedAccounts.isNotEmpty) {
-      _selectedAccountId = authService.savedAccounts.first.fullJid;
+    if (xmppAccounts.isNotEmpty) {
+      _selectedAccountId = xmppAccounts.first.fullJid;
       _loadInitialAvatar(_selectedAccountId!);
     }
   }
@@ -128,7 +131,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
     final profile = authService.currentProfile;
-    final xmppAccounts = authService.savedAccounts.where((a) => a.protocol == 'XMPP').toList();
+    final xmppAccounts = authService.savedAccounts
+        .where((a) => a.protocol == 'XMPP')
+        .toList();
+    final hasXmppAccounts = xmppAccounts.isNotEmpty;
+    final selectedXmppAccountId =
+        xmppAccounts.any((a) => a.fullJid == _selectedAccountId)
+        ? _selectedAccountId
+        : (hasXmppAccounts ? xmppAccounts.first.fullJid : null);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -277,7 +287,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
 
                   const SizedBox(height: 32),
-                  Text('PRIMARY ACCOUNT', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+                  Text(
+                    'PRIMARY XMPP ACCOUNT',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -289,17 +307,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         isExpanded: true,
-                        value: _selectedAccountId,
+                        value: selectedXmppAccountId,
                         items: xmppAccounts.map((acc) {
                           return DropdownMenuItem(
                             value: acc.fullJid,
-                            child: Text(acc.fullJid, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                            child: Text(
+                              acc.fullJid,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           );
                         }).toList(),
-                        onChanged: (val) => setState(() => _selectedAccountId = val),
+                        onChanged: hasXmppAccounts
+                            ? (val) => setState(() => _selectedAccountId = val)
+                            : null,
                       ),
                     ),
                   ),
+                  if (!hasXmppAccounts)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'VCard profile sync currently requires an XMPP account.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 40),
                   SizedBox(
                     width: double.infinity,
@@ -311,7 +348,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         elevation: 0,
                       ),
-                      onPressed: _isSaving ? null : _saveProfile,
+                      onPressed:
+                          (_isSaving || !hasXmppAccounts) ? null : _saveProfile,
                       child: const Text('SAVE GLOBAL IDENTITY', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                     ),
                   ),
