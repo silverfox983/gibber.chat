@@ -727,6 +727,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: Ringback playing');
 
       _state = CallState.outgoing;
+      _startCallTimeoutTimer();
       notifyListeners();
       debugPrint('CallProvider: === CALL INITIATED ===');
     } catch (e) {
@@ -830,7 +831,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         );
         _localVolume = levels['local'] ?? 0.0;
         _remoteVolume = levels['remote'] ?? 0.0;
-        notifyListeners();
+
+        final wasTalkingWhileMuted = _isTalkingWhileMuted;
+        _isTalkingWhileMuted = _isMicMuted && _localVolume > 0.3;
+
+        if (wasTalkingWhileMuted != _isTalkingWhileMuted) {
+          notifyListeners();
+        } else {
+          notifyListeners();
+        }
       });
 
       debugPrint('CallProvider: Creating answer...');
@@ -1112,6 +1121,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         debugPrint('CallProvider: ICE CONNECTED - Data path established!');
         if (_state != CallState.active) {
           _state = CallState.active;
+          _callTimeoutTimer?.cancel();
+          _callTimeoutTimer = null;
           _stopAllSounds();
           HapticFeedback.heavyImpact();
           _callStartTime ??= DateTime.now();
@@ -1122,6 +1133,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         debugPrint('CallProvider: ICE FAILED - Check network/NAT');
         _lastError = 'ICE connection failed';
         _iceCheckingStartTime = null;
+        endCall();
       } else if (state ==
           RTCIceConnectionState.RTCIceConnectionStateCompleted) {
         debugPrint('CallProvider: ICE COMPLETED - Fully connected!');

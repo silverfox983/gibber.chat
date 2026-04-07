@@ -893,7 +893,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                                     Flexible(
                                       child: Text(
                                         activeChat.isGroup
-                                            ? 'Group Chat'
+                                            ? '${activeChat.protocol} Group'
                                             : activeChat.protocol,
                                         style: TextStyle(
                                           color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
@@ -1130,20 +1130,22 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   ),
                   const PopupMenuDivider(),
                 ],
-                const PopupMenuItem(
-                  value: 'call',
-                  child: ListTile(
-                    leading: Icon(Icons.call_outlined),
-                    title: Text('Voice Call'),
+                if (activeChat.protocol == 'XMPP' || activeChat.protocol == 'Discord') ...[
+                  const PopupMenuItem(
+                    value: 'call',
+                    child: ListTile(
+                      leading: Icon(Icons.call_outlined),
+                      title: Text('Voice Call'),
+                    ),
                   ),
-                ),
-                const PopupMenuItem(
-                  value: 'video',
-                  child: ListTile(
-                    leading: Icon(Icons.videocam_outlined),
-                    title: Text('Video Call'),
+                  const PopupMenuItem(
+                    value: 'video',
+                    child: ListTile(
+                      leading: Icon(Icons.videocam_outlined),
+                      title: Text('Video Call'),
+                    ),
                   ),
-                ),
+                ],
                 const PopupMenuItem(
                   value: 'security',
                   child: ListTile(
@@ -2922,7 +2924,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                         acc.protocol == 'Discord'
                             ? Icons.discord
                             : (acc.protocol == 'IRC'
-                                  ? Icons.alternate_email
+                                  ? Icons.tag
                                   : Icons.chat_bubble_outline),
                         color: isSelected ? Colors.white : Colors.black54,
                         size: 16,
@@ -4180,7 +4182,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                           context,
                         ).colorScheme.primary.withValues(alpha: 0.1),
                         child: Text(
-                          nick[0].toUpperCase(),
+                          nick.isNotEmpty ? nick[0].toUpperCase() : '?',
                           style: TextStyle(
                             fontSize: 10,
                             color: Theme.of(context).colorScheme.primary,
