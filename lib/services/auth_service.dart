@@ -640,6 +640,7 @@ class AuthService with ChangeNotifier {
     final id = accountId ?? fullJidStr.split('/').first.toLowerCase();
 
     _xmppConnecting = true;
+    _lastDiagnostic = null;
     notifyListeners();
 
     try {
@@ -1307,9 +1308,26 @@ class AuthService with ChangeNotifier {
           });
 
           notifyListeners();
+        } else if (state == xmpp.XmppConnectionState.AuthenticationFailure) {
+          _xmppConnecting = false;
+          _lastDiagnostic = 'Authentication failed. Check your username and password.';
+          notifyListeners();
+        } else if (state == xmpp.XmppConnectionState.AuthenticationNotSupported) {
+          _xmppConnecting = false;
+          _lastDiagnostic = 'Server does not support any compatible authentication method.';
+          notifyListeners();
+        } else if (state == xmpp.XmppConnectionState.StartTlsFailed) {
+          _xmppConnecting = false;
+          _lastDiagnostic = 'TLS handshake failed. The server may not support secure connections on this port.';
+          notifyListeners();
         } else if (state == xmpp.XmppConnectionState.Closed ||
             state == xmpp.XmppConnectionState.ForcefullyClosed) {
           _xmppConnecting = false;
+          if (!_authenticatedAccountIds.contains(id)) {
+            _lastDiagnostic = state == xmpp.XmppConnectionState.ForcefullyClosed
+                ? 'Connection was forcefully closed by the server.'
+                : 'Connection closed before authentication completed.';
+          }
           notifyListeners();
         }
       }, onError: _handleXmppStreamError);
@@ -1335,6 +1353,7 @@ class AuthService with ChangeNotifier {
   }) async {
     final id = accountId ?? 'irc_${DateTime.now().millisecondsSinceEpoch}';
     _ircConnecting = true;
+    _lastDiagnostic = null;
     notifyListeners();
     try {
       final actualNick = '$nick${DateTime.now().millisecondsSinceEpoch % 1000}';
@@ -1837,6 +1856,8 @@ class AuthService with ChangeNotifier {
 
   /// High-level method to connect Discord and handle result
   Future<String> connectDiscord(String token, {bool rememberMe = true}) async {
+    _lastDiagnostic = null;
+    notifyListeners();
     // 1. Initial connection with the token
     String result = '';
     try {
@@ -3102,6 +3123,9 @@ class AuthService with ChangeNotifier {
 
   void _handleXmppStreamError(dynamic e) {
     debugPrint('XMPP Stream Error: $e');
+    _xmppConnecting = false;
+    _lastDiagnostic = 'XMPP stream error: $e';
+    notifyListeners();
   }
 
   // Legacy compatibility for single-account UI parts
@@ -3144,8 +3168,24 @@ class AuthService with ChangeNotifier {
     return false;
   }
 
-  // Final Implementations
-  Future<String> testSocketConnection(String host, int port) async => 'Success';
+  Future<String> testSocketConnection(String host, int port) async {
+    try {
+      final socket = await Socket.connect(host, port,
+          timeout: const Duration(seconds: 5));
+      socket.destroy();
+      _lastDiagnostic = 'Socket probe to $host:$port succeeded. Server is reachable.';
+      notifyListeners();
+      return 'Success: $host:$port is reachable';
+    } on SocketException catch (e) {
+      _lastDiagnostic = 'Socket probe failed: $host:$port — ${e.message}';
+      notifyListeners();
+      return 'Failed: ${e.message}';
+    } catch (e) {
+      _lastDiagnostic = 'Socket probe error: $e';
+      notifyListeners();
+      return 'Error: $e';
+    }
+  }
 
   void _enableCarbons(String accountId) {
     final conn = _xmppConnections[accountId];
