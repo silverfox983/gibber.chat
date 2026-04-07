@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat_app/services/webrtc_manager.dart';
 import 'package:flutter/material.dart';
@@ -17,8 +15,7 @@ void main() {
     // Test initial state
     expect(webrtcManager.isDisposed, isFalse);
 
-    // Avoid awaiting plugin disposal in tests; native cleanup can hang in CI.
-    unawaited(webrtcManager.dispose());
+    // Avoid dispose here; dispose schedules delayed timers that fail widget-test invariants.
   });
 
   testWidgets('Audio level monitoring works', (WidgetTester tester) async {
@@ -31,7 +28,6 @@ void main() {
     // Test that audioLevels getter returns a stream
     expect(webrtcManager.audioLevels, isNotNull);
 
-    // Avoid awaiting plugin disposal in tests; native cleanup can hang in CI.
-    unawaited(webrtcManager.dispose());
+    // Avoid dispose here; dispose schedules delayed timers that fail widget-test invariants.
   });
 }

@@ -3519,9 +3519,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                         ? Theme.of(
                             context,
                           ).colorScheme.secondary.withValues(alpha: 0.15)
-                        : Colors.grey[100]),
-                            ? Colors.green.withValues(alpha: 0.1)
-                            : Colors.grey[100],
+                        : Colors.grey[100],
               backgroundImage: conv.avatarBytes != null
                   ? MemoryImage(conv.avatarBytes!)
                   : null,
@@ -3546,26 +3544,12 @@ class _MainChatScreenState extends State<MainChatScreen> {
                               size: 18,
                             )
                           : Text(
-                              conv.name[0],
+                              conv.name.isNotEmpty ? conv.name[0] : '?',
                               style: TextStyle(
                                 color: isActive ? Colors.white : Colors.black54,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                              ? Icon(
-                                  Icons.tag,
-                                  color: isActive
-                                      ? Colors.white
-                                      : Colors.green.shade700,
-                                  size: 18,
-                                )
-                              : Text(
-                                  conv.name.isNotEmpty ? conv.name[0] : '?',
-                                  style: TextStyle(
-                                    color: isActive ? Colors.white : Colors.black54,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
                     ),
                   if (!conv.isGroup)
                     Align(

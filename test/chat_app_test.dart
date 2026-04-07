@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat_app/main.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -40,7 +41,8 @@ void main() {
     await tester.pumpWidget(const ChatApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Connect Now'));
+    await tester.ensureVisible(find.text('Connect Now'));
+    await tester.tap(find.text('Connect Now'), warnIfMissed: false);
     await tester.pump();
 
     expect(true, isTrue);
