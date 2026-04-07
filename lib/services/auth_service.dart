@@ -483,6 +483,7 @@ class AuthService with ChangeNotifier {
     MessageType type, {
     String? accountId,
     bool isGroup = false,
+    String? caption,
   }) async {
     final id = accountId ?? _activeAccountId;
     if (id == null) return;
@@ -495,10 +496,11 @@ class AuthService with ChangeNotifier {
       final fileName = file.path.split(Platform.pathSeparator).last;
       await sendDiscordMessage(
         toJid,
-        '(Attachment: $fileName)',
+        caption ?? '',
         accountId: id,
         file: file,
         type: type,
+        fileName: fileName,
       );
     } else if (_ircConnections.containsKey(id)) {
       // IRC: (Fallback) Not supported
@@ -640,6 +642,7 @@ class AuthService with ChangeNotifier {
     final id = accountId ?? fullJidStr.split('/').first.toLowerCase();
 
     _xmppConnecting = true;
+    _lastDiagnostic = null;
     notifyListeners();
 
     try {
@@ -1307,9 +1310,26 @@ class AuthService with ChangeNotifier {
           });
 
           notifyListeners();
+        } else if (state == xmpp.XmppConnectionState.AuthenticationFailure) {
+          _xmppConnecting = false;
+          _lastDiagnostic = 'Authentication failed. Check your username and password.';
+          notifyListeners();
+        } else if (state == xmpp.XmppConnectionState.AuthenticationNotSupported) {
+          _xmppConnecting = false;
+          _lastDiagnostic = 'Server does not support any compatible authentication method.';
+          notifyListeners();
+        } else if (state == xmpp.XmppConnectionState.StartTlsFailed) {
+          _xmppConnecting = false;
+          _lastDiagnostic = 'TLS handshake failed. The server may not support secure connections on this port.';
+          notifyListeners();
         } else if (state == xmpp.XmppConnectionState.Closed ||
             state == xmpp.XmppConnectionState.ForcefullyClosed) {
           _xmppConnecting = false;
+          if (!_authenticatedAccountIds.contains(id)) {
+            _lastDiagnostic = state == xmpp.XmppConnectionState.ForcefullyClosed
+                ? 'Connection was forcefully closed by the server.'
+                : 'Connection closed before authentication completed.';
+          }
           notifyListeners();
         }
       }, onError: _handleXmppStreamError);
@@ -1335,6 +1355,7 @@ class AuthService with ChangeNotifier {
   }) async {
     final id = accountId ?? 'irc_${DateTime.now().millisecondsSinceEpoch}';
     _ircConnecting = true;
+    _lastDiagnostic = null;
     notifyListeners();
     try {
       final actualNick = '$nick${DateTime.now().millisecondsSinceEpoch % 1000}';
@@ -1620,13 +1641,14 @@ class AuthService with ChangeNotifier {
     String originalMsgId,
     String newText, {
     String? accountId,
+    bool isGroup = false,
   }) async {
     final id = accountId ?? _activeAccountId;
     final conn = _xmppConnections[id];
     if (conn != null && conn.state == xmpp.XmppConnectionState.Ready) {
       final msg = xmpp.MessageStanza(
         DateTime.now().millisecondsSinceEpoch.toString(),
-        xmpp.MessageStanzaType.CHAT,
+        isGroup ? xmpp.MessageStanzaType.GROUPCHAT : xmpp.MessageStanzaType.CHAT,
       );
       msg.toJid = xmpp.Jid.fromFullJid(targetJid);
       msg.body = newText;
@@ -1837,6 +1859,8 @@ class AuthService with ChangeNotifier {
 
   /// High-level method to connect Discord and handle result
   Future<String> connectDiscord(String token, {bool rememberMe = true}) async {
+    _lastDiagnostic = null;
+    notifyListeners();
     // 1. Initial connection with the token
     String result = '';
     try {
@@ -2550,6 +2574,7 @@ class AuthService with ChangeNotifier {
     File? file,
     MessageType type = MessageType.text,
     String? fileName,
+    String? replyToId,
   }) async {
     final id = accountId ?? _activeAccountId;
     final client = _discordConnections[id];
@@ -2574,6 +2599,11 @@ class AuthService with ChangeNotifier {
                   fileName: actualFileName,
                 ),
               ]
+            : null,
+        referencedMessage: replyToId != null && replyToId.isNotEmpty
+            ? discord.MessageReferenceBuilder.reply(
+                messageId: discord.Snowflake.parse(replyToId),
+              )
             : null,
       );
 
@@ -2838,22 +2868,54 @@ class AuthService with ChangeNotifier {
     ChatMessage original,
     List<String> targetChatIds, {
     String? accountId,
+    List<Conversation>? knownConversations,
   }) async {
-    final curAccountId = accountId ?? _activeAccountId;
-    if (curAccountId == null) return;
-
-    for (var targetJid in targetChatIds) {
+    for (var targetChatId in targetChatIds) {
       // Small randomized delay to avoid server-side rate-limiting during multi-forward
       await Future.delayed(const Duration(milliseconds: 100));
 
-      await sendXmppMessage(
-        targetJid,
-        original.text,
-        accountId: curAccountId,
-        type: original.type,
-        fileName: original.fileName,
-        filePath: original.filePath,
+      final targetConversation = knownConversations?.cast<Conversation?>().firstWhere(
+        (c) => c?.id == targetChatId,
+        orElse: () => null,
       );
+      final protocol = targetConversation?.protocol.toUpperCase();
+      final targetAccountId =
+          targetConversation?.accountId ?? accountId ?? _activeAccountId;
+      if (targetAccountId == null) continue;
+
+      if (protocol == 'DISCORD' || _discordConnections.containsKey(targetAccountId)) {
+        await sendDiscordMessage(
+          targetChatId,
+          original.type == MessageType.text ? original.text : '',
+          accountId: targetAccountId,
+          file: original.filePath != null ? File(original.filePath!) : null,
+          type: original.type,
+          fileName: original.fileName,
+        );
+      } else if (protocol == 'IRC' || _ircConnections.containsKey(targetAccountId)) {
+        // IRC supports text-only forwarding in this client.
+        final textToForward = original.text.isNotEmpty
+            ? original.text
+            : (original.fileName != null
+                  ? 'Forwarded file: ${original.fileName}'
+                  : '[Forwarded message]');
+        await sendIrcMessage(
+          targetChatId,
+          textToForward,
+          accountId: targetAccountId,
+          isGroup: targetConversation?.isGroup ?? targetChatId.startsWith('#'),
+        );
+      } else {
+        await sendXmppMessage(
+          targetChatId,
+          original.text,
+          accountId: targetAccountId,
+          type: original.type,
+          fileName: original.fileName,
+          filePath: original.filePath,
+          isGroup: targetConversation?.isGroup ?? false,
+        );
+      }
     }
   }
 
@@ -3102,6 +3164,9 @@ class AuthService with ChangeNotifier {
 
   void _handleXmppStreamError(dynamic e) {
     debugPrint('XMPP Stream Error: $e');
+    _xmppConnecting = false;
+    _lastDiagnostic = 'XMPP stream error: $e';
+    notifyListeners();
   }
 
   // Legacy compatibility for single-account UI parts
@@ -3144,8 +3209,24 @@ class AuthService with ChangeNotifier {
     return false;
   }
 
-  // Final Implementations
-  Future<String> testSocketConnection(String host, int port) async => 'Success';
+  Future<String> testSocketConnection(String host, int port) async {
+    try {
+      final socket = await Socket.connect(host, port,
+          timeout: const Duration(seconds: 5));
+      socket.destroy();
+      _lastDiagnostic = 'Socket probe to $host:$port succeeded. Server is reachable.';
+      notifyListeners();
+      return 'Success: $host:$port is reachable';
+    } on SocketException catch (e) {
+      _lastDiagnostic = 'Socket probe failed: $host:$port — ${e.message}';
+      notifyListeners();
+      return 'Failed: ${e.message}';
+    } catch (e) {
+      _lastDiagnostic = 'Socket probe error: $e';
+      notifyListeners();
+      return 'Error: $e';
+    }
+  }
 
   void _enableCarbons(String accountId) {
     final conn = _xmppConnections[accountId];

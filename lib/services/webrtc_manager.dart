@@ -337,18 +337,19 @@ class WebRTCManager {
           _peerConnection!.addTrack(track, _localStream!);
         }
       } else {
-        // Audio-only: create separate audio-only stream
-        debugPrint('WebRTC: Audio-only mode: creating audio stream');
-        final audioStream = await navigator.mediaDevices.getUserMedia({
-          'audio': true,
-          'video': false,
-        });
-        for (var track in audioStream.getAudioTracks()) {
-          debugPrint('WebRTC: Adding audio track: ${track.id}');
-          _peerConnection!.addTrack(track, audioStream);
+        // Audio-only: reuse the already-initialized local stream.
+        // Creating/discarding a temporary stream here can end tracks prematurely.
+        final audioTracks = _localStream!.getAudioTracks();
+        debugPrint(
+          'WebRTC: Audio-only mode: adding ${audioTracks.length} local audio track(s)',
+        );
+        if (audioTracks.isEmpty) {
+          throw Exception('WebRTC: No local audio track available for offer');
         }
-        // Dispose the audio-only stream after adding tracks
-        audioStream.dispose();
+        for (var track in audioTracks) {
+          debugPrint('WebRTC: Adding audio track: ${track.id}');
+          _peerConnection!.addTrack(track, _localStream!);
+        }
       }
 
       // Log audio track status

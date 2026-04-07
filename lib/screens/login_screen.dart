@@ -566,8 +566,32 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleLogin(AuthService authService) async {
+    final input = _unifiedAddress.text.trim();
+
+    // Input validation
+    if (input.isEmpty ||
+        input == 'your-username@domain.com') {
+      _showLoginError('Please enter your account address.');
+      return;
+    }
+
+    if (_detectedProtocol == ConnectionProtocol.xmpp) {
+      if (!input.contains('@') || input.split('@').length != 2 || input.split('@')[1].isEmpty) {
+        _showLoginError('Invalid XMPP address. Use the format user@domain.com');
+        return;
+      }
+      if (_xmppPass.text.isEmpty || _xmppPass.text == 'your-password') {
+        _showLoginError('Please enter your password.');
+        return;
+      }
+      final port = int.tryParse(_xmppPort.text);
+      if (port == null || port <= 0 || port > 65535) {
+        _showLoginError('Invalid port number. Use a value between 1 and 65535.');
+        return;
+      }
+    }
+
     try {
-      final input = _unifiedAddress.text.trim();
       if (_detectedProtocol == ConnectionProtocol.xmpp) {
         final parts = input.split('@');
         final user = parts[0];
@@ -594,6 +618,10 @@ class _LoginScreenState extends State<LoginScreen> {
           );
         }
       } else if (_detectedProtocol == ConnectionProtocol.irc) {
+        if (_ircNick.text.trim().isEmpty) {
+          _showLoginError('Please enter a nickname for IRC.');
+          return;
+        }
         await authService.connectIrc(
           host: input,
           port: 6667,
@@ -647,6 +675,17 @@ class _LoginScreenState extends State<LoginScreen> {
             errorStr.contains('4004') ||
             errorStr.contains('unauthorized') ||
             errorStr.contains('handshake');
+        final bool isSocketError =
+            errorStr.contains('SocketException') ||
+            errorStr.contains('Connection refused') ||
+            errorStr.contains('Connection timed out') ||
+            errorStr.contains('No route to host') ||
+            errorStr.contains('Network is unreachable');
+        final bool isTlsError =
+            errorStr.contains('HandshakeException') ||
+            errorStr.contains('CERTIFICATE_VERIFY_FAILED') ||
+            errorStr.contains('TLS') ||
+            errorStr.contains('SSL');
 
         String errorMessage = errorStr.replaceAll('Exception: ', '');
         if (isDiscordError) {
@@ -662,17 +701,27 @@ class _LoginScreenState extends State<LoginScreen> {
           } else {
             errorMessage = 'Discord login failed: $errorMessage';
           }
+        } else if (isSocketError) {
+          errorMessage = 'Could not reach the server. Check the hostname, port, and your network connection.';
+        } else if (isTlsError) {
+          errorMessage = 'Secure connection failed. The server\'s certificate could not be verified.';
+        } else if (errorStr.contains('Null check')) {
+          errorMessage = 'Connection failed unexpectedly. The server may be unreachable or returned an invalid response.';
         }
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               'Login failed: $errorMessage',
-              maxLines: 3,
+              maxLines: 4,
               overflow: TextOverflow.ellipsis,
             ),
             duration: Duration(seconds: isDiscordError ? 15 : 12),
-            backgroundColor: isDiscordError ? Colors.indigo : null,
+            backgroundColor: isDiscordError
+                ? Colors.indigo
+                : isSocketError || isTlsError
+                    ? Colors.red.shade800
+                    : null,
             action: isJabb3rError
                 ? SnackBarAction(
                     label: 'AUTO-FIX',
@@ -744,5 +793,27 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     }
+  }
+
+  void _showLoginError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.orange.shade800,
+        duration: const Duration(seconds: 5),
+      ),
+    );
   }
 }

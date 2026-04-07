@@ -80,6 +80,18 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   bool get isSipRegistered => _sipService?.isRegistered ?? false;
   SipService? get sipService => _sipService;
 
+  void _applyDefaultSpeakerRoute({required bool isVideo, String? source}) {
+    // Voice calls should default to speakerphone so users can immediately hear audio.
+    final speakerOn = !isVideo;
+    _rtcManager.setSpeakerphone(speakerOn);
+    _isSpeakerOn = speakerOn;
+    if (source != null) {
+      debugPrint(
+        'CallProvider: [$source] Default speaker route -> ${speakerOn ? "speaker" : "earpiece"}',
+      );
+    }
+  }
+
   Future<void> initRenderers() async {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
@@ -322,8 +334,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // Switch to Communication Context (DO THIS FIRST to ensure hardware is ready)
     await _soundService.setCallAudioContext(isVideo: isVideo);
-    _rtcManager.setSpeakerphone(isVideo);
-    _isSpeakerOn = isVideo;
+    _applyDefaultSpeakerRoute(
+      isVideo: isVideo,
+      source: 'start_xmpp_call_internal',
+    );
 
     _state = CallState.outgoing;
     _remoteJid = toJid;
@@ -462,6 +476,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         }
         break;
       case JingleAction.sessionTerminate:
+        debugPrint('CallProvider: Remote party terminated the session');
+        endCall();
+        break;
     }
   }
 
@@ -618,8 +635,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // Switch to Communication Context (DO THIS FIRST to ensure hardware is ready)
     await _soundService.setCallAudioContext(isVideo: isVideo);
-    _rtcManager.setSpeakerphone(isVideo);
-    _isSpeakerOn = isVideo;
+    _applyDefaultSpeakerRoute(isVideo: isVideo, source: 'start_call');
 
     // JID NORMALIZATION: Ensure phone numbers have the gateway suffix
     String effectiveJid = toJid;
@@ -730,6 +746,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: Ringback playing');
 
       _state = CallState.outgoing;
+      _startCallTimeoutTimer();
       notifyListeners();
       debugPrint('CallProvider: === CALL INITIATED ===');
     } catch (e) {
@@ -780,15 +797,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // Switch to Communication Context (DO THIS FIRST to ensure hardware is ready)
     await _soundService.setCallAudioContext(isVideo: _isVideo);
-    // For voice calls, speaker should be ON by default
-    if (!_isVideo) {
-      _rtcManager.setSpeakerphone(true);
-      _isSpeakerOn = true;
-      debugPrint('CallProvider: Voice call - speaker ON by default');
-    } else {
-      _rtcManager.setSpeakerphone(_isVideo);
-      _isSpeakerOn = _isVideo;
-    }
+    _applyDefaultSpeakerRoute(isVideo: _isVideo, source: 'accept_call');
     debugPrint('CallProvider: Audio context set, speakerphone: $_isSpeakerOn');
 
     try {
@@ -833,7 +842,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         );
         _localVolume = levels['local'] ?? 0.0;
         _remoteVolume = levels['remote'] ?? 0.0;
-        notifyListeners();
+
+        final wasTalkingWhileMuted = _isTalkingWhileMuted;
+        _isTalkingWhileMuted = _isMicMuted && _localVolume > 0.3;
+
+        if (wasTalkingWhileMuted != _isTalkingWhileMuted) {
+          notifyListeners();
+        } else {
+          notifyListeners();
+        }
       });
 
       debugPrint('CallProvider: Creating answer...');
@@ -1115,6 +1132,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         debugPrint('CallProvider: ICE CONNECTED - Data path established!');
         if (_state != CallState.active) {
           _state = CallState.active;
+          _callTimeoutTimer?.cancel();
+          _callTimeoutTimer = null;
           _stopAllSounds();
           HapticFeedback.heavyImpact();
           _callStartTime ??= DateTime.now();
@@ -1125,6 +1144,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         debugPrint('CallProvider: ICE FAILED - Check network/NAT');
         _lastError = 'ICE connection failed';
         _iceCheckingStartTime = null;
+        endCall();
       } else if (state ==
           RTCIceConnectionState.RTCIceConnectionStateCompleted) {
         debugPrint('CallProvider: ICE COMPLETED - Fully connected!');
