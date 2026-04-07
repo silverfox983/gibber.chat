@@ -21,7 +21,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'pidgin_chat.db');
     return await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -42,7 +42,8 @@ class DatabaseService {
             reply_to_id TEXT,
             replaces_id TEXT,
             is_edited INTEGER DEFAULT 0,
-            edit_timestamp TEXT
+            edit_timestamp TEXT,
+            reactions TEXT
           )
         ''');
         await db.execute(
@@ -182,6 +183,11 @@ class DatabaseService {
           );
           await db.execute(
             'ALTER TABLE messages ADD COLUMN edit_timestamp TEXT',
+          );
+        }
+        if (oldVersion < 10) {
+          await db.execute(
+            'ALTER TABLE messages ADD COLUMN reactions TEXT',
           );
         }
       },

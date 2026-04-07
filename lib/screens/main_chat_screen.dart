@@ -2836,7 +2836,17 @@ class _MainChatScreenState extends State<MainChatScreen> {
               ),
               onPressed: () {
                 if (selectedTargets.isNotEmpty) {
-                  _authService.forwardMessage(msg, selectedTargets);
+                  for (final targetId in selectedTargets) {
+                    final conv = chatProvider.conversations.firstWhere(
+                      (c) => c.id == targetId,
+                      orElse: () => chatProvider.conversations.first,
+                    );
+                    _authService.forwardMessage(
+                      msg,
+                      [targetId],
+                      targetProtocol: conv.protocol,
+                    );
+                  }
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(

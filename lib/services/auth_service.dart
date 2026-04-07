@@ -2618,6 +2618,7 @@ class AuthService with ChangeNotifier {
       );
     } catch (e) {
       debugPrint('Discord: Error sending message: $e');
+      rethrow;
     }
   }
 
@@ -2859,23 +2860,42 @@ class AuthService with ChangeNotifier {
     ChatMessage original,
     List<String> targetChatIds, {
     String? accountId,
+    String? targetProtocol,
   }) async {
     final curAccountId = accountId ?? _activeAccountId;
     if (curAccountId == null) return;
 
-    for (var targetJid in targetChatIds) {
-      // Small randomized delay to avoid server-side rate-limiting during multi-forward
+    for (var targetId in targetChatIds) {
       await Future.delayed(const Duration(milliseconds: 100));
 
-      await sendXmppMessage(
-        targetJid,
-        original.text,
-        accountId: curAccountId,
-        type: original.type,
-        fileName: original.fileName,
-        filePath: original.filePath,
-      );
+      final protocol = targetProtocol ?? _detectForwardProtocol(targetId);
+      if (protocol == 'IRC') {
+        await sendIrcMessage(targetId, original.text, accountId: curAccountId);
+      } else if (protocol == 'Discord') {
+        await sendDiscordMessage(targetId, original.text, accountId: curAccountId);
+      } else {
+        await sendXmppMessage(
+          targetId,
+          original.text,
+          accountId: curAccountId,
+          type: original.type,
+          fileName: original.fileName,
+          filePath: original.filePath,
+        );
+      }
     }
+  }
+
+  String _detectForwardProtocol(String targetId) {
+    if (_discordConnections.values.any((c) {
+      return true;
+    }) && RegExp(r'^\d+$').hasMatch(targetId)) {
+      return 'Discord';
+    }
+    if (_ircConnections.isNotEmpty && (targetId.startsWith('#') || targetId.startsWith('irc_'))) {
+      return 'IRC';
+    }
+    return 'XMPP';
   }
 
   Future<ChatMessage?> fetchQuotedMessage(String msgId) async {
