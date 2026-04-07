@@ -29,6 +29,7 @@ class ChatProvider with ChangeNotifier {
   final List<void Function()> _batchQueue = [];
   final List<ChatMessage> _toPersist = [];
   bool _isSyncing = false;
+  bool _isLoadingOlderMessages = false;
   List<ChatMessage> _globalSearchResults = [];
   String? _playingMessageId;
 
@@ -38,6 +39,7 @@ class ChatProvider with ChangeNotifier {
   String get messageSearchQuery => _messageSearchQuery;
   int get selectedSidebarTab => _selectedSidebarTab;
   bool get isSyncing => _isSyncing;
+  bool get isLoadingOlderMessages => _isLoadingOlderMessages;
   List<ChatMessage> get globalSearchResults => _globalSearchResults;
   String? get playingMessageId => _playingMessageId;
 
@@ -240,6 +242,7 @@ class ChatProvider with ChangeNotifier {
     String conversationId,
     AuthService authService,
   ) async {
+    if (_isLoadingOlderMessages) return;
     final conv = _conversations.firstWhere((c) => c.id == conversationId);
     if (conv.messages.isEmpty) return;
 
@@ -247,18 +250,34 @@ class ChatProvider with ChangeNotifier {
     final accountId = conv.accountId ?? authService.activeAccountId;
     if (accountId == null) return;
 
+    _isLoadingOlderMessages = true;
+    notifyListeners();
+
     if (conv.protocol == 'XMPP') {
-      await authService.fetchOlderHistory(
-        accountId,
-        conversationId,
-        beforeId: oldestId,
-      );
+      try {
+        await authService.fetchOlderHistory(
+          accountId,
+          conversationId,
+          beforeId: oldestId,
+        );
+      } finally {
+        _isLoadingOlderMessages = false;
+        notifyListeners();
+      }
     } else if (conv.protocol == 'Discord') {
-      await authService.fetchDiscordHistory(
-        conversationId,
-        accountId: accountId,
-        beforeId: oldestId,
-      );
+      try {
+        await authService.fetchDiscordHistory(
+          conversationId,
+          accountId: accountId,
+          beforeId: oldestId,
+        );
+      } finally {
+        _isLoadingOlderMessages = false;
+        notifyListeners();
+      }
+    } else {
+      _isLoadingOlderMessages = false;
+      notifyListeners();
     }
   }
 

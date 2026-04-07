@@ -2668,9 +2668,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 Navigator.pop(context);
               },
             ),
-            if (msg.isSent &&
-                msg.type == MessageType.text &&
-                msg.protocol != 'Discord')
+            if (msg.isSent && msg.type == MessageType.text)
               ListTile(
                 leading: Icon(
                   Icons.edit_rounded,
@@ -2802,14 +2800,23 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 final cp = Provider.of<ChatProvider>(context, listen: false);
                 cp.updateMessage(msg.conversationId ?? '', msg.id, newText);
 
-                // Send XMPP message correction (XEP-0308)
-                _authService.sendEditedMessage(
-                  msg.conversationId ?? '',
-                  msg.id,
-                  newText,
-                  accountId: msg.accountId,
-                  isGroup: msg.isGroup,
-                );
+                if (msg.protocol == 'Discord') {
+                  _authService.editDiscordMessage(
+                    msg.conversationId ?? '',
+                    msg.id,
+                    newText,
+                    accountId: msg.accountId,
+                  );
+                } else {
+                  // Send XMPP message correction (XEP-0308)
+                  _authService.sendEditedMessage(
+                    msg.conversationId ?? '',
+                    msg.id,
+                    newText,
+                    accountId: msg.accountId,
+                    isGroup: msg.isGroup,
+                  );
+                }
 
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(

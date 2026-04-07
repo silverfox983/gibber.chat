@@ -2456,6 +2456,31 @@ class AuthService with ChangeNotifier {
     }
   }
 
+  /// Discord-Specific: Edit a message
+  Future<void> editDiscordMessage(
+    String channelId,
+    String messageId,
+    String newText, {
+    String? accountId,
+  }) async {
+    final activeId = accountId ?? _activeAccountId;
+    final client = _discordConnections[activeId];
+    if (client == null) return;
+
+    try {
+      final snowflakeChannelId = discord.Snowflake.parse(channelId);
+      final snowflakeMessageId = discord.Snowflake.parse(messageId);
+      await (client as dynamic).httpEndpoints.updateMessage(
+        snowflakeChannelId,
+        snowflakeMessageId,
+        discord.MessageUpdateBuilder(content: newText),
+      );
+      debugPrint('Discord ($activeId): Edited message $messageId');
+    } catch (e) {
+      debugPrint('Discord ($activeId): Failed to edit message: $e');
+    }
+  }
+
   Future<void> _reconnectDiscord(String accountId) async {
     // Prevent overlapping reconnect attempts
     if (_isDiscordReconnecting[accountId] == true) return;
