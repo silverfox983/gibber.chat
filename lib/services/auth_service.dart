@@ -483,6 +483,7 @@ class AuthService with ChangeNotifier {
     MessageType type, {
     String? accountId,
     bool isGroup = false,
+    String? caption,
   }) async {
     final id = accountId ?? _activeAccountId;
     if (id == null) return;
@@ -495,10 +496,11 @@ class AuthService with ChangeNotifier {
       final fileName = file.path.split(Platform.pathSeparator).last;
       await sendDiscordMessage(
         toJid,
-        '(Attachment: $fileName)',
+        caption ?? '',
         accountId: id,
         file: file,
         type: type,
+        fileName: fileName,
       );
     } else if (_ircConnections.containsKey(id)) {
       // IRC: (Fallback) Not supported
@@ -1639,13 +1641,14 @@ class AuthService with ChangeNotifier {
     String originalMsgId,
     String newText, {
     String? accountId,
+    bool isGroup = false,
   }) async {
     final id = accountId ?? _activeAccountId;
     final conn = _xmppConnections[id];
     if (conn != null && conn.state == xmpp.XmppConnectionState.Ready) {
       final msg = xmpp.MessageStanza(
         DateTime.now().millisecondsSinceEpoch.toString(),
-        xmpp.MessageStanzaType.CHAT,
+        isGroup ? xmpp.MessageStanzaType.GROUPCHAT : xmpp.MessageStanzaType.CHAT,
       );
       msg.toJid = xmpp.Jid.fromFullJid(targetJid);
       msg.body = newText;
@@ -2571,6 +2574,7 @@ class AuthService with ChangeNotifier {
     File? file,
     MessageType type = MessageType.text,
     String? fileName,
+    String? replyToId,
   }) async {
     final id = accountId ?? _activeAccountId;
     final client = _discordConnections[id];
@@ -2595,6 +2599,11 @@ class AuthService with ChangeNotifier {
                   fileName: actualFileName,
                 ),
               ]
+            : null,
+        referencedMessage: replyToId != null && replyToId.isNotEmpty
+            ? discord.MessageReferenceBuilder.reply(
+                messageId: discord.Snowflake.parse(replyToId),
+              )
             : null,
       );
 
@@ -2859,22 +2868,54 @@ class AuthService with ChangeNotifier {
     ChatMessage original,
     List<String> targetChatIds, {
     String? accountId,
+    List<Conversation>? knownConversations,
   }) async {
-    final curAccountId = accountId ?? _activeAccountId;
-    if (curAccountId == null) return;
-
-    for (var targetJid in targetChatIds) {
+    for (var targetChatId in targetChatIds) {
       // Small randomized delay to avoid server-side rate-limiting during multi-forward
       await Future.delayed(const Duration(milliseconds: 100));
 
-      await sendXmppMessage(
-        targetJid,
-        original.text,
-        accountId: curAccountId,
-        type: original.type,
-        fileName: original.fileName,
-        filePath: original.filePath,
+      final targetConversation = knownConversations?.cast<Conversation?>().firstWhere(
+        (c) => c?.id == targetChatId,
+        orElse: () => null,
       );
+      final protocol = targetConversation?.protocol.toUpperCase();
+      final targetAccountId =
+          targetConversation?.accountId ?? accountId ?? _activeAccountId;
+      if (targetAccountId == null) continue;
+
+      if (protocol == 'DISCORD' || _discordConnections.containsKey(targetAccountId)) {
+        await sendDiscordMessage(
+          targetChatId,
+          original.type == MessageType.text ? original.text : '',
+          accountId: targetAccountId,
+          file: original.filePath != null ? File(original.filePath!) : null,
+          type: original.type,
+          fileName: original.fileName,
+        );
+      } else if (protocol == 'IRC' || _ircConnections.containsKey(targetAccountId)) {
+        // IRC supports text-only forwarding in this client.
+        final textToForward = original.text.isNotEmpty
+            ? original.text
+            : (original.fileName != null
+                  ? 'Forwarded file: ${original.fileName}'
+                  : '[Forwarded message]');
+        await sendIrcMessage(
+          targetChatId,
+          textToForward,
+          accountId: targetAccountId,
+          isGroup: targetConversation?.isGroup ?? targetChatId.startsWith('#'),
+        );
+      } else {
+        await sendXmppMessage(
+          targetChatId,
+          original.text,
+          accountId: targetAccountId,
+          type: original.type,
+          fileName: original.fileName,
+          filePath: original.filePath,
+          isGroup: targetConversation?.isGroup ?? false,
+        );
+      }
     }
   }
 

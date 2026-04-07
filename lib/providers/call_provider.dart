@@ -80,6 +80,18 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   bool get isSipRegistered => _sipService?.isRegistered ?? false;
   SipService? get sipService => _sipService;
 
+  void _applyDefaultSpeakerRoute({required bool isVideo, String? source}) {
+    // Voice calls should default to speakerphone so users can immediately hear audio.
+    final speakerOn = !isVideo;
+    _rtcManager.setSpeakerphone(speakerOn);
+    _isSpeakerOn = speakerOn;
+    if (source != null) {
+      debugPrint(
+        'CallProvider: [$source] Default speaker route -> ${speakerOn ? "speaker" : "earpiece"}',
+      );
+    }
+  }
+
   Future<void> initRenderers() async {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
@@ -322,8 +334,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // Switch to Communication Context (DO THIS FIRST to ensure hardware is ready)
     await _soundService.setCallAudioContext(isVideo: isVideo);
-    _rtcManager.setSpeakerphone(isVideo);
-    _isSpeakerOn = isVideo;
+    _applyDefaultSpeakerRoute(
+      isVideo: isVideo,
+      source: 'start_xmpp_call_internal',
+    );
 
     _state = CallState.outgoing;
     _remoteJid = toJid;
@@ -615,8 +629,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // Switch to Communication Context (DO THIS FIRST to ensure hardware is ready)
     await _soundService.setCallAudioContext(isVideo: isVideo);
-    _rtcManager.setSpeakerphone(isVideo);
-    _isSpeakerOn = isVideo;
+    _applyDefaultSpeakerRoute(isVideo: isVideo, source: 'start_call');
 
     // JID NORMALIZATION: Ensure phone numbers have the gateway suffix
     String effectiveJid = toJid;
@@ -778,15 +791,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // Switch to Communication Context (DO THIS FIRST to ensure hardware is ready)
     await _soundService.setCallAudioContext(isVideo: _isVideo);
-    // For voice calls, speaker should be ON by default
-    if (!_isVideo) {
-      _rtcManager.setSpeakerphone(true);
-      _isSpeakerOn = true;
-      debugPrint('CallProvider: Voice call - speaker ON by default');
-    } else {
-      _rtcManager.setSpeakerphone(_isVideo);
-      _isSpeakerOn = _isVideo;
-    }
+    _applyDefaultSpeakerRoute(isVideo: _isVideo, source: 'accept_call');
     debugPrint('CallProvider: Audio context set, speakerphone: $_isSpeakerOn');
 
     try {

@@ -872,8 +872,12 @@ class ChatProvider with ChangeNotifier {
       final convo = _conversations.firstWhere((c) => c.id == conversationId);
 
       if (convo.protocol == 'XMPP') {
-        // XMPP: LMC or similar might be needed, but for now simple local remove
-        // XEP-0424: Message Retraction could be implemented here
+        await auth.retractXmppMessage(
+          convo.id,
+          messageId,
+          accountId: convo.accountId,
+          isGroup: convo.isGroup,
+        );
       } else if (convo.protocol == 'Discord') {
         await auth.deleteDiscordMessage(
           convo.id,
