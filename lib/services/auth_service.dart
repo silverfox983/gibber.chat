@@ -2108,6 +2108,8 @@ class AuthService with ChangeNotifier {
                         conversationId: convId,
                         isGroup: isGroup,
                         replyToId: event.message.referencedMessage?.id.toString(),
+                        replyPreview:
+                            event.message.referencedMessage?.content,
                       ),
                     );
                   },
@@ -2143,6 +2145,7 @@ class AuthService with ChangeNotifier {
                         isGroup: event.guild != null,
                         replacesId: msg.id.toString(),
                         replyToId: msg.referencedMessage?.id.toString(),
+                        replyPreview: msg.referencedMessage?.content,
                         isEdited: msg.editedTimestamp != null,
                         editTimestamp: msg.editedTimestamp,
                       ),
@@ -2843,11 +2846,53 @@ class AuthService with ChangeNotifier {
             protocol: 'Discord',
             conversationId: channelId,
             isGroup: true, // Assuming guild/group for now
+            replyToId: msg.referencedMessage?.id.toString(),
+            replyPreview: msg.referencedMessage?.content,
           ),
         );
       }
     } catch (e) {
       debugPrint('Discord History Error: $e');
+    }
+  }
+
+  Future<void> fetchDiscordMessageById(
+    String channelId,
+    String messageId, {
+    String? accountId,
+  }) async {
+    final id = accountId ?? _activeAccountId;
+    final client = _discordConnections[id];
+    if (client == null) return;
+
+    try {
+      final channel =
+          await client.channels.fetch(discord.Snowflake.parse(channelId))
+              as discord.TextChannel;
+      final msg = await channel.messages.fetch(discord.Snowflake.parse(messageId));
+      var text = msg.content;
+      for (var attachment in msg.attachments) {
+        text += '\n📎 ${attachment.url}';
+      }
+
+      _messageStreamController.add(
+        ChatMessage(
+          id: msg.id.toString(),
+          text: text,
+          timestamp: msg.timestamp,
+          isSent: msg.author.id == client.user.id,
+          senderId: msg.author.id.toString(),
+          senderName: msg.author.username,
+          accountId: id,
+          protocol: 'Discord',
+          conversationId: channelId,
+          isGroup: channel is discord.GuildChannel,
+          replyToId: msg.referencedMessage?.id.toString(),
+          replyPreview: msg.referencedMessage?.content,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Discord message fetch error ($channelId/$messageId): $e');
     }
   }
 

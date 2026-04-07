@@ -72,9 +72,7 @@ class ChatMessage {
     this.isEdited = false,
     this.editTimestamp,
   }) : conversationId = conversationId?.split('/').first.toLowerCase(),
-       reactions = (reactions ?? {}).map(
-         (key, value) => MapEntry(key, List<String>.from(value)),
-       );
+       reactions = _dedupeReactionMap(reactions ?? const {});
 
   Map<String, dynamic> toMap() {
     return {
@@ -111,8 +109,8 @@ class ChatMessage {
   static Map<String, List<String>> _decodeReactions(dynamic raw) {
     if (raw == null) return {};
     if (raw is Map<String, dynamic>) {
-      return raw.map(
-        (key, value) => MapEntry(key, List<String>.from(value as List)),
+      return _dedupeReactionMap(
+        raw.map((key, value) => MapEntry(key, List<String>.from(value as List))),
       );
     }
     if (raw is String && raw.isNotEmpty) {
@@ -120,8 +118,10 @@ class ChatMessage {
         // Stored as JSON string in DB.
         final dynamic decoded = _jsonDecode(raw);
         if (decoded is Map<String, dynamic>) {
-          return decoded.map(
-            (key, value) => MapEntry(key, List<String>.from(value as List)),
+          return _dedupeReactionMap(
+            decoded.map(
+              (key, value) => MapEntry(key, List<String>.from(value as List)),
+            ),
           );
         }
       } catch (_) {
@@ -129,6 +129,23 @@ class ChatMessage {
       }
     }
     return {};
+  }
+
+  static Map<String, List<String>> _dedupeReactionMap(
+    Map<String, List<String>> raw,
+  ) {
+    return raw.map((emoji, senders) {
+      final seen = <String>{};
+      final deduped = <String>[];
+      for (final sender in senders) {
+        final id = sender.trim();
+        if (id.isEmpty) continue;
+        if (seen.add(id)) {
+          deduped.add(id);
+        }
+      }
+      return MapEntry(emoji, deduped);
+    });
   }
 
   static dynamic _jsonDecode(String value) {

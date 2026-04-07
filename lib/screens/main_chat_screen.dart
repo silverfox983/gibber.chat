@@ -126,6 +126,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
   ChatMessage? _replyToMessage;
   Timer? _typingDebouncer;
   bool _showScrollToBottom = false;
+  final Set<String> _requestedQuoteBackfills = {};
 
   late AuthService _authService;
   late CallProvider _callProvider;
@@ -276,6 +277,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
     _audioRecorder.dispose();
     _audioPlayer.dispose();
     _typingDebouncer?.cancel();
+    _requestedQuoteBackfills.clear();
     super.dispose();
   }
 
@@ -2467,7 +2469,35 @@ class _MainChatScreenState extends State<MainChatScreen> {
     return FutureBuilder<ChatMessage?>(
       future: DatabaseService().getMessageById(msg.replyToId ?? ''),
       builder: (context, snapshot) {
-        final text = snapshot.data?.text ?? (fallbackText?.isNotEmpty == true ? fallbackText! : '...');
+        final cp = Provider.of<ChatProvider>(context, listen: false);
+        final replyToId = msg.replyToId?.trim();
+        final convoId = msg.conversationId?.split('/').first.toLowerCase();
+        final backfillKey =
+            (replyToId != null &&
+                replyToId.isNotEmpty &&
+                convoId != null &&
+                convoId.isNotEmpty)
+            ? '$convoId|$replyToId'
+            : null;
+        final quoteText =
+            snapshot.data?.text ??
+            (fallbackText?.isNotEmpty == true ? fallbackText! : null);
+
+        if (snapshot.connectionState == ConnectionState.done &&
+            snapshot.data == null &&
+            backfillKey != null &&
+            !_requestedQuoteBackfills.contains(backfillKey)) {
+          _requestedQuoteBackfills.add(backfillKey);
+          scheduleMicrotask(() async {
+            await cp.ensureQuotedMessageLoaded(msg, _authService);
+            if (!mounted) return;
+            setState(() {
+              _requestedQuoteBackfills.remove(backfillKey);
+            });
+          });
+        }
+
+        final text = quoteText ?? 'Loading quoted message...';
         return Container(
           margin: const EdgeInsets.only(bottom: 4),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
