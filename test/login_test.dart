@@ -1,50 +1,61 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chat_app/main.dart';
 import 'package:chat_app/screens/login_screen.dart';
+import 'package:chat_app/services/auth_service.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 void main() {
   testWidgets('LoginScreen displays correctly', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AuthService(),
+        child: const MaterialApp(home: LoginScreen()),
+      ),
+    );
 
-    // Verify basic elements are present
+    expect(find.text('Gibber'), findsOneWidget);
+    expect(find.text('Multi-protocol Chat Client'), findsOneWidget);
     expect(find.textContaining('your-username'), findsOneWidget);
-    expect(find.textContaining('your-password'), findsOneWidget);
-    expect(find.textContaining('5222'), findsOneWidget);
-
-    // Verify protocol detection text
-    expect(find.textContaining('Connect with'), findsOneWidget);
+    expect(find.text('5222'), findsOneWidget);
+    expect(find.text('Connect Now'), findsOneWidget);
   });
 
   testWidgets('Protocol detection works for XMPP addresses', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
-
-    // Enter an XMPP-like address
-    await tester.enterText(
-      find.byKey(const Key('unifiedAddress')),
-      'test@example.com',
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AuthService(),
+        child: const MaterialApp(home: LoginScreen()),
+      ),
     );
+
+    // Find the XMPP address text field by its current placeholder text and enter a new value
+    final addressField = find.widgetWithText(TextField, 'your-username@domain.com');
+    expect(addressField, findsOneWidget);
+
+    await tester.enterText(addressField, 'test@example.com');
     await tester.pump();
 
-    // The test passes if no exception is thrown during protocol detection
     expect(true, isTrue);
   });
 
   testWidgets('Protocol detection works for IRC addresses', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
-
-    // Enter an IRC-like address
-    await tester.enterText(
-      find.byKey(const Key('unifiedAddress')),
-      'irc.example.com',
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AuthService(),
+        child: const MaterialApp(home: LoginScreen()),
+      ),
     );
+
+    final addressField = find.widgetWithText(TextField, 'your-username@domain.com');
+    expect(addressField, findsOneWidget);
+
+    await tester.enterText(addressField, 'irc.libera.chat');
     await tester.pump();
 
-    // The test passes if no exception is thrown during protocol detection
     expect(true, isTrue);
   });
 }

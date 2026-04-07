@@ -1,54 +1,47 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chat_app/main.dart';
 
 void main() {
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  Future<void> pumpApp(WidgetTester tester) async {
+    await tester.pumpWidget(const ChatApp());
+    // Drain async init: DB transactions, autoLogin, provider setup
+    for (int i = 0; i < 50; i++) {
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+  }
+
   testWidgets('App loads successfully and shows Login screen', (
     WidgetTester tester,
   ) async {
-    // Build our app and trigger a frame.
-    // ChatApp now includes its own MultiProvider context internally.
-    await tester.pumpWidget(const ChatApp());
+    await pumpApp(tester);
 
-    // Verify that the app title 'Antigravity Chat' is displayed.
-    expect(find.text('Antigravity Chat'), findsOneWidget);
-
-    // Verify that the subtitle is present.
-    expect(find.text('Connect with XMPP or IRC'), findsOneWidget);
-
-    // Verify that the login button is present.
-    expect(find.text('Login Now'), findsOneWidget);
-
-    // Verify that protocol toggles are present.
-    expect(find.text('XMPP'), findsOneWidget);
-    expect(find.text('IRC'), findsOneWidget);
+    expect(find.text('Gibber'), findsOneWidget);
+    expect(find.text('Multi-protocol Chat Client'), findsOneWidget);
+    expect(find.text('Connect Now'), findsOneWidget);
   });
 
-  testWidgets('Protocol switching works correctly', (
+  testWidgets('Login screen shows XMPP form fields', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const ChatApp());
+    await pumpApp(tester);
 
-    // Check initial state (should be XMPP by default)
-    expect(find.text('XMPP'), findsOneWidget);
-
-    // Tap IRC protocol
-    await tester.tap(find.text('IRC'));
-    await tester.pump();
-
-    // Verify IRC is selected (this would need visual indicator implementation)
-    // For now, we just verify the tap didn't crash the app
-    expect(find.text('IRC'), findsOneWidget);
+    expect(find.textContaining('your-username'), findsOneWidget);
+    expect(find.text('5222'), findsOneWidget);
   });
 
-  testWidgets('Login button triggers navigation', (WidgetTester tester) async {
-    await tester.pumpWidget(const ChatApp());
+  testWidgets('Login form has all expected elements', (WidgetTester tester) async {
+    await pumpApp(tester);
 
-    // Tap login button
-    await tester.tap(find.text('Login Now'));
-    await tester.pump();
-
-    // We can't easily test navigation without mocking services,
-    // but we can verify it doesn't throw an exception
-    expect(true, isTrue);
+    expect(find.text('Connect Now'), findsOneWidget);
+    expect(find.textContaining('Password'), findsOneWidget);
+    expect(find.textContaining('Keep me logged in'), findsOneWidget);
   });
 }
