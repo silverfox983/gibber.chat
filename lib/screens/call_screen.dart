@@ -58,6 +58,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
 
   void _startTimer() {
     if (_durationTimer != null) return;
+    _callDuration = Duration.zero;
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) {
         setState(() {
@@ -302,27 +303,25 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildNetworkQualityIndicator(CallProvider call) {
-    final remoteLevel = call.remoteVolume;
+    final hasRemoteStream = call.remoteRenderer.srcObject != null;
+    final hasAudioTrack = hasRemoteStream &&
+        call.remoteRenderer.srcObject!.getAudioTracks().isNotEmpty;
     int bars;
     Color color;
     String qualityText;
 
-    if (remoteLevel > 0.5) {
+    if (hasAudioTrack) {
       bars = 4;
       color = Colors.green;
-      qualityText = 'Excellent';
-    } else if (remoteLevel > 0.2) {
-      bars = 3;
-      color = Colors.lightGreen;
-      qualityText = 'Good';
-    } else if (remoteLevel > 0.05) {
+      qualityText = 'Connected';
+    } else if (hasRemoteStream) {
       bars = 2;
       color = Colors.orange;
-      qualityText = 'Fair';
+      qualityText = 'No Audio';
     } else {
       bars = 1;
       color = Colors.red;
-      qualityText = 'Poor';
+      qualityText = 'Connecting';
     }
 
     return Tooltip(
@@ -354,21 +353,20 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildConnectionQualityText(CallProvider call) {
-    final remoteLevel = call.remoteVolume;
+    final hasRemoteStream = call.remoteRenderer.srcObject != null;
+    final hasAudioTrack = hasRemoteStream &&
+        call.remoteRenderer.srcObject!.getAudioTracks().isNotEmpty;
     String qualityText;
     Color qualityColor;
 
-    if (remoteLevel > 0.5) {
-      qualityText = 'HD';
+    if (hasAudioTrack) {
+      qualityText = call.isVideo ? 'Video' : 'Voice';
       qualityColor = Colors.green;
-    } else if (remoteLevel > 0.2) {
-      qualityText = 'SD';
-      qualityColor = Colors.lightGreen;
-    } else if (remoteLevel > 0.05) {
-      qualityText = 'Low';
+    } else if (hasRemoteStream) {
+      qualityText = 'No Audio';
       qualityColor = Colors.orange;
     } else {
-      qualityText = 'Poor';
+      qualityText = 'Waiting';
       qualityColor = Colors.red;
     }
 

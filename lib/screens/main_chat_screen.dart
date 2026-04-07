@@ -782,7 +782,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                               : null,
                           child: activeChat.avatarBytes == null
                               ? Text(
-                                  activeChat.name[0],
+                                  activeChat.name.isNotEmpty ? activeChat.name[0] : '?',
                                   style: TextStyle(
                                     color: Theme.of(
                                       context,
@@ -3377,9 +3377,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
             leading: CircleAvatar(
               backgroundColor: isActive
                   ? Theme.of(context).colorScheme.primary
-                  : (conv.protocol == 'Discord'
+                  : conv.protocol == 'Discord'
                         ? const Color(0xFF5865F2).withValues(alpha: 0.1)
-                        : Colors.grey[100]),
+                        : conv.protocol == 'IRC'
+                            ? Colors.green.withValues(alpha: 0.1)
+                            : Colors.grey[100],
               backgroundImage: conv.avatarBytes != null
                   ? MemoryImage(conv.avatarBytes!)
                   : null,
@@ -3395,13 +3397,21 @@ class _MainChatScreenState extends State<MainChatScreen> {
                                   : const Color(0xFF5865F2),
                               size: 18,
                             )
-                          : Text(
-                              conv.name[0],
-                              style: TextStyle(
-                                color: isActive ? Colors.white : Colors.black54,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                          : conv.protocol == 'IRC'
+                              ? Icon(
+                                  Icons.tag,
+                                  color: isActive
+                                      ? Colors.white
+                                      : Colors.green.shade700,
+                                  size: 18,
+                                )
+                              : Text(
+                                  conv.name.isNotEmpty ? conv.name[0] : '?',
+                                  style: TextStyle(
+                                    color: isActive ? Colors.white : Colors.black54,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                     ),
                   if (!conv.isGroup)
                     Align(
@@ -3464,7 +3474,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       fontSize: 12,
                       color: isActive
                           ? const Color(0xFFE91E63).withValues(alpha: 0.6)
-                          : Colors.black38,
+                          : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
                     ),
                   ),
             selected: isActive,
@@ -3476,9 +3486,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   conv.lastMessage != null
                       ? DateFormat('HH:mm').format(conv.lastMessage!.timestamp)
                       : '',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 10,
-                    color: Colors.black26,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.35),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -3588,7 +3598,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                         size: 20,
                       )
                     : Text(
-                        isIrc ? '#' : conv.name[0].toUpperCase(),
+                        isIrc ? '#' : (conv.name.isNotEmpty ? conv.name[0].toUpperCase() : '?'),
                         style: TextStyle(
                           color: isActive
                               ? Colors.white
@@ -4105,7 +4115,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 CircleAvatar(
                   radius: 30,
                   child: Text(
-                    room.name[0],
+                    room.name.isNotEmpty ? room.name[0] : '?',
                     style: const TextStyle(fontSize: 24),
                   ),
                 ),

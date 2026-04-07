@@ -462,6 +462,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         }
         break;
       case JingleAction.sessionTerminate:
+        debugPrint('CallProvider: Remote party terminated the session');
+        endCall();
+        break;
     }
   }
 
