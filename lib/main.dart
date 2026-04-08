@@ -91,6 +91,12 @@ class _ChatAppState extends State<ChatApp> {
 
   void _initializeProviders() {
     try {
+      _errorSource = 'Database';
+      if (Platform.isWindows || Platform.isLinux) {
+        sqfliteFfiInit();
+        databaseFactory = databaseFactoryFfi;
+      }
+
       _errorSource = 'AuthService';
       _authService = AuthService();
       
