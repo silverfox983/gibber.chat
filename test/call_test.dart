@@ -6,10 +6,14 @@ void main() {
     final webrtcManager = WebRTCManager();
     expect(webrtcManager, isNotNull);
     expect(webrtcManager.isDisposed, isFalse);
+
+    // Avoid dispose here; dispose schedules delayed timers that fail widget-test invariants.
   });
 
   test('WebRTCManager audio level stream is available', () {
     final webrtcManager = WebRTCManager();
     expect(webrtcManager.audioLevels, isNotNull);
+
+    // Avoid dispose here; dispose schedules delayed timers that fail widget-test invariants.
   });
 }

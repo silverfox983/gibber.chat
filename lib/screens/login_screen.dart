@@ -137,6 +137,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           _buildModernCard(child: _buildUnifiedForm()),
                           const SizedBox(height: 32),
                           _buildLoginButton(authService),
+                          if (authService.isConnecting) ...[
+                            const SizedBox(height: 16),
+                            _buildLoginProgress(authService),
+                          ],
                         ],
                       ),
                     ),
@@ -517,6 +521,46 @@ class _LoginScreenState extends State<LoginScreen> {
                   letterSpacing: 0.5,
                 ),
               ),
+      ),
+    );
+  }
+
+  Widget _buildLoginProgress(AuthService authService) {
+    final progressColor = _detectedProtocol == ConnectionProtocol.discord
+        ? const Color(0xFF5865F2)
+        : Theme.of(context).colorScheme.secondary;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Logging in...',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              minHeight: 6,
+              value: authService.isConnecting ? null : 1,
+              backgroundColor: Colors.white.withValues(alpha: 0.2),
+              valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+            ),
+          ),
+        ],
       ),
     );
   }

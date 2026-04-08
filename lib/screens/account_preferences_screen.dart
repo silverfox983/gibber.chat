@@ -48,10 +48,22 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
                 child: ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                   leading: CircleAvatar(
-                    backgroundColor: acc.protocol == 'XMPP' ? Colors.deepPurple.shade100 : Colors.teal.shade100,
+                    backgroundColor: acc.protocol == 'Discord'
+                        ? const Color(0xFF5865F2).withValues(alpha: 0.15)
+                        : (acc.protocol == 'IRC'
+                              ? Colors.teal.shade100
+                              : Colors.deepPurple.shade100),
                     child: Icon(
-                      acc.protocol == 'XMPP' ? Icons.chat_bubble_outline : Icons.tag,
-                      color: acc.protocol == 'XMPP' ? Colors.deepPurple : Colors.teal,
+                      acc.protocol == 'Discord'
+                          ? Icons.discord
+                          : (acc.protocol == 'IRC'
+                                ? Icons.alternate_email
+                                : Icons.chat_bubble_outline),
+                      color: acc.protocol == 'Discord'
+                          ? const Color(0xFF5865F2)
+                          : (acc.protocol == 'IRC'
+                                ? Colors.teal
+                                : Colors.deepPurple),
                     ),
                   ),
                   title: Text(

@@ -39,6 +39,7 @@ dependencies:
   flutter_markdown: ^0.7.7+1
   giphy_get: ^3.6.1+1
   sip_ua: ^1.1.0
+  flutter_local_notifications: ^21.0.0
 
 dev_dependencies:
   flutter_test:

@@ -51,6 +51,43 @@ class AuthService with ChangeNotifier {
   );
   bool get ircConnected => _ircConnections.isNotEmpty;
   bool get discordConnected => _discordConnections.isNotEmpty;
+  List<String> get connectedAccountIds {
+    final ids = <String>{
+      ..._xmppConnections.keys,
+      ..._ircConnections.keys,
+      ..._discordConnections.keys,
+    };
+    final sorted = ids.toList()..sort();
+    return sorted;
+  }
+  List<String> get authenticatedAccountIds =>
+      List.unmodifiable(_authenticatedAccountIds);
+  List<String> getAccountsStatusLines() {
+    final lines = <String>[];
+    for (final account in _savedAccounts) {
+      final id = account.fullJid;
+      final status = getAccountStatus(id);
+      final statusText = switch (status) {
+        ConnectionStatus.online => 'Online',
+        ConnectionStatus.connecting => 'Connecting',
+        ConnectionStatus.offline => 'Offline',
+      };
+      lines.add('${account.protocol}: ${account.user} - $statusText');
+    }
+    if (lines.isEmpty) {
+      // Include transient in-memory accounts if saved list is empty.
+      for (final id in connectedAccountIds) {
+        final status = getAccountStatus(id);
+        final statusText = switch (status) {
+          ConnectionStatus.online => 'Online',
+          ConnectionStatus.connecting => 'Connecting',
+          ConnectionStatus.offline => 'Offline',
+        };
+        lines.add('$id - $statusText');
+      }
+    }
+    return lines;
+  }
   bool get isConnecting =>
       _xmppConnecting || _ircConnecting || _discordConnecting;
   bool get isAuthenticated => _authenticatedAccountIds.isNotEmpty;
@@ -118,6 +155,14 @@ class AuthService with ChangeNotifier {
       _roomParticipantStreamController.stream;
 
   final Map<String, Set<String>> _serverFeatures = {};
+
+  String _emojiToText(dynamic emoji) {
+    final name = emoji?.name?.toString();
+    if (name != null && name.isNotEmpty) {
+      return name;
+    }
+    return emoji?.toString() ?? '';
+  }
   final Map<String, String?> _uploadServiceJids = {};
 
   final Map<String, IrcConnection> _ircConnections = {};
@@ -483,6 +528,7 @@ class AuthService with ChangeNotifier {
     MessageType type, {
     String? accountId,
     bool isGroup = false,
+    String? caption,
   }) async {
     final id = accountId ?? _activeAccountId;
     if (id == null) return;
@@ -495,10 +541,11 @@ class AuthService with ChangeNotifier {
       final fileName = file.path.split(Platform.pathSeparator).last;
       await sendDiscordMessage(
         toJid,
-        '(Attachment: $fileName)',
+        caption ?? '',
         accountId: id,
         file: file,
         type: type,
+        fileName: fileName,
       );
     } else if (_ircConnections.containsKey(id)) {
       // IRC: (Fallback) Not supported
@@ -1639,13 +1686,14 @@ class AuthService with ChangeNotifier {
     String originalMsgId,
     String newText, {
     String? accountId,
+    bool isGroup = false,
   }) async {
     final id = accountId ?? _activeAccountId;
     final conn = _xmppConnections[id];
     if (conn != null && conn.state == xmpp.XmppConnectionState.Ready) {
       final msg = xmpp.MessageStanza(
         DateTime.now().millisecondsSinceEpoch.toString(),
-        xmpp.MessageStanzaType.CHAT,
+        isGroup ? xmpp.MessageStanzaType.GROUPCHAT : xmpp.MessageStanzaType.CHAT,
       );
       msg.toJid = xmpp.Jid.fromFullJid(targetJid);
       msg.body = newText;
@@ -2080,6 +2128,9 @@ class AuthService with ChangeNotifier {
                         protocol: 'Discord',
                         conversationId: convId,
                         isGroup: isGroup,
+                        replyToId: event.message.referencedMessage?.id.toString(),
+                        replyPreview:
+                            event.message.referencedMessage?.content,
                       ),
                     );
                   },
@@ -2114,12 +2165,64 @@ class AuthService with ChangeNotifier {
                         conversationId: convId,
                         isGroup: event.guild != null,
                         replacesId: msg.id.toString(),
+                        replyToId: msg.referencedMessage?.id.toString(),
+                        replyPreview: msg.referencedMessage?.content,
+                        isEdited: msg.editedTimestamp != null,
+                        editTimestamp: msg.editedTimestamp,
                       ),
                     );
                   },
                   onError: (e) {
                     debugPrint(
                       'Discord ($actualAccountId) MessageUpdate Error: $e',
+                    );
+                  },
+                ),
+              );
+
+              // Handle Reaction Adds
+              _discordSubs[actualAccountId]!.add(
+                client.onMessageReactionAdd.listen(
+                  (event) {
+                    final emojiText = _emojiToText(event.emoji);
+                    if (emojiText.isEmpty) return;
+                    _jingleEventController.add(
+                      JingleEvent(
+                        action: JingleAction.transportInfo,
+                        sessionId: 'reaction',
+                        fromJid: event.channelId.toString(),
+                        reason: event.messageId.toString(),
+                        sdp: jsonEncode({
+                          'emoji': emojiText,
+                          'userId': event.userId.toString(),
+                          'op': 'add',
+                        }),
+                        accountId: actualAccountId,
+                      ),
+                    );
+                  },
+                ),
+              );
+
+              // Handle Reaction Removes
+              _discordSubs[actualAccountId]!.add(
+                client.onMessageReactionRemove.listen(
+                  (event) {
+                    final emojiText = _emojiToText(event.emoji);
+                    if (emojiText.isEmpty) return;
+                    _jingleEventController.add(
+                      JingleEvent(
+                        action: JingleAction.transportInfo,
+                        sessionId: 'reaction',
+                        fromJid: event.channelId.toString(),
+                        reason: event.messageId.toString(),
+                        sdp: jsonEncode({
+                          'emoji': emojiText,
+                          'userId': event.userId.toString(),
+                          'op': 'remove',
+                        }),
+                        accountId: actualAccountId,
+                      ),
                     );
                   },
                 ),
@@ -2474,6 +2577,31 @@ class AuthService with ChangeNotifier {
     }
   }
 
+  /// Discord-Specific: Edit a message
+  Future<void> editDiscordMessage(
+    String channelId,
+    String messageId,
+    String newText, {
+    String? accountId,
+  }) async {
+    final activeId = accountId ?? _activeAccountId;
+    final client = _discordConnections[activeId];
+    if (client == null) return;
+
+    try {
+      final snowflakeChannelId = discord.Snowflake.parse(channelId);
+      final snowflakeMessageId = discord.Snowflake.parse(messageId);
+      await (client as dynamic).httpEndpoints.updateMessage(
+        snowflakeChannelId,
+        snowflakeMessageId,
+        discord.MessageUpdateBuilder(content: newText),
+      );
+      debugPrint('Discord ($activeId): Edited message $messageId');
+    } catch (e) {
+      debugPrint('Discord ($activeId): Failed to edit message: $e');
+    }
+  }
+
   Future<void> _reconnectDiscord(String accountId) async {
     // Prevent overlapping reconnect attempts
     if (_isDiscordReconnecting[accountId] == true) return;
@@ -2571,6 +2699,7 @@ class AuthService with ChangeNotifier {
     File? file,
     MessageType type = MessageType.text,
     String? fileName,
+    String? replyToId,
   }) async {
     final id = accountId ?? _activeAccountId;
     final client = _discordConnections[id];
@@ -2596,6 +2725,11 @@ class AuthService with ChangeNotifier {
                 ),
               ]
             : null,
+        referencedMessage: replyToId != null && replyToId.isNotEmpty
+            ? discord.MessageReferenceBuilder.reply(
+                messageId: discord.Snowflake.parse(replyToId),
+              )
+            : null,
       );
 
       final msg = await channel.sendMessage(builder);
@@ -2614,6 +2748,7 @@ class AuthService with ChangeNotifier {
           type: file != null ? type : MessageType.text,
           fileName: fileName ?? file?.path.split(Platform.pathSeparator).last,
           filePath: file?.path,
+          replyToId: replyToId,
         ),
       );
     } catch (e) {
@@ -2733,11 +2868,53 @@ class AuthService with ChangeNotifier {
             protocol: 'Discord',
             conversationId: channelId,
             isGroup: true, // Assuming guild/group for now
+            replyToId: msg.referencedMessage?.id.toString(),
+            replyPreview: msg.referencedMessage?.content,
           ),
         );
       }
     } catch (e) {
       debugPrint('Discord History Error: $e');
+    }
+  }
+
+  Future<void> fetchDiscordMessageById(
+    String channelId,
+    String messageId, {
+    String? accountId,
+  }) async {
+    final id = accountId ?? _activeAccountId;
+    final client = _discordConnections[id];
+    if (client == null) return;
+
+    try {
+      final channel =
+          await client.channels.fetch(discord.Snowflake.parse(channelId))
+              as discord.TextChannel;
+      final msg = await channel.messages.fetch(discord.Snowflake.parse(messageId));
+      var text = msg.content;
+      for (var attachment in msg.attachments) {
+        text += '\n📎 ${attachment.url}';
+      }
+
+      _messageStreamController.add(
+        ChatMessage(
+          id: msg.id.toString(),
+          text: text,
+          timestamp: msg.timestamp,
+          isSent: msg.author.id == client.user.id,
+          senderId: msg.author.id.toString(),
+          senderName: msg.author.username,
+          accountId: id,
+          protocol: 'Discord',
+          conversationId: channelId,
+          isGroup: channel is discord.GuildChannel,
+          replyToId: msg.referencedMessage?.id.toString(),
+          replyPreview: msg.referencedMessage?.content,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Discord message fetch error ($channelId/$messageId): $e');
     }
   }
 
@@ -2894,6 +3071,54 @@ class AuthService with ChangeNotifier {
     }
     if (_ircConnections.isNotEmpty && (targetId.startsWith('#') || targetId.startsWith('irc_'))) {
       return 'IRC';
+    List<Conversation>? knownConversations,
+  }) async {
+    for (var targetChatId in targetChatIds) {
+      // Small randomized delay to avoid server-side rate-limiting during multi-forward
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      final targetConversation = knownConversations?.cast<Conversation?>().firstWhere(
+        (c) => c?.id == targetChatId,
+        orElse: () => null,
+      );
+      final protocol = targetConversation?.protocol.toUpperCase();
+      final targetAccountId =
+          targetConversation?.accountId ?? accountId ?? _activeAccountId;
+      if (targetAccountId == null) continue;
+
+      if (protocol == 'DISCORD' || _discordConnections.containsKey(targetAccountId)) {
+        await sendDiscordMessage(
+          targetChatId,
+          original.type == MessageType.text ? original.text : '',
+          accountId: targetAccountId,
+          file: original.filePath != null ? File(original.filePath!) : null,
+          type: original.type,
+          fileName: original.fileName,
+        );
+      } else if (protocol == 'IRC' || _ircConnections.containsKey(targetAccountId)) {
+        // IRC supports text-only forwarding in this client.
+        final textToForward = original.text.isNotEmpty
+            ? original.text
+            : (original.fileName != null
+                  ? 'Forwarded file: ${original.fileName}'
+                  : '[Forwarded message]');
+        await sendIrcMessage(
+          targetChatId,
+          textToForward,
+          accountId: targetAccountId,
+          isGroup: targetConversation?.isGroup ?? targetChatId.startsWith('#'),
+        );
+      } else {
+        await sendXmppMessage(
+          targetChatId,
+          original.text,
+          accountId: targetAccountId,
+          type: original.type,
+          fileName: original.fileName,
+          filePath: original.filePath,
+          isGroup: targetConversation?.isGroup ?? false,
+        );
+      }
     }
     return 'XMPP';
   }

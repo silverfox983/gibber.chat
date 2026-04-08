@@ -126,6 +126,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
   ChatMessage? _replyToMessage;
   Timer? _typingDebouncer;
   bool _showScrollToBottom = false;
+  final Set<String> _requestedQuoteBackfills = {};
 
   late AuthService _authService;
   late CallProvider _callProvider;
@@ -255,6 +256,18 @@ class _MainChatScreenState extends State<MainChatScreen> {
     });
   }
 
+  bool _isDiscordVoiceChat(Conversation chat) {
+    return chat.protocol == 'Discord' && chat.name.contains('🔊');
+  }
+
+  bool _canStartVoiceCall(Conversation chat) {
+    return chat.protocol == 'XMPP' || _isDiscordVoiceChat(chat);
+  }
+
+  bool _canStartVideoCall(Conversation chat) {
+    return chat.protocol == 'XMPP';
+  }
+
   /*
   void _onCallErrorChanged() {
     ...
@@ -276,6 +289,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
     _audioRecorder.dispose();
     _audioPlayer.dispose();
     _typingDebouncer?.cancel();
+    _requestedQuoteBackfills.clear();
     super.dispose();
   }
 
@@ -667,7 +681,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
               currentIndex: chatProvider.selectedSidebarTab,
               onTap: (index) => chatProvider.setSidebarTab(index),
               selectedItemColor: Theme.of(context).colorScheme.primary,
-              unselectedItemColor: Colors.black26,
+              unselectedItemColor: Theme.of(
+                context,
+              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
               type: BottomNavigationBarType.fixed,
               items: const [
                 BottomNavigationBarItem(
@@ -993,15 +1009,15 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   ],
                 ),
           actions: [
-            if (activeChat.protocol == 'XMPP' || activeChat.name.contains('🔊'))
+            if (_canStartVoiceCall(activeChat))
               IconButton(
                 icon: Icon(
-                  activeChat.name.contains('🔊')
+                  _isDiscordVoiceChat(activeChat)
                       ? Icons.keyboard_voice_rounded
                       : Icons.call_rounded,
                   color: Theme.of(context).colorScheme.primary,
                 ),
-                tooltip: activeChat.name.contains('🔊')
+                tooltip: _isDiscordVoiceChat(activeChat)
                     ? 'Join Voice'
                     : 'Start Audio Call',
                 onPressed: () {
@@ -1096,12 +1112,14 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     activeChat.id,
                     accountId: activeChat.accountId,
                     isVideo: false,
+                    protocol: activeChat.protocol,
                   );
                 } else if (val == 'video') {
                   Provider.of<CallProvider>(context, listen: false).startCall(
                     activeChat.id,
                     accountId: activeChat.accountId,
                     isVideo: true,
+                    protocol: activeChat.protocol,
                   );
                 } else if (val == 'security') {
                   Navigator.push(
@@ -1130,6 +1148,23 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   ),
                   const PopupMenuDivider(),
                 ],
+                if (_canStartVoiceCall(activeChat))
+                  PopupMenuItem(
+                    value: 'call',
+                    child: ListTile(
+                      leading: Icon(
+                        _isDiscordVoiceChat(activeChat)
+                            ? Icons.keyboard_voice_rounded
+                            : Icons.call_outlined,
+                      ),
+                      title: Text(
+                        _isDiscordVoiceChat(activeChat)
+                            ? 'Join Voice'
+                            : 'Voice Call',
+                      ),
+                    ),
+                  ),
+                if (_canStartVideoCall(activeChat))
                 if (activeChat.protocol == 'XMPP' || activeChat.protocol == 'Discord') ...[
                   const PopupMenuItem(
                     value: 'call',
@@ -1477,6 +1512,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
     }
 
     // 4. Default Text Handler (Markdown)
+    final colorScheme = Theme.of(context).colorScheme;
+    final defaultTextColor = isMe ? Colors.white : colorScheme.onSurface;
+    final secondaryTextColor = isMe
+        ? Colors.white.withValues(alpha: 0.85)
+        : colorScheme.onSurfaceVariant;
     return MarkdownBody(
       data: msg.text,
       selectable: true,
@@ -1490,22 +1530,61 @@ class _MainChatScreenState extends State<MainChatScreen> {
       },
       styleSheet: MarkdownStyleSheet(
         p: TextStyle(
-          color: isMe ? Colors.white : Theme.of(context).colorScheme.onSurface,
+          color: defaultTextColor,
           fontSize: 13,
           fontWeight: FontWeight.w600,
         ),
         strong: TextStyle(
-          color: isMe ? Colors.white : Theme.of(context).colorScheme.onSurface,
+          color: defaultTextColor,
           fontWeight: FontWeight.w900,
         ),
+        em: TextStyle(color: defaultTextColor, fontStyle: FontStyle.italic),
+        a: TextStyle(
+          color: isMe ? Colors.white : colorScheme.primary,
+          decoration: TextDecoration.underline,
+          fontWeight: FontWeight.w700,
+        ),
+        h1: TextStyle(
+          color: defaultTextColor,
+          fontSize: 18,
+          fontWeight: FontWeight.w800,
+        ),
+        h2: TextStyle(
+          color: defaultTextColor,
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+        ),
+        h3: TextStyle(
+          color: defaultTextColor,
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
+        ),
+        listBullet: TextStyle(color: defaultTextColor),
+        blockquote: TextStyle(color: secondaryTextColor, fontSize: 12),
+        blockquoteDecoration: BoxDecoration(
+          color: isMe
+              ? Colors.white.withValues(alpha: 0.1)
+              : colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
+          borderRadius: BorderRadius.circular(8),
+          border: Border(
+            left: BorderSide(
+              color: isMe ? Colors.white70 : colorScheme.primary,
+              width: 3,
+            ),
+          ),
+        ),
         code: TextStyle(
-          backgroundColor: isMe ? Colors.white12 : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08),
-          color: isMe ? Colors.white : Theme.of(context).colorScheme.primary,
+          backgroundColor: isMe
+              ? Colors.white12
+              : colorScheme.onSurface.withValues(alpha: 0.08),
+          color: isMe ? Colors.white : colorScheme.primary,
           fontSize: 12,
           fontFamily: 'monospace',
         ),
         codeblockDecoration: BoxDecoration(
-          color: isMe ? Colors.white10 : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05),
+          color: isMe
+              ? Colors.white10
+              : colorScheme.onSurface.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
         ),
       ),
@@ -1532,6 +1611,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
           activeChat.id,
           text,
           accountId: activeChat.accountId,
+          replyToId: _replyToMessage?.id,
         );
       } else {
         await _authService.sendXmppMessage(
@@ -2418,10 +2498,39 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   Widget _buildReplyQuote(ChatMessage msg) {
+    final fallbackText = msg.replyPreview?.trim();
     return FutureBuilder<ChatMessage?>(
       future: DatabaseService().getMessageById(msg.replyToId ?? ''),
       builder: (context, snapshot) {
-        final text = snapshot.data?.text ?? '...';
+        final cp = Provider.of<ChatProvider>(context, listen: false);
+        final replyToId = msg.replyToId?.trim();
+        final convoId = msg.conversationId?.split('/').first.toLowerCase();
+        final backfillKey =
+            (replyToId != null &&
+                replyToId.isNotEmpty &&
+                convoId != null &&
+                convoId.isNotEmpty)
+            ? '$convoId|$replyToId'
+            : null;
+        final quoteText =
+            snapshot.data?.text ??
+            (fallbackText?.isNotEmpty == true ? fallbackText! : null);
+
+        if (snapshot.connectionState == ConnectionState.done &&
+            snapshot.data == null &&
+            backfillKey != null &&
+            !_requestedQuoteBackfills.contains(backfillKey)) {
+          _requestedQuoteBackfills.add(backfillKey);
+          scheduleMicrotask(() async {
+            await cp.ensureQuotedMessageLoaded(msg, _authService);
+            if (!mounted) return;
+            setState(() {
+              _requestedQuoteBackfills.remove(backfillKey);
+            });
+          });
+        }
+
+        final text = quoteText ?? 'Loading quoted message...';
         return Container(
           margin: const EdgeInsets.only(bottom: 4),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -2441,10 +2550,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
             text,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
               fontStyle: FontStyle.italic,
-              color: Colors.black54,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         );
@@ -2453,6 +2562,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   Widget _buildReactionChips(ChatMessage msg) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Wrap(
       spacing: 4,
       children: msg.reactions.entries
@@ -2461,13 +2571,15 @@ class _MainChatScreenState extends State<MainChatScreen> {
               margin: const EdgeInsets.only(top: 4),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.black12),
+                border: Border.all(
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                ),
               ),
               child: Text(
                 '${e.key} ${e.value.length}',
-                style: const TextStyle(fontSize: 10),
+                style: TextStyle(fontSize: 10, color: colorScheme.onSurface),
               ),
             ),
           )
@@ -2537,11 +2649,15 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   .map(
                     (emoji) => GestureDetector(
                       onTap: () {
-                        _authService.sendReaction(
+                        final cp = Provider.of<ChatProvider>(
+                          context,
+                          listen: false,
+                        );
+                        cp.addReaction(
                           msg.conversationId ?? '',
                           msg.id,
                           emoji,
-                          accountId: msg.accountId,
+                          _authService,
                         );
                         Navigator.pop(context);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -2600,7 +2716,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.copy_rounded, color: Colors.black54),
+              leading: Icon(
+                Icons.copy_rounded,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
               title: const Text('Copy Text'),
               onTap: () {
                 Clipboard.setData(ClipboardData(text: msg.text));
@@ -2613,9 +2732,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 Navigator.pop(context);
               },
             ),
-            if (msg.isSent &&
-                msg.type == MessageType.text &&
-                msg.protocol != 'Discord')
+            if (msg.isSent && msg.type == MessageType.text)
               ListTile(
                 leading: Icon(
                   Icons.edit_rounded,
@@ -2747,13 +2864,23 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 final cp = Provider.of<ChatProvider>(context, listen: false);
                 cp.updateMessage(msg.conversationId ?? '', msg.id, newText);
 
-                // Send XMPP message correction (XEP-0308)
-                _authService.sendEditedMessage(
-                  msg.conversationId ?? '',
-                  msg.id,
-                  newText,
-                  accountId: msg.accountId,
-                );
+                if (msg.protocol == 'Discord') {
+                  _authService.editDiscordMessage(
+                    msg.conversationId ?? '',
+                    msg.id,
+                    newText,
+                    accountId: msg.accountId,
+                  );
+                } else {
+                  // Send XMPP message correction (XEP-0308)
+                  _authService.sendEditedMessage(
+                    msg.conversationId ?? '',
+                    msg.id,
+                    newText,
+                    accountId: msg.accountId,
+                    isGroup: msg.isGroup,
+                  );
+                }
 
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -2787,9 +2914,12 @@ class _MainChatScreenState extends State<MainChatScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   'Select target conversations:',
-                  style: TextStyle(fontSize: 12, color: Colors.black45),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Expanded(
@@ -2847,6 +2977,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       targetProtocol: conv.protocol,
                     );
                   }
+                  _authService.forwardMessage(
+                    msg,
+                    selectedTargets,
+                    knownConversations: chatProvider.conversations,
+                  );
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -3392,8 +3527,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   : conv.protocol == 'Discord'
                         ? const Color(0xFF5865F2).withValues(alpha: 0.1)
                         : conv.protocol == 'IRC'
-                            ? Colors.green.withValues(alpha: 0.1)
-                            : Colors.grey[100],
+                        ? Theme.of(
+                            context,
+                          ).colorScheme.secondary.withValues(alpha: 0.15)
+                        : Colors.grey[100],
               backgroundImage: conv.avatarBytes != null
                   ? MemoryImage(conv.avatarBytes!)
                   : null,
@@ -3410,20 +3547,20 @@ class _MainChatScreenState extends State<MainChatScreen> {
                               size: 18,
                             )
                           : conv.protocol == 'IRC'
-                              ? Icon(
-                                  Icons.tag,
-                                  color: isActive
-                                      ? Colors.white
-                                      : Colors.green.shade700,
-                                  size: 18,
-                                )
-                              : Text(
-                                  conv.name.isNotEmpty ? conv.name[0] : '?',
-                                  style: TextStyle(
-                                    color: isActive ? Colors.white : Colors.black54,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
+                          ? Icon(
+                              Icons.alternate_email,
+                              color: isActive
+                                  ? Colors.white
+                                  : Theme.of(context).colorScheme.secondary,
+                              size: 18,
+                            )
+                          : Text(
+                              conv.name.isNotEmpty ? conv.name[0] : '?',
+                              style: TextStyle(
+                                color: isActive ? Colors.white : Colors.black54,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                     ),
                   if (!conv.isGroup)
                     Align(
@@ -4145,7 +4282,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       ),
                       Text(
                         room.id,
-                        style: const TextStyle(color: Colors.black38),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -4153,23 +4292,23 @@ class _MainChatScreenState extends State<MainChatScreen> {
               ],
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               'PARTICIPANTS',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
-                color: Colors.black26,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 12),
             if (room.participants.isEmpty)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.symmetric(vertical: 8.0),
                 child: Text(
                   'Waiting for participant presence...',
                   style: TextStyle(
                     fontStyle: FontStyle.italic,
-                    color: Colors.black38,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
               )
@@ -4213,8 +4352,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
               width: double.infinity,
               child: OutlinedButton(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  side: const BorderSide(color: Colors.red),
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                  side: BorderSide(color: Theme.of(context).colorScheme.error),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
