@@ -515,7 +515,7 @@ class JingleSignalingService {
     candidate.name = 'candidate';
     candidate.addAttribute(XmppAttribute('id', mid));
     candidate.addAttribute(
-      XmppAttribute('label', candidateMap['sdpMLineIndex'].toString()),
+      XmppAttribute('label', '${candidateMap['sdpMLineIndex'] ?? 0}'),
     );
 
     _addCandidateAttributes(candidate, candidateMap['candidate']);
@@ -666,7 +666,7 @@ class JingleSignalingService {
     candidate.name = 'candidate';
     candidate.addAttribute(XmppAttribute('id', mid));
     candidate.addAttribute(
-      XmppAttribute('label', candidateMap['sdpMLineIndex'].toString()),
+      XmppAttribute('label', '${candidateMap['sdpMLineIndex'] ?? 0}'),
     );
 
     _addCandidateAttributes(candidate, candidateMap['candidate']);
@@ -1200,7 +1200,7 @@ class JingleSignalingService {
     candidate.name = 'candidate';
     candidate.addAttribute(XmppAttribute('id', mid));
     candidate.addAttribute(
-      XmppAttribute('label', candidateMap['sdpMLineIndex'].toString()),
+      XmppAttribute('label', '${candidateMap['sdpMLineIndex'] ?? 0}'),
     );
 
     _addCandidateAttributes(candidate, candidateMap['candidate']);
