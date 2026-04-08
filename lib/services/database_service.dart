@@ -44,6 +44,7 @@ class DatabaseService {
             replaces_id TEXT,
             is_edited INTEGER DEFAULT 0,
             edit_timestamp TEXT,
+            reactions TEXT
             reactions_json TEXT,
             reply_preview TEXT
           )
@@ -189,6 +190,7 @@ class DatabaseService {
         }
         if (oldVersion < 10) {
           await db.execute(
+            'ALTER TABLE messages ADD COLUMN reactions TEXT',
             'ALTER TABLE messages ADD COLUMN reactions_json TEXT',
           );
           await db.execute(

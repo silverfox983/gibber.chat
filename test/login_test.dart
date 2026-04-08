@@ -13,6 +13,17 @@ void main() {
   }
 
   testWidgets('LoginScreen displays correctly', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AuthService(),
+        child: const MaterialApp(home: LoginScreen()),
+      ),
+    );
+
+    expect(find.text('Gibber'), findsOneWidget);
+    expect(find.text('Multi-protocol Chat Client'), findsOneWidget);
+    expect(find.textContaining('your-username'), findsOneWidget);
+    expect(find.text('5222'), findsOneWidget);
     await tester.pumpWidget(_buildTestApp());
     await tester.pump();
 
@@ -28,6 +39,18 @@ void main() {
   testWidgets('Protocol detection works for XMPP addresses', (
     WidgetTester tester,
   ) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AuthService(),
+        child: const MaterialApp(home: LoginScreen()),
+      ),
+    );
+
+    // Find the XMPP address text field by its current placeholder text and enter a new value
+    final addressField = find.widgetWithText(TextField, 'your-username@domain.com');
+    expect(addressField, findsOneWidget);
+
+    await tester.enterText(addressField, 'test@example.com');
     await tester.pumpWidget(_buildTestApp());
     await tester.pump();
 
@@ -35,13 +58,23 @@ void main() {
     await tester.enterText(find.byType(TextField).first, 'test@example.com');
     await tester.pump();
 
-    // The test passes if no exception is thrown during protocol detection
     expect(true, isTrue);
   });
 
   testWidgets('Protocol detection works for IRC addresses', (
     WidgetTester tester,
   ) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AuthService(),
+        child: const MaterialApp(home: LoginScreen()),
+      ),
+    );
+
+    final addressField = find.widgetWithText(TextField, 'your-username@domain.com');
+    expect(addressField, findsOneWidget);
+
+    await tester.enterText(addressField, 'irc.libera.chat');
     await tester.pumpWidget(_buildTestApp());
     await tester.pump();
 
@@ -49,7 +82,6 @@ void main() {
     await tester.enterText(find.byType(TextField).first, 'irc.example.com');
     await tester.pump();
 
-    // The test passes if no exception is thrown during protocol detection
     expect(true, isTrue);
   });
 }

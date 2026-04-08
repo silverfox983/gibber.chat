@@ -570,7 +570,11 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
               _endCallButton(
                 onPressed: () {
                   HapticFeedback.heavyImpact();
-                  call.endCall();
+                  if (call.state == CallState.incoming) {
+                    call.declineCall();
+                  } else {
+                    call.endCall();
+                  }
                 },
               ),
             ],

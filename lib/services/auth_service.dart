@@ -2753,6 +2753,7 @@ class AuthService with ChangeNotifier {
       );
     } catch (e) {
       debugPrint('Discord: Error sending message: $e');
+      rethrow;
     }
   }
 
@@ -3036,6 +3037,40 @@ class AuthService with ChangeNotifier {
     ChatMessage original,
     List<String> targetChatIds, {
     String? accountId,
+    String? targetProtocol,
+  }) async {
+    final curAccountId = accountId ?? _activeAccountId;
+    if (curAccountId == null) return;
+
+    for (var targetId in targetChatIds) {
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      final protocol = targetProtocol ?? _detectForwardProtocol(targetId);
+      if (protocol == 'IRC') {
+        await sendIrcMessage(targetId, original.text, accountId: curAccountId);
+      } else if (protocol == 'Discord') {
+        await sendDiscordMessage(targetId, original.text, accountId: curAccountId);
+      } else {
+        await sendXmppMessage(
+          targetId,
+          original.text,
+          accountId: curAccountId,
+          type: original.type,
+          fileName: original.fileName,
+          filePath: original.filePath,
+        );
+      }
+    }
+  }
+
+  String _detectForwardProtocol(String targetId) {
+    if (_discordConnections.values.any((c) {
+      return true;
+    }) && RegExp(r'^\d+$').hasMatch(targetId)) {
+      return 'Discord';
+    }
+    if (_ircConnections.isNotEmpty && (targetId.startsWith('#') || targetId.startsWith('irc_'))) {
+      return 'IRC';
     List<Conversation>? knownConversations,
   }) async {
     for (var targetChatId in targetChatIds) {
@@ -3085,6 +3120,7 @@ class AuthService with ChangeNotifier {
         );
       }
     }
+    return 'XMPP';
   }
 
   Future<ChatMessage?> fetchQuotedMessage(String msgId) async {

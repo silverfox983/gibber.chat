@@ -609,11 +609,14 @@ class ChatProvider with ChangeNotifier {
   }
 
   @override
+  @override
   void dispose() {
     _authSub?.cancel();
     _contactSub?.cancel();
     _joinedRoomsSub?.cancel();
     _blockedSub?.cancel();
+    _subscriptionSub?.cancel();
+    _roomParticipantSub?.cancel();
     _batchTimer?.cancel();
     super.dispose();
   }

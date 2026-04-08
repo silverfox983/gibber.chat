@@ -438,7 +438,8 @@ class _ContactTile extends StatelessWidget {
                      icon: const Icon(Icons.chat_bubble_rounded),
                      label: const Text('MESSAGE', style: TextStyle(fontWeight: FontWeight.bold)),
                      onPressed: () {
-                        // Logic to switch to chat would go here, probably via chatProvider.setActiveConversation
+                        final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+                        chatProvider.setActiveConversation(contact.id);
                         Navigator.pop(context);
                      },
                    ),

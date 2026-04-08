@@ -2966,6 +2966,17 @@ class _MainChatScreenState extends State<MainChatScreen> {
               ),
               onPressed: () {
                 if (selectedTargets.isNotEmpty) {
+                  for (final targetId in selectedTargets) {
+                    final conv = chatProvider.conversations.firstWhere(
+                      (c) => c.id == targetId,
+                      orElse: () => chatProvider.conversations.first,
+                    );
+                    _authService.forwardMessage(
+                      msg,
+                      [targetId],
+                      targetProtocol: conv.protocol,
+                    );
+                  }
                   _authService.forwardMessage(
                     msg,
                     selectedTargets,

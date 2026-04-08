@@ -400,6 +400,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       }
 
       debugPrint('CallProvider: Session initiate sent');
+      _startCallTimeoutTimer();
       notifyListeners();
     } catch (e) {
       debugPrint('CallProvider: Call failed: $e');
@@ -741,10 +742,6 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       }
       debugPrint('CallProvider: Session initiate dispatched via ${isGateway ? "IQ" : "MESSAGE"}');
 
-      // Play ringback tone
-      _playRingback();
-      debugPrint('CallProvider: Ringback playing');
-
       _state = CallState.outgoing;
       _startCallTimeoutTimer();
       notifyListeners();
@@ -889,26 +886,19 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: Session accept sent');
 
       // Set a timeout - if we don't get media in 20 seconds, fail the call
-      // Note: Even if ICE stays "New", we may still get media through gateway
+      // State stays as incoming until onTrack or ICE connected transitions to active
       debugPrint('CallProvider: Starting media timeout (20 seconds)...');
       _callTimeoutTimer?.cancel();
       _callTimeoutTimer = Timer(const Duration(seconds: 20), () {
-        // Only fail if we're still in outgoing/incoming state (no media received)
-        // If we have a remote track, the call is active regardless of ICE state
         if (_state != CallState.active) {
           debugPrint('CallProvider: Media timeout - no remote track received');
           _lastError = 'Connection timeout - no media received';
           _cleanup(reason: 'media_timeout');
-        } else {
-          debugPrint('CallProvider: Call active despite ICE state: $_iceState');
         }
       });
 
-      _state = CallState.active;
       _stopAllSounds();
-      HapticFeedback.mediumImpact(); // Haptic confirmation of connection
-      _callStartTime ??= DateTime.now();
-      _log('Call accepted', isSent: true);
+      _log('Call accepted, waiting for media', isSent: true);
 
       notifyListeners();
     } catch (e) {
@@ -1347,7 +1337,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     await _soundService.resetAudioContext();
     debugPrint('CallProvider: Audio context reset');
 
-    _lastError = reason;
+    _lastError ??= reason;
     _remoteJid = null;
     _sessionId = null;
     _callAccountId = null;

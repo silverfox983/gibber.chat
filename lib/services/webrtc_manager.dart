@@ -337,6 +337,9 @@ class WebRTCManager {
           _peerConnection!.addTrack(track, _localStream!);
         }
       } else {
+        // Audio-only: add only audio tracks from the existing local stream
+        debugPrint('WebRTC: Audio-only mode: adding audio tracks from local stream');
+        for (var track in _localStream!.getAudioTracks()) {
         // Audio-only: reuse the already-initialized local stream.
         // Creating/discarding a temporary stream here can end tracks prematurely.
         final audioTracks = _localStream!.getAudioTracks();

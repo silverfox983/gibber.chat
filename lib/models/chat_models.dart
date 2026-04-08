@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:convert' as json;
 import 'dart:typed_data';
 
@@ -96,6 +97,7 @@ class ChatMessage {
       'reactions_json': reactions.isEmpty ? null : _encodeReactions(reactions),
       'is_edited': isEdited ? 1 : 0,
       'edit_timestamp': editTimestamp?.toIso8601String(),
+      'reactions': reactions.isNotEmpty ? jsonEncode(reactions) : null,
     };
   }
 
@@ -177,6 +179,11 @@ class ChatMessage {
       editTimestamp: map['edit_timestamp'] != null
           ? DateTime.tryParse(map['edit_timestamp'])
           : null,
+      reactions: map['reactions'] != null
+          ? (jsonDecode(map['reactions']) as Map<String, dynamic>).map(
+              (k, v) => MapEntry(k, List<String>.from(v)),
+            )
+          : {},
     );
   }
 }
