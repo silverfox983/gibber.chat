@@ -240,8 +240,9 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     String statusText = 'Connecting...';
     if (call.state == CallState.incoming) statusText = 'Incoming Call';
     if (call.state == CallState.outgoing) statusText = 'Calling...';
-    if (call.state == CallState.active)
+    if (call.state == CallState.active) {
       statusText = _formatDuration(_callDuration);
+    }
 
     return Column(
       children: [

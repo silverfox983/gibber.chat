@@ -463,8 +463,9 @@ class ChatProvider with ChangeNotifier {
 
   Future<void> syncAll(AuthService authService) async {
     if (_isSyncing ||
-        !(authService.xmppConnected || authService.discordConnected))
+        !(authService.xmppConnected || authService.discordConnected)) {
       return;
+    }
 
     debugPrint('MAM: Starting Global Sync for ${_contacts.length} contacts...');
     _isSyncing = true;

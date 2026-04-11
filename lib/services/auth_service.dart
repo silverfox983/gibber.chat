@@ -3072,7 +3072,7 @@ class AuthService with ChangeNotifier {
     if (_ircConnections.isNotEmpty && (targetId.startsWith('#') || targetId.startsWith('irc_'))) {
       return 'IRC';
     List<Conversation>? knownConversations,
-  }) async {
+  }) String async {
     for (var targetChatId in targetChatIds) {
       // Small randomized delay to avoid server-side rate-limiting during multi-forward
       await Future.delayed(const Duration(milliseconds: 100));

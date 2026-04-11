@@ -81,7 +81,7 @@ class JingleSignalingService {
 
       // Handle XEP-0353 elements (urn:xmpp:jingle-message:0 namespace)
       if (ns == 'urn:xmpp:jingle-message:0') {
-        _processJingleMessageElement(child as xmpp.XmppElement, stanza);
+        _processJingleMessageElement(child, stanza);
         continue;
       }
 
@@ -90,7 +90,7 @@ class JingleSignalingService {
         debugPrint(
           'Jingle: [LEGACY] Received Jingle via MESSAGE from ${stanza.fromJid?.fullJid}',
         );
-        _processJingleElement(child as xmpp.XmppElement, stanza);
+        _processJingleElement(child, stanza);
       }
     }
   }
@@ -278,7 +278,7 @@ class JingleSignalingService {
           final s = c.getChild('description')?.textValue;
           if (s != null && s.isNotEmpty && s.contains('v=0')) {
             sdp = s;
-            debugPrint('Jingle: Found raw SDP, length: ${sdp?.length}');
+            debugPrint('Jingle: Found raw SDP, length: ${sdp.length}');
             break;
           }
         }
@@ -761,7 +761,7 @@ class JingleSignalingService {
           final s = c.getChild('description')?.textValue;
           if (s != null && s.isNotEmpty && s.contains('v=0')) {
             sdp = s;
-            debugPrint('Jingle: Found raw SDP, length: ${sdp?.length}');
+            debugPrint('Jingle: Found raw SDP, length: ${sdp.length}');
             break;
           }
         }
@@ -1029,8 +1029,9 @@ class JingleSignalingService {
       if (l.startsWith('a=ice-pwd:')) sessionPwd = l.substring(10);
       if (l.startsWith('a=fingerprint:')) {
         final parts = l.substring(14).split(' ');
-        if (parts.length == 2)
+        if (parts.length == 2) {
           sessionFingerprints.add({'hash': parts[0], 'value': parts[1]});
+        }
       }
     }
 
@@ -1087,8 +1088,9 @@ class JingleSignalingService {
               codecParts.length > 1 ? codecParts[1] : '8000',
             ),
           );
-          if (codecParts.length > 2)
+          if (codecParts.length > 2) {
             pt.addAttribute(XmppAttribute('channels', codecParts[2]));
+          }
           ptMap[ptId] = pt;
         }
       }
@@ -1121,8 +1123,9 @@ class JingleSignalingService {
           mediaPwd = l.substring(10);
         } else if (l.startsWith('a=fingerprint:')) {
           final fpParts = l.substring(14).split(' ');
-          if (fpParts.length == 2)
+          if (fpParts.length == 2) {
             mediaFingerprints.add({'hash': fpParts[0], 'value': fpParts[1]});
+          }
         }
       }
 
@@ -1326,10 +1329,12 @@ class JingleSignalingService {
 
         // Optional raddr/rport
         for (int i = 8; i < parts.length - 1; i++) {
-          if (parts[i] == 'raddr')
+          if (parts[i] == 'raddr') {
             element.addAttribute(XmppAttribute('rel-addr', parts[i + 1]));
-          if (parts[i] == 'rport')
+          }
+          if (parts[i] == 'rport') {
             element.addAttribute(XmppAttribute('rel-port', parts[i + 1]));
+          }
         }
 
         // Mandatory XEP-0176 attributes

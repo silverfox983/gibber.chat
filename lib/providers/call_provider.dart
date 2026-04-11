@@ -211,7 +211,6 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
   Future<void> _startSipCall(
     String phoneNumber, {
-    String? accountId,
     bool isVideo = false,
   }) async {
     debugPrint('CallProvider: === STARTING SIP CALL ===');
@@ -1113,7 +1112,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       if (state == RTCIceConnectionState.RTCIceConnectionStateChecking) {
         _iceCheckingStartTime = DateTime.now();
         debugPrint(
-          'CallProvider: ICE entered Checking state at ${_iceCheckingStartTime}',
+          'CallProvider: ICE entered Checking state at $_iceCheckingStartTime',
         );
       } else if (state ==
               RTCIceConnectionState.RTCIceConnectionStateConnected ||

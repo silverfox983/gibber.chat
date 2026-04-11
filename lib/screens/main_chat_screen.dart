@@ -3372,8 +3372,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
             ),
             const SizedBox(height: 24),
             ...ContactStatus.values.map((status) {
-              if (status == ContactStatus.offline)
+              if (status == ContactStatus.offline) {
                 return const SizedBox.shrink(); // Use logout for offline
+              }
               return ListTile(
                 leading: Container(
                   width: 12,
@@ -4384,8 +4385,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
           authService.getUploadProgress(activeChat.accountId) ??
           const Stream.empty(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data! <= 0.0 || snapshot.data! >= 1.0)
+        if (!snapshot.hasData || snapshot.data! <= 0.0 || snapshot.data! >= 1.0) {
           return const SizedBox.shrink();
+        }
 
         final progress = snapshot.data!;
         return Container(
