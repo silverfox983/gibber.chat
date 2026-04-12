@@ -2977,11 +2977,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       targetProtocol: conv.protocol,
                     );
                   }
-                  _authService.forwardMessage(
-                    msg,
-                    selectedTargets,
-                    knownConversations: chatProvider.conversations,
-                  );
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(

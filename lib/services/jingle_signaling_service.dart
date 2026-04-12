@@ -62,6 +62,11 @@ class JingleSignalingService {
     debugPrint('Jingle: Listening for incoming stanzas');
   }
 
+  void dispose() {
+    _stanzaSubscription?.cancel();
+    _eventController.close();
+  }
+
   void _handleIncomingStanza(dynamic stanza) {
     // Handle Jingle in IQ stanzas (standard Jingle)
     if (stanza is xmpp.IqStanza) {
@@ -335,7 +340,7 @@ class JingleSignalingService {
     }
   }
 
-  /// XEP-0353: Send <propose/> via MESSAGE stanza
+  /// XEP-0353: Send ` <propose/> ` via MESSAGE stanza
   /// Following XEP-0353: send propose first, wait for proceed, then send IQ
   void sendSessionInitiateViaMessage(
     String toJid,
@@ -407,7 +412,7 @@ class JingleSignalingService {
   }
 
   /// Send actual Jingle session-initiate via IQ stanza
-  /// Called after receiving <proceed/> from the remote party
+  /// Called after receiving ` <proceed/> ` from the remote party
   void sendSessionInitiateIq(
     String toJid,
     String sessionId,
@@ -1347,9 +1352,5 @@ class JingleSignalingService {
     } catch (e) {
       debugPrint('Error parsing candidate attributes: $e');
     }
-  }
-
-  void dispose() {
-    _eventController.close();
   }
 }

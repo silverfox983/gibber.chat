@@ -1,13 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:chat_app/main.dart';
+import 'package:gibber/main.dart';
+import 'package:gibber/services/database_service.dart';
 import 'package:flutter/material.dart';
 
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    DatabaseService.testPath = ':memory:';
     SharedPreferences.setMockInitialValues({});
   });
 
@@ -19,21 +21,10 @@ void main() {
     }
   }
 
-  testWidgets('App loads successfully and shows Login screen', (
-    WidgetTester tester,
-  ) async {
-    await pumpApp(tester);
-  setUpAll(() async {
-    TestWidgetsFlutterBinding.ensureInitialized();
-    SharedPreferences.setMockInitialValues({});
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
   testWidgets('App loads successfully and shows login UI', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const ChatApp());
+    await pumpApp(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('Gibber'), findsOneWidget);
@@ -56,12 +47,15 @@ void main() {
     expect(find.text('Connect Now'), findsOneWidget);
     expect(find.textContaining('Password'), findsOneWidget);
     expect(find.textContaining('Keep me logged in'), findsOneWidget);
+  });
+
   testWidgets('Protocol detection switches to IRC fields', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const ChatApp());
     await tester.pumpAndSettle();
 
+    // The first TextField is usually the JID/Server field
     await tester.enterText(find.byType(TextField).first, 'irc.example.com');
     await tester.pump();
 

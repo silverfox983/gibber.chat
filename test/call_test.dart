@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chat_app/services/webrtc_manager.dart';
+import 'package:gibber/services/webrtc_manager.dart';
 
 void main() {
   test('WebRTCManager can be instantiated', () {

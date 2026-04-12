@@ -1,0 +1,12 @@
+Analyzing gibber...                                             
+
+warning • The declaration '_autoRegisterSip' isn't referenced. Try removing the declaration of '_autoRegisterSip' • lib/providers/call_provider.dart:146:16 • unused_element
+warning • The declaration '_startSipCall' isn't referenced. Try removing the declaration of '_startSipCall' • lib/providers/call_provider.dart:212:16 • unused_element
+warning • The declaration '_circleButton' isn't referenced. Try removing the declaration of '_circleButton' • lib/screens/call_screen.dart:707:10 • unused_element
+warning • The declaration '_actionButton' isn't referenced. Try removing the declaration of '_actionButton' • lib/screens/call_screen.dart:740:10 • unused_element
+warning • The value of the field '_stanzaSubscription' isn't used. Try removing the field, or using it • lib/services/jingle_signaling_service.dart:52:23 • unused_field
+   info • Angle brackets will be interpreted as HTML. Try using backticks around the content with angle brackets, or try replacing `<` with `&lt;` and `>` with `&gt;` • lib/services/jingle_signaling_service.dart:338:22 • unintended_html_in_doc_comment
+   info • Angle brackets will be interpreted as HTML. Try using backticks around the content with angle brackets, or try replacing `<` with `&lt;` and `>` with `&gt;` • lib/services/jingle_signaling_service.dart:410:30 • unintended_html_in_doc_comment
+warning • The declaration '_stripVideoFromOffer' isn't referenced. Try removing the declaration of '_stripVideoFromOffer' • lib/services/webrtc_manager.dart:1049:10 • unused_element
+
+8 issues found. (ran in 29.3s)

@@ -110,8 +110,6 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _authService!.setJingleProceedCallback(_onJingleProceedReceived);
 
     await _initializeSipService();
-    // SIP auto-registration disabled (using stable XMPP Jingle for phone calls)
-    // _autoRegisterSip();
 
     // ATTACH: Observe App Lifecycle to handle background leaks
     WidgetsBinding.instance.addObserver(this);
@@ -141,30 +139,6 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         _cleanup(reason: 'timeout');
       }
     });
-  }
-
-  Future<void> _autoRegisterSip() async {
-    final accountId = _authService?.activeAccountId;
-    if (accountId == null) return;
-
-    debugPrint('CallProvider: Auto-registering SIP for $accountId');
-    final password = await _authService?.getActiveAccountPassword();
-
-    debugPrint('CallProvider: SIP registering with account: $accountId');
-    debugPrint('CallProvider: SIP WebSocket URL: wss://cheogram.com:10443');
-
-    await _sipService?.register(
-      sipUri: accountId,
-      wsUrl: 'wss://cheogram.com:10443',
-      password: password ?? '',
-      displayName: 'Flutter User',
-    );
-
-    // Wait for registration
-    await Future.delayed(const Duration(seconds: 3));
-    debugPrint(
-      'CallProvider: SIP auto-registered: ${_sipService?.isRegistered ?? false}',
-    );
   }
 
   Future<void> _initializeSipService() async {
@@ -207,93 +181,6 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     });
 
     debugPrint('CallProvider: SIP service initialized');
-  }
-
-  Future<void> _startSipCall(
-    String phoneNumber, {
-    bool isVideo = false,
-  }) async {
-    debugPrint('CallProvider: === STARTING SIP CALL ===');
-    debugPrint('CallProvider: Phone number: $phoneNumber');
-
-    _isSipCall = true;
-    _isVideo = isVideo;
-    _remoteJid = phoneNumber;
-
-    // Request microphone permission
-    final micStatus = await Permission.microphone.request();
-    if (micStatus != PermissionStatus.granted) {
-      _permissionError = 'Microphone permission denied';
-      _state = CallState.idle;
-      _isSipCall = false;
-      notifyListeners();
-      return;
-    }
-
-    _state = CallState.outgoing;
-    _remoteJid = phoneNumber;
-    _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
-    _log('Outgoing SIP call to $phoneNumber', isSent: true);
-    _playRingback();
-    notifyListeners();
-
-    // Check if SIP is configured with credentials
-    final accountId = _authService?.activeAccountId;
-    if (_sipService == null || !_sipService!.isRegistered) {
-      debugPrint(
-        'CallProvider: SIP not registered, registering with cheogram SIP...',
-      );
-      debugPrint('CallProvider: Account ID: $accountId');
-
-      if (accountId != null) {
-        final password = await _authService?.getActiveAccountPassword();
-
-        if (_sipService == null) {
-          await _initializeSipService();
-        }
-
-        // Pass full account ID for SIP URI
-        debugPrint('CallProvider: Registering SIP with account: $accountId');
-        debugPrint('CallProvider: SIP WebSocket URL: wss://cheogram.com:10443');
-
-        await _sipService?.register(
-          sipUri: accountId,
-          wsUrl: 'wss://cheogram.com:10443',
-          password: password ?? '',
-          displayName: 'Flutter User',
-        );
-
-        debugPrint('CallProvider: Waiting for SIP registration...');
-        // Wait longer for SIP registration to complete
-        await Future.delayed(const Duration(seconds: 5));
-
-        debugPrint(
-          'CallProvider: SIP registered: ${_sipService?.isRegistered ?? false}',
-        );
-      }
-
-      // If still not registered, fall back to XMPP Jingle
-      if (_sipService == null || !_sipService!.isRegistered) {
-        debugPrint(
-          'CallProvider: SIP registration failed, falling back to XMPP Jingle for phone call',
-        );
-        _isSipCall = false;
-        await _stopAllSounds();
-        await _startXmppCall(phoneNumber, accountId: accountId);
-        return;
-      }
-    }
-
-    // Make the SIP call
-    final success = await _sipService!.call(phoneNumber, video: isVideo);
-    if (!success) {
-      debugPrint('CallProvider: SIP call failed to start');
-      _lastError = 'Failed to connect SIP call';
-      _state = CallState.idle;
-      _isSipCall = false;
-      await _stopAllSounds();
-      notifyListeners();
-    }
   }
 
   Future<void> _startXmppCall(

@@ -339,7 +339,6 @@ class WebRTCManager {
       } else {
         // Audio-only: add only audio tracks from the existing local stream
         debugPrint('WebRTC: Audio-only mode: adding audio tracks from local stream');
-        for (var track in _localStream!.getAudioTracks()) {
         // Audio-only: reuse the already-initialized local stream.
         // Creating/discarding a temporary stream here can end tracks prematurely.
         final audioTracks = _localStream!.getAudioTracks();
@@ -1045,47 +1044,6 @@ class WebRTCManager {
     } catch (e) {
       debugPrint('WebRTC: Error accessing tracks for stop: $e');
     }
-  }
-
-  String _stripVideoFromOffer(String sdp) {
-    final lines = sdp.split('\n');
-    final result = <String>[];
-    bool inVideoSection = false;
-
-    for (var line in lines) {
-      final trimmed = line.trim();
-
-      if (trimmed.startsWith('m=video')) {
-        inVideoSection = true;
-        debugPrint('WebRTC: Found video m= line, skipping');
-        continue;
-      }
-
-      if (inVideoSection) {
-        if (trimmed.startsWith('m=') || trimmed.isEmpty) {
-          inVideoSection = false;
-          result.add(line);
-        }
-        continue;
-      }
-
-      if (trimmed.startsWith('a=group:BUNDLE')) {
-        final parts = trimmed.split(RegExp(r'\s+'));
-        final newParts = <String>[parts[0]];
-        for (var part in parts.skip(1)) {
-          if (part != '1') {
-            newParts.add(part);
-          }
-        }
-        result.add(newParts.join(' '));
-        debugPrint('WebRTC: Modified BUNDLE: ${newParts.join(' ')}');
-        continue;
-      }
-
-      result.add(line);
-    }
-
-    return result.join('\n');
   }
 
   Future<void> dispose() async {

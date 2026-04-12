@@ -56,11 +56,6 @@ void main() {
       );
     };
 
-    // NATIVE HEARTBEAT (Isolate Death Watch)
-    Timer.periodic(const Duration(seconds: 1), (timer) {
-      debugPrint('HEARTBEAT: ISOLATE ALIVE (Epoch: ${DateTime.now().millisecondsSinceEpoch})');
-    });
-
     runApp(const ChatApp());
   }, (error, stack) {
     debugPrint('ZONED ERROR (CAUGHT BY WATCHDOG): $error\n$stack');
@@ -94,12 +89,6 @@ class _ChatAppState extends State<ChatApp> {
 
   void _initializeProviders() {
     try {
-      _errorSource = 'Database';
-      if (Platform.isWindows || Platform.isLinux) {
-        sqfliteFfiInit();
-        databaseFactory = databaseFactoryFfi;
-      }
-
       _errorSource = 'AuthService';
       _authService = AuthService();
       
@@ -137,7 +126,6 @@ class _ChatAppState extends State<ChatApp> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('HEARTBEAT: App Build Running [isInitialized: ${_authService != null}]');
     if (_startupError != null) {
       return MaterialApp(
         home: Scaffold(
@@ -244,18 +232,5 @@ class _AuthenticationWrapperState extends State<AuthenticationWrapper> {
       debugPrint('AUTH_WRAPPER: Rendering LOGIN SCREEN (Auth: false)');
       return Container(color: pulseColor, child: const LoginScreen());
     }
-
-    // THE VOID CATCHER
-    // If you see a BRIGHT WHITE screen, the navigation logic above has a hole.
-    // ignore: dead_code
-    return const Scaffold(
-      backgroundColor: Colors.white, // PURE WHITE DIAGNOSTIC
-      body: Center(
-        child: Text(
-          'THE VOID CATCHER: LOGIC FALL-THROUGH',
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
   }
 }

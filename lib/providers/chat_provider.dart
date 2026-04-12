@@ -610,7 +610,6 @@ class ChatProvider with ChangeNotifier {
   }
 
   @override
-  @override
   void dispose() {
     _authSub?.cancel();
     _contactSub?.cancel();

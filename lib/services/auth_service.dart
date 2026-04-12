@@ -3071,54 +3071,6 @@ class AuthService with ChangeNotifier {
     }
     if (_ircConnections.isNotEmpty && (targetId.startsWith('#') || targetId.startsWith('irc_'))) {
       return 'IRC';
-    List<Conversation>? knownConversations,
-  }) String async {
-    for (var targetChatId in targetChatIds) {
-      // Small randomized delay to avoid server-side rate-limiting during multi-forward
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      final targetConversation = knownConversations?.cast<Conversation?>().firstWhere(
-        (c) => c?.id == targetChatId,
-        orElse: () => null,
-      );
-      final protocol = targetConversation?.protocol.toUpperCase();
-      final targetAccountId =
-          targetConversation?.accountId ?? accountId ?? _activeAccountId;
-      if (targetAccountId == null) continue;
-
-      if (protocol == 'DISCORD' || _discordConnections.containsKey(targetAccountId)) {
-        await sendDiscordMessage(
-          targetChatId,
-          original.type == MessageType.text ? original.text : '',
-          accountId: targetAccountId,
-          file: original.filePath != null ? File(original.filePath!) : null,
-          type: original.type,
-          fileName: original.fileName,
-        );
-      } else if (protocol == 'IRC' || _ircConnections.containsKey(targetAccountId)) {
-        // IRC supports text-only forwarding in this client.
-        final textToForward = original.text.isNotEmpty
-            ? original.text
-            : (original.fileName != null
-                  ? 'Forwarded file: ${original.fileName}'
-                  : '[Forwarded message]');
-        await sendIrcMessage(
-          targetChatId,
-          textToForward,
-          accountId: targetAccountId,
-          isGroup: targetConversation?.isGroup ?? targetChatId.startsWith('#'),
-        );
-      } else {
-        await sendXmppMessage(
-          targetChatId,
-          original.text,
-          accountId: targetAccountId,
-          type: original.type,
-          fileName: original.fileName,
-          filePath: original.filePath,
-          isGroup: targetConversation?.isGroup ?? false,
-        );
-      }
     }
     return 'XMPP';
   }
@@ -3128,6 +3080,8 @@ class AuthService with ChangeNotifier {
   }
 
   // Next method...
+
+
 
   // Send Retraction (XEP-0424)
   Future<void> retractXmppMessage(

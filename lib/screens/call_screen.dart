@@ -704,64 +704,6 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _circleButton({
-    required IconData icon,
-    required String label,
-    required bool isActive,
-    Color? color,
-    required VoidCallback onPressed,
-  }) {
-    return Column(
-      children: [
-        IconButton(
-          onPressed: onPressed,
-          icon: Icon(
-            icon,
-            color: color ?? (isActive ? Colors.white : Colors.white24),
-            size: 28,
-          ),
-          style: IconButton.styleFrom(
-            backgroundColor: isActive
-                ? (color?.withValues(alpha: 0.1) ??
-                      Colors.white.withValues(alpha: 0.1))
-                : Colors.transparent,
-            padding: const EdgeInsets.all(16),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: const TextStyle(color: Colors.white70, fontSize: 12),
-        ),
-      ],
-    );
-  }
-
-  Widget _actionButton({
-    required IconData icon,
-    required Color color,
-    required VoidCallback onPressed,
-  }) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.4),
-              blurRadius: 20,
-              spreadRadius: 5,
-            ),
-          ],
-        ),
-        child: Icon(icon, color: Colors.white, size: 36),
-      ),
-    );
-  }
-
   String _formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final minutes = twoDigits(d.inMinutes.remainder(60));

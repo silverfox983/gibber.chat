@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chat_app/services/backup_service.dart';
-import 'package:chat_app/services/auth_service.dart';
+import 'package:gibber/services/backup_service.dart';
+import 'package:gibber/services/auth_service.dart';
 
 void main() {
   late BackupService backupService;

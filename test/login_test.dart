@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chat_app/screens/login_screen.dart';
-import 'package:chat_app/services/auth_service.dart';
+import 'package:gibber/screens/login_screen.dart';
+import 'package:gibber/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 

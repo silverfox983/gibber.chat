@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chat_app/services/omemo_service.dart';
+import 'package:gibber/services/omemo_service.dart';
+import 'package:gibber/services/database_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -9,6 +10,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    DatabaseService.testPath = ':memory:';
     SharedPreferences.setMockInitialValues({});
   });
 

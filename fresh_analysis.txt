@@ -1,0 +1,20 @@
+Analyzing gibber...                                             
+
+warning • The declaration '_autoRegisterSip' isn't referenced. Try removing the declaration of '_autoRegisterSip' • lib/providers/call_provider.dart:146:16 • unused_element
+warning • The declaration '_startSipCall' isn't referenced. Try removing the declaration of '_startSipCall' • lib/providers/call_provider.dart:212:16 • unused_element
+warning • The declaration '_circleButton' isn't referenced. Try removing the declaration of '_circleButton' • lib/screens/call_screen.dart:707:10 • unused_element
+warning • The declaration '_actionButton' isn't referenced. Try removing the declaration of '_actionButton' • lib/screens/call_screen.dart:740:10 • unused_element
+warning • The value of the field '_stanzaSubscription' isn't used. Try removing the field, or using it • lib/services/jingle_signaling_service.dart:52:23 • unused_field
+   info • Angle brackets will be interpreted as HTML. Try using backticks around the content with angle brackets, or try replacing `<` with `&lt;` and `>` with `&gt;` • lib/services/jingle_signaling_service.dart:338:22 • unintended_html_in_doc_comment
+   info • Angle brackets will be interpreted as HTML. Try using backticks around the content with angle brackets, or try replacing `<` with `&lt;` and `>` with `&gt;` • lib/services/jingle_signaling_service.dart:410:30 • unintended_html_in_doc_comment
+warning • The declaration '_stripVideoFromOffer' isn't referenced. Try removing the declaration of '_stripVideoFromOffer' • lib/services/webrtc_manager.dart:1049:10 • unused_element
+   info • The imported package 'gibber' isn't a dependency of the importing package. Try adding a dependency for 'gibber' in the 'pubspec.yaml' file • test/chat_app_test.dart:4:8 • depend_on_referenced_packages
+  error • Target of URI doesn't exist: 'package:gibber/main.dart'. Try creating the file referenced by the URI, or try using a URI for a file that does exist • test/chat_app_test.dart:4:8 • uri_does_not_exist
+  error • The name 'ChatApp' isn't a class. Try correcting the name to match an existing class • test/chat_app_test.dart:15:35 • creation_with_non_type
+  error • The name 'ChatApp' isn't a class. Try correcting the name to match an existing class • test/chat_app_test.dart:53:35 • creation_with_non_type
+  error • The name 'ChatApp' isn't a class. Try correcting the name to match an existing class • test/chat_app_test.dart:66:35 • creation_with_non_type
+  error • Expected to find ';' • test/widget_test.dart:35:1 • expected_token
+  error • Expected to find ')' • test/widget_test.dart:36:1 • expected_token
+  error • Expected to find '}' • test/widget_test.dart:36:1 • expected_token
+
+16 issues found. (ran in 35.1s)

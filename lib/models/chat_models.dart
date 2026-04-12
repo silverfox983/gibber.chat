@@ -179,11 +179,6 @@ class ChatMessage {
       editTimestamp: map['edit_timestamp'] != null
           ? DateTime.tryParse(map['edit_timestamp'])
           : null,
-      reactions: map['reactions'] != null
-          ? (jsonDecode(map['reactions']) as Map<String, dynamic>).map(
-              (k, v) => MapEntry(k, List<String>.from(v)),
-            )
-          : {},
     );
   }
 }

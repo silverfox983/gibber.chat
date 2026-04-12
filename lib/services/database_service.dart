@@ -10,6 +10,7 @@ class DatabaseService {
   factory DatabaseService() => _instance;
   DatabaseService._internal();
 
+  static String? testPath;
   Database? _database;
 
   Future<Database> get database async {
@@ -19,7 +20,7 @@ class DatabaseService {
   }
 
   Future<Database> _initDatabase() async {
-    String path = join(await getDatabasesPath(), 'pidgin_chat.db');
+    String path = testPath ?? join(await getDatabasesPath(), 'pidgin_chat.db');
     return await openDatabase(
       path,
       version: 10,
@@ -44,7 +45,7 @@ class DatabaseService {
             replaces_id TEXT,
             is_edited INTEGER DEFAULT 0,
             edit_timestamp TEXT,
-            reactions TEXT
+            reactions TEXT,
             reactions_json TEXT,
             reply_preview TEXT
           )
@@ -191,6 +192,8 @@ class DatabaseService {
         if (oldVersion < 10) {
           await db.execute(
             'ALTER TABLE messages ADD COLUMN reactions TEXT',
+          );
+          await db.execute(
             'ALTER TABLE messages ADD COLUMN reactions_json TEXT',
           );
           await db.execute(
