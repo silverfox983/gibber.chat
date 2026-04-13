@@ -478,6 +478,38 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       return;
     }
 
+    // SIP PROTOCOL - route explicitly through SipService
+    if (activeProtocol == 'SIP') {
+      if (_sipService != null && _sipService!.isRegistered) {
+        _isSipCall = true;
+        _state = CallState.outgoing;
+        _remoteJid = toJid;
+        _callAccountId = accountId;
+        _isVideo = isVideo;
+        await _soundService.setCallAudioContext(isVideo: isVideo);
+        _applyDefaultSpeakerRoute(
+          isVideo: isVideo,
+          source: 'start_call_sip',
+        );
+        _log(
+          'Outgoing SIP ${isVideo ? "video" : "voice"} call started',
+          isSent: true,
+        );
+        _playRingback();
+        notifyListeners();
+        final success = await _sipService!.call(toJid, video: isVideo);
+        if (!success) {
+          _lastError = 'SIP call failed to start.';
+          _cleanup(reason: 'failed');
+        }
+      } else {
+        _lastError = 'SIP service not available or not registered.';
+        _state = CallState.idle;
+        notifyListeners();
+      }
+      return;
+    }
+
     // PHONE NUMBER DETECTION - Route through XMPP Jingle for phone calls (More stable than SIP)
     // Check if it looks like a phone number (contains digits, maybe with +)
     final cleanNumber = toJid.replaceAll(RegExp(r'[^\d+]'), '');

@@ -261,7 +261,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   bool _canStartVoiceCall(Conversation chat) {
-    return chat.protocol == 'XMPP' || _isDiscordVoiceChat(chat);
+    // All protocols support audio calls except IRC.
+    return chat.protocol != 'IRC';
   }
 
   bool _canStartVideoCall(Conversation chat) {
@@ -1165,14 +1166,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     ),
                   ),
                 if (_canStartVideoCall(activeChat))
-                if (activeChat.protocol == 'XMPP' || activeChat.protocol == 'Discord') ...[
-                  const PopupMenuItem(
-                    value: 'call',
-                    child: ListTile(
-                      leading: Icon(Icons.call_outlined),
-                      title: Text('Voice Call'),
-                    ),
-                  ),
                   const PopupMenuItem(
                     value: 'video',
                     child: ListTile(
@@ -1180,7 +1173,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       title: Text('Video Call'),
                     ),
                   ),
-                ],
                 const PopupMenuItem(
                   value: 'security',
                   child: ListTile(
