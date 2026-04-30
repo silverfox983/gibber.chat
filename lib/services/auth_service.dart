@@ -753,6 +753,8 @@ class AuthService with ChangeNotifier {
         domain,
       );
 
+      final Completer<void> connectionCompleter = Completer<void>();
+
       final accountSettings = xmpp.XmppAccountSettings(
         jid.fullJid ?? fullJidStr,
         jid.local,
@@ -793,6 +795,9 @@ class AuthService with ChangeNotifier {
         debugPrint('XMPP Account $id State: $state');
         notifyListeners();
         if (state == xmpp.XmppConnectionState.Ready) {
+          if (!connectionCompleter.isCompleted) {
+             connectionCompleter.complete();
+          }
           _xmppConnecting = false;
           _activeAccountId ??= id;
           _authenticatedAccountIds.add(id); // Track user intent
@@ -1636,12 +1641,21 @@ class AuthService with ChangeNotifier {
         } else if (state == xmpp.XmppConnectionState.AuthenticationFailure) {
           _xmppConnecting = false;
           _lastDiagnostic = 'Authentication failed. Check your username and password.';
+          conn.close();
+          _xmppProxies[id]?.stop();
+          if (!connectionCompleter.isCompleted) connectionCompleter.completeError(Exception(_lastDiagnostic));
         } else if (state == xmpp.XmppConnectionState.AuthenticationNotSupported) {
           _xmppConnecting = false;
           _lastDiagnostic = 'Server does not support any compatible authentication method.';
+          conn.close();
+          _xmppProxies[id]?.stop();
+          if (!connectionCompleter.isCompleted) connectionCompleter.completeError(Exception(_lastDiagnostic));
         } else if (state == xmpp.XmppConnectionState.StartTlsFailed) {
           _xmppConnecting = false;
           _lastDiagnostic = 'TLS handshake failed. The server may not support secure connections on this port.';
+          conn.close();
+          _xmppProxies[id]?.stop();
+          if (!connectionCompleter.isCompleted) connectionCompleter.completeError(Exception(_lastDiagnostic));
         } else if (state == xmpp.XmppConnectionState.Closed ||
             state == xmpp.XmppConnectionState.ForcefullyClosed) {
           _xmppConnecting = false;
@@ -1649,11 +1663,15 @@ class AuthService with ChangeNotifier {
             _lastDiagnostic = state == xmpp.XmppConnectionState.ForcefullyClosed
                 ? 'Connection was forcefully closed by the server.'
                 : 'Connection closed before authentication completed.';
+            conn.close();
+            _xmppProxies[id]?.stop();
+            if (!connectionCompleter.isCompleted) connectionCompleter.completeError(Exception(_lastDiagnostic));
           }
         }
       }, onError: _handleXmppStreamError);
 
       conn.connect();
+      await connectionCompleter.future;
     } catch (e) {
       debugPrint('XMPP Proxy Error: $e');
       rethrow;
