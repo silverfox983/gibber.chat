@@ -314,8 +314,6 @@ class OmemoService {
     // Add IV
     header.addChild(xmpp.XmppElement()..name = 'iv'..textValue = base64Encode(iv));
 
-    final keysElement = xmpp.XmppElement()..name = 'keys';
-
     // Get recipient devices
     final store = SQLiteSignalStore();
     List<Map<String, dynamic>> devices = await store.getIdentitiesForJid(bareJid);
@@ -368,7 +366,7 @@ class OmemoService {
         if (encryptedKey.getType() == CiphertextMessage.PREKEY_TYPE) {
           keyElement.addAttribute(xmpp.XmppAttribute('prekey', 'true'));
         }
-        keysElement.addChild(keyElement);
+        header.addChild(keyElement);
         addedKeys = true;
       } catch (e) {
         debugPrint('OMEMO: Failed to encrypt for device $rDeviceId: $e');
@@ -376,8 +374,6 @@ class OmemoService {
     }
 
     if (!addedKeys) return null;
-
-    header.addChild(keysElement);
 
     encryptedElement.addChild(header);
     encryptedElement.addChild(xmpp.XmppElement()..name = 'payload'..textValue = base64Encode(Uint8List.fromList(ciphertext + tag)));
