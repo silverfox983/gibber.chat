@@ -236,13 +236,17 @@ class XmppProxyService {
     
     if (result.matchedMarker == '<starttls') {
       final r2 = await _pollRawUntil(rawSocket, ['>'], existingSub: result.sub, initialData: result.accumulated);
+      print('!!! PROXY_DIAG: Handshake step 2 (Features End) reached.');
       await Future.delayed(const Duration(milliseconds: 50));
       
       final r3Future = _pollRawUntil(rawSocket, ['<proceed'], existingSub: r2.sub, initialData: r2.accumulated);
-      rawSocket.write(utf8.encode("<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>"));
+      final startTlsTag = "<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>";
+      final written = rawSocket.write(utf8.encode(startTlsTag));
+      print('!!! PROXY_DIAG: [Probe Write] Sending STARTTLS ($written bytes) -> $startTlsTag');
       final r3 = await r3Future;
       
       final r4 = await _pollRawUntil(rawSocket, ['>'], existingSub: r3.sub, initialData: r3.accumulated);
+      print('!!! PROXY_DIAG: Handshake step 4 (Proceed End) reached.');
       
       r4.sub?.pause();
       final rawSecure = await RawSecureSocket.secure(rawSocket, subscription: r4.sub as StreamSubscription<RawSocketEvent>?, onBadCertificate: (cert) => true).timeout(_connectionTimeout);
@@ -313,6 +317,7 @@ class XmppProxyService {
     }
 
     void onData(dynamic event) {
+      print('!!! PROXY_DIAG: [onData Event] $event');
       if (event == RawSocketEvent.read) {
         Uint8List? bytes;
         while ((bytes = socket.read()) != null) {
