@@ -697,7 +697,13 @@ class AuthService with ChangeNotifier {
       'vcard_${DateTime.now().millisecondsSinceEpoch}_${jid.hashCode}',
       xmpp.IqStanzaType.GET,
     );
-    iq.toJid = xmpp.Jid.fromFullJid(jid);
+    
+    // XEP-0054: Do NOT include a 'to' address when requesting your own vCard.
+    final myBareJid = _xmppJids[accountId]?.split('/').first.toLowerCase();
+    if (cleanJid != myBareJid) {
+      iq.toJid = xmpp.Jid.fromFullJid(jid);
+    }
+    
     final vcard = xmpp.XmppElement();
     vcard.name = 'vCard';
     vcard.addAttribute(xmpp.XmppAttribute('xmlns', 'vcard-temp'));
@@ -959,13 +965,17 @@ class AuthService with ChangeNotifier {
                     photo != null ||
                     fullName != null ||
                     desc != null) {
+                  
+                  // XEP-0054: Server omits 'from' if it's our own vCard.
+                  final responseJid = stanza.fromJid?.fullJid ?? _xmppJids[id]?.split('/').first ?? '';
+
                   if (photo != null) {
                     try {
                       final bytes = base64Decode(
                         photo.replaceAll(RegExp(r'\s+'), ''),
                       );
                       AvatarCacheService().saveAvatar(
-                        stanza.fromJid?.fullJid ?? '',
+                        responseJid,
                         bytes,
                       );
                     } catch (e) {
@@ -975,10 +985,9 @@ class AuthService with ChangeNotifier {
 
                   // Update local profile if it's our JID
                   final myJid = _xmppJids[id];
-                  final fromJidStr = stanza.fromJid?.fullJid;
-                  if (fromJidStr != null &&
+                  if (responseJid.isNotEmpty &&
                       myJid != null &&
-                      fromJidStr.toLowerCase().startsWith(
+                      responseJid.toLowerCase().startsWith(
                         myJid.split('/').first.toLowerCase(),
                       )) {
                     if (_currentProfile != null) {
@@ -987,16 +996,17 @@ class AuthService with ChangeNotifier {
                       _currentProfile!.nickName = nick;
                       _currentProfile!.bio = desc;
                       notifyListeners();
+                      debugPrint('SYNC: Synced local profile avatar/vCard from server.');
                     }
                   }
 
                   _messageStreamController.add(
                     ChatMessage(
-                      id: 'vcard_${stanza.fromJid?.fullJid}',
+                      id: 'vcard_$responseJid',
                       text: 'UPDATE_PROFILE',
                       timestamp: DateTime.now(),
                       isSent: false,
-                      senderId: stanza.fromJid?.fullJid,
+                      senderId: responseJid,
                       senderName: fullName ?? nick,
                       type: MessageType.system,
                     ),
