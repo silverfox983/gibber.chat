@@ -230,7 +230,7 @@ class XmppProxyService {
     
     // Attach listener FIRST to prevent race condition if server responds instantly
     final resultFuture = _pollRawUntil(rawSocket, ['<starttls', '</stream:features>']);
-    debugPrint('Proxy: [Probe Write] $resolved:$port -> $cleanTag');
+    print('!!! PROXY_DIAG: [Probe Write] $resolved:$port (Packet Size: ${initialPacket.length}) -> $cleanTag');
     rawSocket.write(utf8.encode(cleanTag));
     final result = await resultFuture;
     
@@ -292,7 +292,7 @@ class XmppProxyService {
         while ((bytes = socket.read()) != null) {
           final chunk = utf8.decode(bytes!, allowMalformed: true);
           accumulated += chunk;
-          debugPrint('Proxy: [Probe Read] Accumulated ${accumulated.length} bytes. Last chunk: $chunk');
+          print('!!! PROXY_DIAG: [Probe Read] Accumulated ${accumulated.length} bytes. Last chunk: $chunk');
           for (final marker in markers) {
              if (accumulated.contains(marker)) {
                 sub?.pause();
