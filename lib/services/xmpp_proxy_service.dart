@@ -235,14 +235,14 @@ class XmppProxyService {
     final result = await resultFuture;
     
     if (result.matchedMarker == '<starttls') {
-      final r2 = await _pollRawUntil(rawSocket, ['>'], existingSub: result.sub);
+      final r2 = await _pollRawUntil(rawSocket, ['>'], existingSub: result.sub, initialData: result.accumulated);
       await Future.delayed(const Duration(milliseconds: 50));
       
-      final r3Future = _pollRawUntil(rawSocket, ['<proceed'], existingSub: r2.sub);
+      final r3Future = _pollRawUntil(rawSocket, ['<proceed'], existingSub: r2.sub, initialData: r2.accumulated);
       rawSocket.write(utf8.encode("<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>"));
       final r3 = await r3Future;
       
-      final r4 = await _pollRawUntil(rawSocket, ['>'], existingSub: r3.sub);
+      final r4 = await _pollRawUntil(rawSocket, ['>'], existingSub: r3.sub, initialData: r3.accumulated);
       
       r4.sub?.pause();
       final rawSecure = await RawSecureSocket.secure(rawSocket, subscription: r4.sub as StreamSubscription<RawSocketEvent>?, onBadCertificate: (cert) => true).timeout(_connectionTimeout);
@@ -281,10 +281,36 @@ class XmppProxyService {
     return RawToSocket(rawSecure, result.accumulated, result.sub as StreamSubscription<RawSocketEvent>?);
   }
 
-  Future<_PollResult> _pollRawUntil(dynamic socket, List<String> markers, {StreamSubscription? existingSub}) async {
+  Future<_PollResult> _pollRawUntil(dynamic socket, List<String> markers, {StreamSubscription? existingSub, String initialData = ""}) async {
     final completer = Completer<_PollResult>();
-    String accumulated = "";
+    String accumulated = initialData;
     StreamSubscription? sub = existingSub;
+
+    bool checkMarkers() {
+      for (final marker in markers) {
+         if (accumulated.contains(marker)) {
+            sub?.pause();
+            if (!completer.isCompleted) completer.complete(_PollResult(accumulated, marker, sub));
+            return true;
+         }
+      }
+      if (accumulated.contains('HTTP/1.') || accumulated.contains('<html>')) {
+         sub?.cancel();
+         if (!completer.isCompleted) completer.completeError('Detected Web Server instead of XMPP');
+         return true;
+      }
+      if (accumulated.contains('<failure') || accumulated.contains('<error')) {
+         sub?.cancel();
+         if (!completer.isCompleted) completer.completeError('XMPP Error');
+         return true;
+      }
+      return false;
+    }
+
+    // 1. Immediate check for data already in the accumulator
+    if (checkMarkers()) {
+      return completer.future;
+    }
 
     void onData(dynamic event) {
       if (event == RawSocketEvent.read) {
@@ -293,23 +319,7 @@ class XmppProxyService {
           final chunk = utf8.decode(bytes!, allowMalformed: true);
           accumulated += chunk;
           print('!!! PROXY_DIAG: [Probe Read] Accumulated ${accumulated.length} bytes. Last chunk: $chunk');
-          for (final marker in markers) {
-             if (accumulated.contains(marker)) {
-                sub?.pause();
-                if (!completer.isCompleted) completer.complete(_PollResult(accumulated, marker, sub));
-                return;
-             }
-          }
-          if (accumulated.contains('HTTP/1.') || accumulated.contains('<html>')) {
-             sub?.cancel();
-             if (!completer.isCompleted) completer.completeError('Detected Web Server instead of XMPP');
-             return;
-          }
-          if (accumulated.contains('<failure') || accumulated.contains('<error')) {
-             sub?.cancel();
-             if (!completer.isCompleted) completer.completeError('XMPP Error');
-             return;
-          }
+          if (checkMarkers()) return;
         }
       } else if (event == RawSocketEvent.closed || event == RawSocketEvent.readClosed) {
          sub?.cancel();
