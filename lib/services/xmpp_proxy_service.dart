@@ -243,6 +243,7 @@ class XmppProxyService {
       final r4 = await _pollRawUntil(rawSocket, ['>'], existingSub: r3.sub, initialData: r3.accumulated);
       print('!!! PROXY_DIAG: Handshake proceed tag end reached.');
       
+      r4.sub?.onData(null);
       r4.sub?.resume();
       final rawSecure = await RawSecureSocket.secure(rawSocket, subscription: r4.sub as StreamSubscription<RawSocketEvent>?, onBadCertificate: (cert) => true).timeout(_connectionTimeout);
       
