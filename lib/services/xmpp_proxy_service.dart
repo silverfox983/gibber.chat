@@ -228,24 +228,28 @@ class XmppProxyService {
       if (tagEnd != -1) cleanTag = cleanTag.substring(0, tagEnd + 1);
     }
     
+    // Attach listener FIRST to prevent race condition if server responds instantly
+    final resultFuture = _pollRawUntil(rawSocket, ['<starttls', '</stream:features>']);
     rawSocket.write(utf8.encode(cleanTag));
-    
-    // Read features, wait for either <starttls or the end of features block
-    final result = await _pollRawUntil(rawSocket, ['<starttls', '</stream:features>']);
+    final result = await resultFuture;
     
     if (result.matchedMarker == '<starttls') {
       final r2 = await _pollRawUntil(rawSocket, ['>'], existingSub: result.sub);
       await Future.delayed(const Duration(milliseconds: 50));
+      
+      final r3Future = _pollRawUntil(rawSocket, ['<proceed'], existingSub: r2.sub);
       rawSocket.write(utf8.encode("<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>"));
-      final r3 = await _pollRawUntil(rawSocket, ['<proceed'], existingSub: r2.sub);
+      final r3 = await r3Future;
+      
       final r4 = await _pollRawUntil(rawSocket, ['>'], existingSub: r3.sub);
       
       r4.sub?.pause();
       final rawSecure = await RawSecureSocket.secure(rawSocket, subscription: r4.sub as StreamSubscription<RawSocketEvent>?, onBadCertificate: (cert) => true).timeout(_connectionTimeout);
       
       // FINAL VALIDATION: Ensure the tunnel actually speaks XMPP
+      final secureResultFuture = _pollRawUntil(rawSecure, ['<stream:stream']);
       rawSecure.write(utf8.encode(cleanTag));
-      final secureResult = await _pollRawUntil(rawSecure, ['<stream:stream']);
+      final secureResult = await secureResultFuture;
 
       return RawToSocket(rawSecure, secureResult.accumulated, secureResult.sub as StreamSubscription<RawSocketEvent>?);
     } else {
@@ -269,8 +273,9 @@ class XmppProxyService {
       if (tagEnd != -1) cleanTag = cleanTag.substring(0, tagEnd + 1);
     }
     
+    final resultFuture = _pollRawUntil(rawSecure, ['<stream:stream']);
     rawSecure.write(utf8.encode(cleanTag));
-    final result = await _pollRawUntil(rawSecure, ['<stream:stream']);
+    final result = await resultFuture;
 
     return RawToSocket(rawSecure, result.accumulated, result.sub as StreamSubscription<RawSocketEvent>?);
   }
