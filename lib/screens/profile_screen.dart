@@ -277,7 +277,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           value: _syncStatus,
                           onChanged: (val) => setState(() => _syncStatus = val),
                           title: const Text('Sync Across Accounts', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                          subtitle: const Text('Apply this status to all connected XMPP, IRC, and Discord accounts', style: TextStyle(fontSize: 10)),
+                          subtitle: const Text('Apply this status across all your connected XMPP nodes', style: TextStyle(fontSize: 10)),
                           activeThumbColor: Theme.of(context).colorScheme.primary,
                           contentPadding: EdgeInsets.all(0),
                           dense: true,
@@ -399,7 +399,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ListTile(
                           leading: Icon(Icons.settings_applications_rounded, color: Theme.of(context).colorScheme.onSurfaceVariant),
                           title: const Text('Manage Connected Accounts', style: TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: const Text('Edit IRC/XMPP hosts, ports, and credentials'),
+                          subtitle: const Text('Edit XMPP hosts, ports, and credentials'),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () {
                             Navigator.push(

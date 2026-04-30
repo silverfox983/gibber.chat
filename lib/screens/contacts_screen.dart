@@ -113,7 +113,7 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
   Widget _buildContactList(BuildContext context, AuthService authService) {
     return StreamBuilder<List<Contact>>(
       stream: authService.contacts,
-      initialData: const [],
+      initialData: authService.currentContacts,
       builder: (context, snapshot) {
         final contacts = snapshot.data ?? [];
         final filtered = contacts.where((c) => 
@@ -430,8 +430,8 @@ class _ContactTile extends StatelessWidget {
                  Expanded(
                    child: ElevatedButton.icon(
                      style: ElevatedButton.styleFrom(
-                       backgroundColor: const Color(0xFFE91E63),
-                       foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                       backgroundColor: Theme.of(context).colorScheme.secondary,
+                       foregroundColor: Theme.of(context).colorScheme.onSecondary,
                        padding: const EdgeInsets.symmetric(vertical: 16),
                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                      ),

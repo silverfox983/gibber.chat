@@ -249,13 +249,16 @@ class DatabaseService {
         conversationId.toLowerCase(),
         '${conversationId.toLowerCase()}/%',
       ],
-      orderBy: 'timestamp ASC',
+      orderBy: 'timestamp DESC',
       limit: limit,
     );
 
-    return List.generate(maps.length, (i) {
+    final result = List.generate(maps.length, (i) {
       return ChatMessage.fromMap(maps[i]);
     });
+    
+    // Reverse the list so messages are returned in chronological order (oldest to newest)
+    return result.reversed.toList();
   }
 
   Future<ChatMessage?> getMessageById(String id) async {
@@ -297,6 +300,20 @@ class DatabaseService {
       whereArgs: ['%$query%'],
       orderBy: 'timestamp DESC',
       limit: 200,
+    );
+
+    return List.generate(maps.length, (i) {
+      return ChatMessage.fromMap(maps[i]);
+    });
+  }
+
+  Future<List<ChatMessage>> getMessagesByStatus(MessageStatus status) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'messages',
+      where: 'status = ?',
+      whereArgs: [status.index],
+      orderBy: 'timestamp ASC',
     );
 
     return List.generate(maps.length, (i) {
@@ -404,6 +421,20 @@ class DatabaseService {
     await db.delete(
       'messages',
       where: 'LOWER(conversation_id) = LOWER(?)',
+      whereArgs: [conversationId.toLowerCase()],
+    );
+  }
+
+  Future<void> deleteConversation(String conversationId) async {
+    final db = await database;
+    await db.delete(
+      'messages',
+      where: 'LOWER(conversation_id) = LOWER(?)',
+      whereArgs: [conversationId.toLowerCase()],
+    );
+    await db.delete(
+      'conversations',
+      where: 'LOWER(id) = LOWER(?)',
       whereArgs: [conversationId.toLowerCase()],
     );
   }

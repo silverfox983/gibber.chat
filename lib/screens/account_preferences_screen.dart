@@ -20,74 +20,92 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Account Preferences', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.transparent,
+        title: Text('Account Preferences', style: TextStyle(fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onPrimary)),
+        backgroundColor: Theme.of(context).colorScheme.primary,
         elevation: 0,
+        iconTheme: IconThemeData(color: Theme.of(context).colorScheme.onPrimary),
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const LoginScreen(isAddingAccount: true)),
           );
         },
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        child: const Icon(Icons.add, color: Colors.white),
+        backgroundColor: Theme.of(context).colorScheme.secondary,
+        icon: Icon(Icons.add, color: Theme.of(context).colorScheme.onSecondary),
+        label: Text('Add Account', style: TextStyle(color: Theme.of(context).colorScheme.onSecondary, fontWeight: FontWeight.bold)),
       ),
       body: Consumer<AuthService>(
         builder: (context, authService, child) {
-          final accounts = authService.savedAccounts;
+          final accounts = authService.savedAccounts.where((a) => a.protocol == 'XMPP').toList();
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              ...accounts.map((acc) => Card(
-                elevation: 2,
+              Text('CONNECTED ACCOUNTS', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+              const SizedBox(height: 16),
+              if (accounts.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Theme.of(context).colorScheme.outline),
+                  ),
+                  child: Center(
+                    child: Text('No accounts connected.', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  ),
+                ),
+              ...accounts.map((acc) => Container(
                 margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
+                  ],
+                ),
                 child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                   leading: CircleAvatar(
-                    backgroundColor: acc.protocol == 'Discord'
-                        ? const Color(0xFF5865F2).withValues(alpha: 0.15)
-                        : (acc.protocol == 'IRC'
-                              ? Colors.teal.shade100
-                              : Colors.deepPurple.shade100),
-                    child: Icon(
-                      acc.protocol == 'Discord'
-                          ? Icons.discord
-                          : (acc.protocol == 'IRC'
-                                ? Icons.alternate_email
-                                : Icons.chat_bubble_outline),
-                      color: acc.protocol == 'Discord'
-                          ? const Color(0xFF5865F2)
-                          : (acc.protocol == 'IRC'
-                                ? Colors.teal
-                                : Colors.deepPurple),
-                    ),
+                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                    child: Icon(Icons.alternate_email_rounded, color: Theme.of(context).colorScheme.onPrimaryContainer),
                   ),
                   title: Text(
                     acc.displayName ?? acc.user,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
-                  subtitle: Text('${acc.protocol} • ${acc.fullJid}'),
-                  trailing: const Icon(Icons.chevron_right),
+                  subtitle: Text('XMPP • ${acc.fullJid}', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
+                  trailing: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.settings_rounded, color: Theme.of(context).colorScheme.primary, size: 20),
+                  ),
                   onTap: () => _openAccountEditor(context, authService, acc),
                 ),
               )),
-              const SizedBox(height: 24),
-              Text('Backup & Security', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Theme.of(context).hintColor, letterSpacing: 1.2)),
-              const SizedBox(height: 12),
-              Card(
-                elevation: 0,
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              
+              const SizedBox(height: 32),
+              Text('BACKUP & SECURITY', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+              const SizedBox(height: 16),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Theme.of(context).colorScheme.outline),
+                ),
                 child: Column(
                   children: [
                     ListTile(
-                      leading: Icon(Icons.security_rounded, color: Theme.of(context).colorScheme.primary),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      leading: Icon(Icons.security_rounded, color: Theme.of(context).colorScheme.primary, size: 28),
                       title: const Text('Security & Encryption', style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: const Text('Manage OMEMO fingerprints and device trust'),
+                      subtitle: const Text('Manage OTR fingerprints and trust'),
                       onTap: () {
                         Navigator.push(
                           context,
@@ -95,19 +113,21 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
                         );
                       },
                     ),
-                    const Divider(height: 1, indent: 56),
+                    Divider(height: 1, color: Theme.of(context).colorScheme.outline),
                     ListTile(
-                      leading: const Icon(Icons.cloud_upload_outlined, color: Colors.blue),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      leading: const Icon(Icons.cloud_upload_rounded, color: Colors.blue, size: 28),
                       title: const Text('Export Profile', style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: const Text('Create a portable JSON backup of all accounts and history'),
+                      subtitle: const Text('Create an encrypted backup of your data'),
                       onTap: () => _handleExport(authService),
                       enabled: !_isProcessing,
                     ),
-                    const Divider(height: 1, indent: 56),
+                    Divider(height: 1, color: Theme.of(context).colorScheme.outline),
                     ListTile(
-                      leading: const Icon(Icons.cloud_download_outlined, color: Colors.orange),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      leading: const Icon(Icons.cloud_download_rounded, color: Colors.orange, size: 28),
                       title: const Text('Import Profile', style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: const Text('Restore accounts and messages from a backup file'),
+                      subtitle: const Text('Restore accounts from a backup file'),
                       onTap: () => _handleImport(authService),
                       enabled: !_isProcessing,
                     ),
@@ -116,7 +136,7 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
               ),
               if (_isProcessing)
                 const Padding(
-                  padding: EdgeInsets.all(20),
+                  padding: EdgeInsets.all(32),
                   child: Center(child: CircularProgressIndicator()),
                 ),
             ],
@@ -132,7 +152,7 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Text(isExport ? 'Set Backup Password' : 'Enter Backup Password'),
+        title: Text(isExport ? 'Set Backup Password' : 'Enter Backup Password', style: const TextStyle(fontWeight: FontWeight.w900)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -140,9 +160,9 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
               isExport 
                 ? 'Your profile backup will be encrypted with this password. If you lose it, the backup cannot be recovered.'
                 : 'This backup is encrypted. Please enter the password to unlock your data.',
-              style: const TextStyle(fontSize: 13, color: Colors.black54),
+              style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
             TextField(
               autofocus: true,
               obscureText: true,
@@ -156,10 +176,14 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              foregroundColor: Theme.of(context).colorScheme.onPrimary,
+            ),
             onPressed: () => Navigator.pop(context, password),
-            child: Text(isExport ? 'Export' : 'Unlock'),
+            child: Text(isExport ? 'EXPORT' : 'UNLOCK'),
           ),
         ],
       ),
@@ -178,7 +202,7 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
       
       String? outputPath = await FilePicker.platform.saveFile(
         dialogTitle: 'Save Gibber Backup',
-        fileName: 'gibber_backup_${DateTime.now().millisecondsSinceEpoch}.gibber',
+        fileName: 'gibber_backup_\${DateTime.now().millisecondsSinceEpoch}.gibber',
         type: FileType.any,
       );
 
@@ -186,14 +210,14 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
         await backupService.saveBackupToFile(encryptedData, outputPath);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Secure backup exported successfully!'), backgroundColor: Colors.green)
+            SnackBar(content: const Text('Secure backup exported successfully!'), backgroundColor: Theme.of(context).colorScheme.secondary)
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: Colors.redAccent)
+          SnackBar(content: Text('Export failed: \$e'), backgroundColor: Theme.of(context).colorScheme.error)
         );
       }
     } finally {
@@ -205,14 +229,14 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Import Backup?'),
+        title: const Text('Import Backup?', style: TextStyle(fontWeight: FontWeight.w900)),
         content: const Text('Importing a backup will WIPE all your current accounts and messages. This cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCEL')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error, foregroundColor: Theme.of(context).colorScheme.onError),
             onPressed: () => Navigator.pop(context, true), 
-            child: const Text('Wipe & Import')
+            child: const Text('WIPE & IMPORT')
           ),
         ],
       )
@@ -244,14 +268,14 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Profile restored! Please restart or reconnect.'), backgroundColor: Colors.green)
+            SnackBar(content: const Text('Profile restored! Please restart or reconnect.'), backgroundColor: Theme.of(context).colorScheme.secondary)
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: ${e.toString().replaceAll('Exception: ', '')}'), backgroundColor: Colors.redAccent)
+          SnackBar(content: Text('Import failed: \${e.toString().replaceAll("Exception: ", "")}'), backgroundColor: Theme.of(context).colorScheme.error)
         );
       }
     } finally {
@@ -287,20 +311,11 @@ class _AccountEditorScreenState extends State<AccountEditorScreen> {
   late TextEditingController _displayCtrl;
   late TextEditingController _passCtrl;
   
-  // Common Advanced
-  late TextEditingController _autoJoinCtrl;
+  // Advanced XMPP
   late TextEditingController _resourceCtrl;
-  bool _useTor = false;
-  
-  // IRC Advanced
-  bool _isSecure = false;
-  late TextEditingController _realNameCtrl;
-  late TextEditingController _serverPassCtrl;
-  late TextEditingController _saslPassCtrl;
-
-  // XMPP Advanced
   late TextEditingController _wsPathCtrl;
   late TextEditingController _reconnectTimeoutCtrl;
+  bool _useTor = false;
   bool _ackEnabled = true;
   bool _smResumable = true;
 
@@ -313,19 +328,11 @@ class _AccountEditorScreenState extends State<AccountEditorScreen> {
     _hostCtrl = TextEditingController(text: acc.host ?? '');
     _portCtrl = TextEditingController(text: acc.port.toString());
     _displayCtrl = TextEditingController(text: acc.displayName ?? '');
-    _passCtrl = TextEditingController(); // Leaving empty as we don't fetch from SecureStorage for security
+    _passCtrl = TextEditingController(); 
     
-    _autoJoinCtrl = TextEditingController(text: (acc.autoJoinChannels ?? []).join(', '));
     _resourceCtrl = TextEditingController(text: acc.customResource ?? '');
     _useTor = acc.useTor ?? false;
 
-    // IRC Init
-    _isSecure = acc.isSecure ?? false;
-    _realNameCtrl = TextEditingController(text: acc.realName ?? '');
-    _serverPassCtrl = TextEditingController(text: acc.serverPassword ?? '');
-    _saslPassCtrl = TextEditingController(text: acc.saslAuthPassword ?? '');
-
-    // XMPP Init
     _wsPathCtrl = TextEditingController(text: acc.wsPath ?? '');
     _reconnectTimeoutCtrl = TextEditingController(text: (acc.reconnectionTimeout ?? 1000).toString());
     _ackEnabled = acc.ackEnabled ?? true;
@@ -340,11 +347,7 @@ class _AccountEditorScreenState extends State<AccountEditorScreen> {
     _portCtrl.dispose();
     _displayCtrl.dispose();
     _passCtrl.dispose();
-    _autoJoinCtrl.dispose();
     _resourceCtrl.dispose();
-    _realNameCtrl.dispose();
-    _serverPassCtrl.dispose();
-    _saslPassCtrl.dispose();
     _wsPathCtrl.dispose();
     _reconnectTimeoutCtrl.dispose();
     super.dispose();
@@ -356,17 +359,10 @@ class _AccountEditorScreenState extends State<AccountEditorScreen> {
       domain: _domainCtrl.text.trim(),
       host: _hostCtrl.text.trim().isEmpty ? null : _hostCtrl.text.trim(),
       port: int.tryParse(_portCtrl.text.trim()) ?? widget.account.port,
-      protocol: widget.account.protocol,
+      protocol: 'XMPP',
       displayName: _displayCtrl.text.trim().isEmpty ? null : _displayCtrl.text.trim(),
-      autoJoinChannels: _autoJoinCtrl.text.trim().isEmpty 
-          ? null 
-          : _autoJoinCtrl.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
       customResource: _resourceCtrl.text.trim().isEmpty ? null : _resourceCtrl.text.trim(),
       useTor: _useTor,
-      isSecure: _isSecure,
-      realName: _realNameCtrl.text.trim().isEmpty ? null : _realNameCtrl.text.trim(),
-      serverPassword: _serverPassCtrl.text.trim().isEmpty ? null : _serverPassCtrl.text.trim(),
-      saslAuthPassword: _saslPassCtrl.text.trim().isEmpty ? null : _saslPassCtrl.text.trim(),
       wsPath: _wsPathCtrl.text.trim().isEmpty ? null : _wsPathCtrl.text.trim(),
       reconnectionTimeout: int.tryParse(_reconnectTimeoutCtrl.text.trim()),
       ackEnabled: _ackEnabled,
@@ -377,7 +373,7 @@ class _AccountEditorScreenState extends State<AccountEditorScreen> {
     await widget.authService.updateSavedAccount(widget.account, newAcc, newPass);
     
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account updated successfully.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Account updated successfully.'), backgroundColor: Theme.of(context).colorScheme.secondary));
       Navigator.pop(context);
     }
   }
@@ -386,14 +382,14 @@ class _AccountEditorScreenState extends State<AccountEditorScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Account'),
+        title: const Text('Delete Account', style: TextStyle(fontWeight: FontWeight.w900)),
         content: const Text('Are you sure you want to remove this account? Your local message history will be preserved, but connection will be dropped.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCEL')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(context, true),
-            child: Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.onError)),
+            child: Text('DELETE', style: TextStyle(color: Theme.of(context).colorScheme.onError)),
           ),
         ],
       ),
@@ -402,125 +398,129 @@ class _AccountEditorScreenState extends State<AccountEditorScreen> {
     if (confirm == true) {
       await widget.authService.deleteSavedAccount(widget.account);
       if (mounted) {
-        Navigator.pop(context); // Pop editor
+        Navigator.pop(context);
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isIrc = widget.account.protocol == 'IRC';
-    final isXmpp = widget.account.protocol == 'XMPP';
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Edit ${widget.account.protocol} Account'),
+        title: const Text('Edit Account', style: TextStyle(fontWeight: FontWeight.w900)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.check),
+            icon: Icon(Icons.check_rounded, color: Theme.of(context).colorScheme.primary, size: 28),
             onPressed: _saveChanges,
             tooltip: 'Save Settings',
-          )
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          Text('Core Settings', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+          Text('CORE SETTINGS', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
           const SizedBox(height: 16),
-          TextField(controller: _userCtrl, decoration: const InputDecoration(labelText: 'Username')),
+          _buildTextField('Username', _userCtrl),
           const SizedBox(height: 12),
-          TextField(controller: _domainCtrl, decoration: const InputDecoration(labelText: 'Domain/Network')),
+          _buildTextField('Domain', _domainCtrl),
           const SizedBox(height: 12),
-          TextField(controller: _passCtrl, decoration: const InputDecoration(labelText: 'Password (leave blank to keep current)', helperText: 'Passwords are symmetrically encrypted on disk.'), obscureText: true),
+          _buildTextField('Password (leave blank to keep current)', _passCtrl, obscureText: true),
           const SizedBox(height: 12),
-          TextField(controller: _displayCtrl, decoration: const InputDecoration(labelText: 'Display Name (Optional)')),
+          _buildTextField('Display Name (Optional)', _displayCtrl),
           
           const SizedBox(height: 32),
-          Text('Connection Overrides', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+          Text('CONNECTION OVERRIDES', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
           const SizedBox(height: 16),
           Row(
             children: [
-              Expanded(flex: 3, child: TextField(controller: _hostCtrl, decoration: const InputDecoration(labelText: 'Host (Optional)'))),
+              Expanded(flex: 3, child: _buildTextField('Host (Optional)', _hostCtrl)),
               const SizedBox(width: 12),
-              Expanded(flex: 1, child: TextField(controller: _portCtrl, decoration: const InputDecoration(labelText: 'Port'))),
+              Expanded(flex: 1, child: _buildTextField('Port', _portCtrl)),
             ],
           ),
           
-          if (isIrc) ...[
-            const SizedBox(height: 32),
-            Text('Security & Authentication', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
-            const SizedBox(height: 16),
-            SwitchListTile(
-               title: const Text('Use SSL/TLS'),
-               subtitle: const Text('Connect using a secure socket (Port 6697 default)'),
-               value: _isSecure, 
-               onChanged: (v) => setState(() => _isSecure = v),
-               contentPadding: EdgeInsets.zero,
-            ),
-            const SizedBox(height: 12),
-            TextField(controller: _serverPassCtrl, decoration: const InputDecoration(labelText: 'Server Password (Proxy/Bouncer Password)'), obscureText: true),
-            const SizedBox(height: 12),
-            TextField(controller: _saslPassCtrl, decoration: const InputDecoration(labelText: 'SASL Authentication Password (NickServ)'), obscureText: true),
-            
-            const SizedBox(height: 32),
-            Text('IRC Identity & Channels', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
-            const SizedBox(height: 16),
-            TextField(controller: _realNameCtrl, decoration: const InputDecoration(labelText: 'IRC RealName Override (Optional)')),
-            const SizedBox(height: 12),
-            TextField(controller: _autoJoinCtrl, decoration: const InputDecoration(labelText: 'Auto-join Channels (comma separated)', hintText: '#lobby, #help')),
-          ],
-          
-          if (isXmpp) ...[
-            const SizedBox(height: 32),
-            Text('Advanced Networking', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.secondary)),
-            const SizedBox(height: 16),
-            TextField(controller: _resourceCtrl, decoration: const InputDecoration(labelText: 'Custom Resource Code (Optional)', hintText: 'GibberMobile')),
-            const SizedBox(height: 12),
-            TextField(controller: _wsPathCtrl, decoration: const InputDecoration(labelText: 'WebSocket URI (Optional)', hintText: 'wss://ejabberd.local:5443/ws')),
-            const SizedBox(height: 12),
-            TextField(controller: _reconnectTimeoutCtrl, decoration: const InputDecoration(labelText: 'Reconnection Timeout (ms)', hintText: '1000')),
-            const SizedBox(height: 16),
-            Text('Stream Management (XEP-0198)', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.grey)),
-            SwitchListTile(
-               title: const Text('Acknowledge Streams'),
-               subtitle: const Text('Ensure zero message loss on unstable networks'),
-               value: _ackEnabled, 
-               onChanged: (v) => setState(() => _ackEnabled = v),
-               contentPadding: EdgeInsets.zero,
-            ),
-            SwitchListTile(
-               title: const Text('Session Resumption'),
-               subtitle: const Text('Resume XML streams instantly without full reconnect'),
-               value: _smResumable, 
-               onChanged: (v) => setState(() => _smResumable = v),
-               contentPadding: EdgeInsets.zero,
-            ),
-          ],
-          
           const SizedBox(height: 32),
-          SwitchListTile(
-               title: const Text('Use Tor (Proxy)'),
-               subtitle: const Text('Route traffic through local Tor daemon (Future)'),
-               value: _useTor, 
-               onChanged: (v) => setState(() => _useTor = v),
-               contentPadding: EdgeInsets.zero,
+          Text('ADVANCED NETWORKING', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+          const SizedBox(height: 16),
+          _buildTextField('Custom Resource Code (Optional)', _resourceCtrl, hint: 'GibberMobile'),
+          const SizedBox(height: 12),
+          _buildTextField('WebSocket URI (Optional)', _wsPathCtrl, hint: 'wss://example.com/ws'),
+          const SizedBox(height: 12),
+          _buildTextField('Reconnection Timeout (ms)', _reconnectTimeoutCtrl, hint: '1000'),
+          const SizedBox(height: 16),
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Theme.of(context).colorScheme.outline),
+            ),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  title: const Text('Acknowledge Streams', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Ensure zero message loss (XEP-0198)'),
+                  value: _ackEnabled, 
+                  onChanged: (v) => setState(() => _ackEnabled = v),
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
+                ),
+                Divider(height: 1, color: Theme.of(context).colorScheme.outline),
+                SwitchListTile(
+                  title: const Text('Session Resumption', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Resume streams without full reconnect'),
+                  value: _smResumable, 
+                  onChanged: (v) => setState(() => _smResumable = v),
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
+                ),
+                Divider(height: 1, color: Theme.of(context).colorScheme.outline),
+                SwitchListTile(
+                  title: const Text('Use Tor (Proxy)', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Route traffic through Tor (Future)'),
+                  value: _useTor, 
+                  onChanged: (v) => setState(() => _useTor = v),
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
+                ),
+              ],
+            ),
           ),
 
           const SizedBox(height: 64),
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: const BorderSide(color: Colors.red),
-              padding: const EdgeInsets.all(16)
+              foregroundColor: Theme.of(context).colorScheme.error,
+              side: BorderSide(color: Theme.of(context).colorScheme.error),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),
-            icon: const Icon(Icons.delete_forever),
-            label: const Text('Delete Account'),
+            icon: const Icon(Icons.delete_forever_rounded),
+            label: const Text('REMOVE ACCOUNT', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2)),
             onPressed: _confirmDelete,
           )
         ],
+      ),
+    );
+  }
+
+  Widget _buildTextField(String label, TextEditingController controller, {bool obscureText = false, String? hint}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
+      ),
+      child: TextField(
+        controller: controller,
+        obscureText: obscureText,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          labelStyle: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
       ),
     );
   }

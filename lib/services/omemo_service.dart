@@ -13,7 +13,43 @@ class OmemoService {
   int? _deviceId;
   xmpp.Connection? _conn;
   
-  void setConnection(xmpp.Connection conn) => _conn = conn;
+  final Map<String, Completer<dynamic>> _iqCompleters = {};
+  StreamSubscription? _stanzaSub;
+
+  void setConnection(xmpp.Connection conn) {
+    _conn = conn;
+    _stanzaSub?.cancel();
+    _stanzaSub = _conn!.inStanzasStream.listen(_handleStanza);
+  }
+
+  void _handleStanza(dynamic stanza) {
+    if (stanza is xmpp.IqStanza) {
+      if (_iqCompleters.containsKey(stanza.id)) {
+        _iqCompleters[stanza.id]!.complete(stanza);
+        _iqCompleters.remove(stanza.id);
+      }
+    }
+  }
+
+  Future<xmpp.IqStanza> _sendIq(xmpp.IqStanza iq) async {
+    if (_conn == null || _conn!.state != xmpp.XmppConnectionState.Ready) {
+      throw Exception('XMPP connection not ready');
+    }
+    final completer = Completer<dynamic>();
+    _iqCompleters[iq.id!] = completer;
+    _conn!.writeStanza(iq);
+    
+    final result = await completer.future.timeout(
+      const Duration(seconds: 15),
+      onTimeout: () {
+        _iqCompleters.remove(iq.id);
+        throw TimeoutException('IQ request timed out');
+      },
+    );
+    return result as xmpp.IqStanza;
+  }
+
+
   
   int get localDeviceId => _deviceId ?? 0;
 
@@ -46,7 +82,7 @@ class OmemoService {
 
   Future<void> resetIdentity() async {
     await _generateNewKeys();
-    if (_conn != null) {
+    if (_conn != null && _conn!.state == xmpp.XmppConnectionState.Ready) {
       await publishDeviceList(_conn!);
       await publishBundle(_conn!);
     }
@@ -147,6 +183,115 @@ class OmemoService {
     conn.writeStanza(iq);
   }
 
+  Future<List<int>> fetchDeviceList(String bareJid) async {
+    final iq = xmpp.IqStanza('omemo_dev_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
+    iq.toJid = xmpp.Jid.fromFullJid(bareJid);
+    
+    final pubsub = xmpp.XmppElement()..name = 'pubsub'..addAttribute(xmpp.XmppAttribute('xmlns', nsPubsub));
+    final items = xmpp.XmppElement()..name = 'items'..addAttribute(xmpp.XmppAttribute('node', '$nsOmemo:devices'));
+    
+    pubsub.addChild(items);
+    iq.addChild(pubsub);
+
+    try {
+      final response = await _sendIq(iq);
+      if (response.type == xmpp.IqStanzaType.ERROR) return [];
+
+      final pubsubRes = response.getChild('pubsub');
+      final itemsRes = pubsubRes?.getChild('items');
+      final itemRes = itemsRes?.getChild('item');
+      final listRes = itemRes?.getChild('list');
+      
+      if (listRes == null) return [];
+
+      final List<int> devices = [];
+      for (var device in listRes.children.where((c) => c.name == 'device')) {
+        final idStr = device.getAttribute('id')?.value;
+        if (idStr != null) {
+          final id = int.tryParse(idStr);
+          if (id != null) devices.add(id);
+        }
+      }
+      return devices;
+    } catch (e) {
+      debugPrint('OMEMO: Failed to fetch device list for $bareJid: $e');
+      return [];
+    }
+  }
+
+  Future<void> buildSession(String bareJid, int deviceId) async {
+    try {
+      final iq = xmpp.IqStanza('omemo_bun_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
+      iq.toJid = xmpp.Jid.fromFullJid(bareJid);
+      
+      final pubsub = xmpp.XmppElement()..name = 'pubsub'..addAttribute(xmpp.XmppAttribute('xmlns', nsPubsub));
+      final items = xmpp.XmppElement()..name = 'items'..addAttribute(xmpp.XmppAttribute('node', '$nsOmemo:bundles:$deviceId'));
+      
+      pubsub.addChild(items);
+      iq.addChild(pubsub);
+
+      final response = await _sendIq(iq);
+      if (response.type == xmpp.IqStanzaType.ERROR) return;
+
+      final pubsubRes = response.getChild('pubsub');
+      final itemsRes = pubsubRes?.getChild('items');
+      final itemRes = itemsRes?.getChild('item');
+      final bundle = itemRes?.getChild('bundle');
+      
+      if (bundle == null) return;
+
+      final spkPublicBase64 = bundle.getChild('signedPreKeyPublic')?.textValue;
+      final spkSigBase64 = bundle.getChild('signedPreKeySignature')?.textValue;
+      final ikBase64 = bundle.getChild('identityKey')?.textValue;
+      
+      final prekeys = bundle.children.where((c) => c.name == 'preKeyPublic').toList();
+      if (prekeys.isEmpty || spkPublicBase64 == null || spkSigBase64 == null || ikBase64 == null) {
+        debugPrint('OMEMO: Incomplete bundle received for $bareJid:$deviceId');
+        return;
+      }
+
+      final pkEl = prekeys.first;
+      final pkBase64 = pkEl.textValue;
+      final pkId = pkEl.getAttribute('id')?.value;
+      if (pkBase64 == null || pkId == null) return;
+
+      final spkIdEl = bundle.getChild('signedPreKeyPublic');
+      final spkIdStr = spkIdEl?.getAttribute('id')?.value ?? '1';
+
+      final ikBytes = base64Decode(ikBase64);
+      final spkPublic = base64Decode(spkPublicBase64);
+      final spkSig = base64Decode(spkSigBase64);
+      final pkBytes = base64Decode(pkBase64);
+
+      final identityKey = IdentityKey.fromBytes(ikBytes, 0);
+      final preKeyPublic = Curve.decodePoint(pkBytes, 0);
+      final signedPreKeyPublic = Curve.decodePoint(spkPublic, 0);
+
+      final preKeyBundle = PreKeyBundle(
+        0, // registrationId (not strict)
+        deviceId,
+        int.parse(pkId),
+        preKeyPublic,
+        int.parse(spkIdStr),
+        signedPreKeyPublic,
+        spkSig,
+        identityKey,
+      );
+
+      final address = SignalProtocolAddress(bareJid, deviceId);
+      final builder = SessionBuilder(_store, _store, _store, _store, address);
+      await builder.processPreKeyBundle(preKeyBundle);
+
+      // Save identity for UI tracking
+      await _store.saveIdentity(address, identityKey);
+
+      debugPrint('OMEMO: Built session for $bareJid:$deviceId');
+    } catch (e) {
+      debugPrint('OMEMO: Failed to build session for $bareJid:$deviceId: $e');
+    }
+  }
+
+
   // --- Encryption/Decryption ---
 
   Future<xmpp.XmppElement?> encryptMessage(String toJid, String plaintext, {bool strict = false}) async {
@@ -169,9 +314,21 @@ class OmemoService {
     // Add IV
     header.addChild(xmpp.XmppElement()..name = 'iv'..textValue = base64Encode(iv));
 
+    final keysElement = xmpp.XmppElement()..name = 'keys';
+
     // Get recipient devices
     final store = SQLiteSignalStore();
-    final devices = await store.getIdentitiesForJid(bareJid);
+    List<Map<String, dynamic>> devices = await store.getIdentitiesForJid(bareJid);
+    
+    // Dynamic Discovery: If we don't have devices, fetch them
+    if (devices.isEmpty) {
+      debugPrint('OMEMO: No devices known for $bareJid. Fetching from PubSub...');
+      final fetchedIds = await fetchDeviceList(bareJid);
+      for (final devId in fetchedIds) {
+        await buildSession(bareJid, devId);
+      }
+      devices = await store.getIdentitiesForJid(bareJid);
+    }
     
     if (devices.isEmpty) {
        debugPrint('OMEMO: No devices found for $bareJid, sending unencrypted?');
@@ -195,6 +352,12 @@ class OmemoService {
       }
 
       final address = SignalProtocolAddress(bareJid, rDeviceId);
+      
+      // Ensure session exists
+      if (!await store.containsSession(address)) {
+        debugPrint('OMEMO: Missing session for $bareJid:$rDeviceId. Fetching bundle...');
+        await buildSession(bareJid, rDeviceId);
+      }
 
       try {
         final cipher = SessionCipher(store, store, store, store, address);
@@ -202,7 +365,10 @@ class OmemoService {
         
         final keyElement = xmpp.XmppElement()..name = 'key'..addAttribute(xmpp.XmppAttribute('rid', rDeviceId.toString()));
         keyElement.textValue = base64Encode(encryptedKey.serialize());
-        header.addChild(keyElement);
+        if (encryptedKey.getType() == CiphertextMessage.PREKEY_TYPE) {
+          keyElement.addAttribute(xmpp.XmppAttribute('prekey', 'true'));
+        }
+        keysElement.addChild(keyElement);
         addedKeys = true;
       } catch (e) {
         debugPrint('OMEMO: Failed to encrypt for device $rDeviceId: $e');
@@ -210,6 +376,8 @@ class OmemoService {
     }
 
     if (!addedKeys) return null;
+
+    header.addChild(keysElement);
 
     encryptedElement.addChild(header);
     encryptedElement.addChild(xmpp.XmppElement()..name = 'payload'..textValue = base64Encode(Uint8List.fromList(ciphertext + tag)));
@@ -226,14 +394,19 @@ class OmemoService {
     if (ivBase64 == null) return null;
     final iv = base64Decode(ivBase64);
 
-    final keys = header.children.where((c) => c.name == 'key');
-    final myKeyElement = keys.firstWhere(
+    final keysWrapper = header.getChild('keys');
+    final keysElements = keysWrapper != null 
+        ? keysWrapper.children.where((c) => c.name == 'key')
+        : header.children.where((c) => c.name == 'key');
+
+    final myKeyElement = keysElements.firstWhere(
       (k) => k.getAttribute('rid')?.value == _deviceId.toString(),
       orElse: () => xmpp.XmppElement(),
     );
 
     if (myKeyElement.name != 'key') return null;
 
+    final isPrekey = myKeyElement.getAttribute('prekey')?.value == 'true' || myKeyElement.getAttribute('prekey')?.value == '1';
     final encryptedKey = base64Decode(myKeyElement.textValue!);
     final payloadBase64 = encrypted.getChild('payload')?.textValue;
     if (payloadBase64 == null) return null;
@@ -244,7 +417,12 @@ class OmemoService {
     final cipher = SessionCipher(store, store, store, store, address);
 
     try {
-      final decryptedKey = await cipher.decrypt(PreKeySignalMessage(encryptedKey));
+      Uint8List decryptedKey;
+      if (isPrekey) {
+        decryptedKey = await cipher.decrypt(PreKeySignalMessage(encryptedKey));
+      } else {
+        decryptedKey = await cipher.decryptFromSignal(SignalMessage.fromSerialized(encryptedKey));
+      }
       final encryptionKey = decryptedKey;
 
       final ciphertext = payloadWithTag.sublist(0, payloadWithTag.length - 16);

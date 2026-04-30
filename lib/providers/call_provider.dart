@@ -39,6 +39,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   String? _lastError;
   RTCIceConnectionState _iceState =
       RTCIceConnectionState.RTCIceConnectionStateNew;
+  bool _isAccepted = false;
+  bool _isAccepting = false;
+  bool _isRinging = false;
 
   WebRTCManager _rtcManager = WebRTCManager();
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
@@ -73,6 +76,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   String? get permissionError => _permissionError;
   String? get lastError => _lastError;
   RTCIceConnectionState get iceState => _iceState;
+  bool get isAccepted => _isAccepted;
+  bool get isRinging => _isRinging;
   double get localVolume => _localVolume;
   double get remoteVolume => _remoteVolume;
   bool get isTalkingWhileMuted => _isTalkingWhileMuted;
@@ -269,6 +274,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
       if (isGateway) {
         debugPrint('CallProvider: [PSTN] Direct IQ Protocol Forced');
+        // HARDENING: Give ICE gathering 500ms to find srflx candidates before sending initiate
+        debugPrint('CallProvider: Waiting 500ms for initial ICE gathering...');
+        await Future.delayed(const Duration(milliseconds: 500));
+        
         signaling.sendSessionInitiate(
           toJid,
           _sessionId!,
@@ -336,14 +345,45 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       'CallProvider: Received Jingle event ${event.action} on account ${event.accountId}',
     );
     switch (event.action) {
+      case JingleAction.propose:
+        // HARDENING: Ignore self-proposals (Carbons of our own outgoing calls)
+        if (_state == CallState.outgoing && _sessionId == event.sessionId) {
+          debugPrint('CallProvider: Ignoring self-echo propose for session ${event.sessionId}');
+          break;
+        }
+        receiveCall(
+          event.fromJid,
+          event.sessionId,
+          null, // Proposal doesn't have SDP yet
+          accountId: event.accountId,
+        );
+        break;
+      case JingleAction.ringing:
+        if (_state == CallState.outgoing) {
+          _isRinging = true;
+          notifyListeners();
+        }
+        break;
+      case JingleAction.proceed:
+        if (_state == CallState.outgoing) {
+          _isRinging = false;
+          _log('Remote accepted proposal, connecting...', isSent: false);
+          notifyListeners();
+        }
+        break;
       case JingleAction.sessionInitiate:
         if (event.sdp != null) {
+          final wasAccepted = _isAccepted;
           receiveCall(
             event.fromJid,
             event.sessionId,
             event.sdp!,
             accountId: event.accountId,
           );
+          if (wasAccepted) {
+            debugPrint('CallProvider: Auto-accepting session-initiate as proposal was already accepted');
+            acceptCall();
+          }
         }
         break;
       case JingleAction.sessionAccept:
@@ -351,9 +391,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           debugPrint(
             'CallProvider: Session accept received, SDP length: ${event.sdp!.length}',
           );
-          debugPrint(
-            'CallProvider: Session accept SDP preview: ${event.sdp!.substring(0, event.sdp!.length > 500 ? 500 : event.sdp!.length)}',
-          );
+          _isRinging = false;
           handleRemoteSdp(event.sdp!, 'answer');
         }
         break;
@@ -378,20 +416,50 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   void receiveCall(
     String fromJid,
     String sessionId,
-    String offerSdp, {
+    String? offerSdp, {
     String? accountId,
   }) async {
-    // HARDENING: Clean up any stale sessions before accepting a new one
-    await _rtcManager.dispose();
-    _rtcManager = WebRTCManager();
+    // HARDENING: Ignore calls from ourselves
+    final myJid = _authService?.activeAccountId;
+    if (myJid != null && fromJid.contains(myJid)) {
+      debugPrint('CallProvider: Ignoring incoming call from ourselves ($fromJid)');
+      return;
+    }
+
+    // BUSY CHECK: If we are already in a call, reject this one
+    if (_state != CallState.idle && _sessionId != sessionId) {
+      debugPrint('CallProvider: Already in a call, rejecting new incoming call from $fromJid');
+      final signaling = _authService?.getJingleService(accountId ?? '') ?? _authService?.jingleSignaling;
+      if (signaling != null) {
+        final isGateway = fromJid.toLowerCase().contains('cheogram') || fromJid.contains('+');
+        if (isGateway) {
+          signaling.sendSessionTerminate(fromJid, sessionId, reason: 'busy');
+        } else {
+          signaling.sendSessionTerminateViaMessage(fromJid, sessionId, reason: 'busy');
+        }
+      }
+      return;
+    }
+
+    // HARDENING: Clean up any stale sessions before accepting a new one, 
+    // BUT preserve the manager if this is the same session transitioning from proposal to initiation.
+    if (_sessionId != sessionId || _state == CallState.idle) {
+      await _rtcManager.dispose();
+      _rtcManager = WebRTCManager();
+      _isAccepted = false;
+      _isRinging = false;
+    }
 
     _state = CallState.incoming;
     _remoteJid = fromJid;
     _sessionId = sessionId;
     _incomingOfferSdp = offerSdp;
     _callAccountId = accountId;
-    // Basic detection of video in SDP
-    _isVideo = offerSdp.contains('m=video');
+    
+    // Basic detection of video in SDP (default to false for proposals)
+    if (offerSdp != null) {
+      _isVideo = offerSdp.contains('m=video');
+    }
 
     // Play incoming ringtone
     _playRingtone();
@@ -449,6 +517,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     notifyListeners();
   }
 
+  Future<void> switchCamera() async {
+    await _rtcManager.switchCamera();
+    _log('Camera switched', isSent: true);
+  }
+
   Future<void> startCall(
     String toJid, {
     String? accountId,
@@ -466,17 +539,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       return;
     }
 
-    // DISCORD VOICE SPECIAL CASE
-    if (activeProtocol == 'Discord') {
-      _state = CallState.active; // Instantly join for voice channels
-      _remoteJid = toJid;
-      _callAccountId = accountId;
-      _isVideo = false; // Discord voice channels in this mode are audio-only
-      await _authService?.joinDiscordVoiceChannel(toJid, accountId: accountId);
-      _log('Joined Discord Voice Channel', isSent: true);
-      notifyListeners();
-      return;
-    }
+
 
     // SIP PROTOCOL - route explicitly through SipService
     if (activeProtocol == 'SIP') {
@@ -643,6 +706,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       
       if (isGateway) {
         debugPrint('CallProvider: === GATEWAY PROTOCOL ENFORCED (Direct Jingle IQ) ===');
+        // HARDENING: Give ICE gathering 500ms to find srflx candidates before sending initiate
+        debugPrint('CallProvider: Waiting 500ms for initial ICE gathering...');
+        await Future.delayed(const Duration(milliseconds: 500));
+        
         signaling.sendSessionInitiate(
           effectiveJid,
           _sessionId!,
@@ -682,10 +749,23 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: ERROR - No signaling service');
       return;
     }
-    if (_state != CallState.incoming || _incomingOfferSdp == null) {
+    if (_state != CallState.incoming || _isAccepting) {
       debugPrint(
-        'CallProvider: ERROR - Invalid state: state=$_state, hasOffer=${_incomingOfferSdp != null}',
+        'CallProvider: Ignoring acceptCall - state=$_state, isAccepting=$_isAccepting',
       );
+      return;
+    }
+
+    _isAccepting = true;
+    notifyListeners();
+
+    if (_incomingOfferSdp == null) {
+      debugPrint('CallProvider: Accepting proposal for session $_sessionId');
+      _isAccepted = true;
+      _stopAllSounds();
+      signaling.sendProceed(_remoteJid!, _sessionId!);
+      _isAccepting = false;
+      notifyListeners();
       return;
     }
 
@@ -822,6 +902,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     } catch (e) {
       debugPrint('Error accepting call: $e');
       _cleanup();
+    } finally {
+      _isAccepting = false;
+      notifyListeners();
     }
   }
 
@@ -880,7 +963,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         'CallProvider:   sdpMid: ${candidate.sdpMid}, type: ${_extractCandidateType(candidate.candidate ?? "")}',
       );
       if (isGateway) {
-        signaling.sendTransportInfo(
+        signaling.sendIceCandidate(
           toJid,
           _sessionId!,
           candidate.toMap(),
@@ -1127,6 +1210,16 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         int.tryParse(candidateMap['sdpMLineIndex']?.toString() ?? '0') ?? 0,
       ),
     );
+  }
+
+  Future<void> sendDtmf(String tone) async {
+    if (_state != CallState.active) return;
+    
+    if (_isSipCall) {
+      _sipService?.sendDTMF(tone);
+    } else {
+      await _rtcManager.sendDtmf(tone);
+    }
   }
 
   Future<void> toggleRecording() async {

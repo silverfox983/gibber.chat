@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
-import 'package:irc_dart/irc_dart.dart';
-import 'package:nyxx/nyxx.dart' as discord;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/chat_models.dart';
@@ -16,14 +14,15 @@ import './avatar_cache_service.dart';
 import './omemo_service.dart';
 import './omemo_storage.dart';
 import './database_service.dart';
+import './otr_service.dart';
+import './spaces_service.dart';
+import '../models/space_models.dart';
 import 'package:http/http.dart' as http;
 
-enum ConnectionProtocol { xmpp, irc, discord, none }
+enum ConnectionProtocol { xmpp, none }
 
 class AuthService with ChangeNotifier {
   bool _xmppConnecting = false;
-  bool _ircConnecting = false;
-  bool _discordConnecting = false;
 
   ConnectionStatus getAccountStatus(String accountId) {
     if (_xmppConnections.containsKey(accountId)) {
@@ -31,17 +30,16 @@ class AuthService with ChangeNotifier {
       if (state == xmpp.XmppConnectionState.Ready) {
         return ConnectionStatus.online;
       }
-      // Use Authenticating if Connecting is not available
-      if (state == xmpp.XmppConnectionState.Authenticating) {
+      
+      // Map all intermediate states to 'connecting'
+      if (state == xmpp.XmppConnectionState.SocketOpening ||
+          state == xmpp.XmppConnectionState.SocketOpened ||
+          state == xmpp.XmppConnectionState.Authenticating ||
+          state == xmpp.XmppConnectionState.Authenticated ||
+          state == xmpp.XmppConnectionState.SessionInitialized ||
+          state == xmpp.XmppConnectionState.Reconnecting) {
         return ConnectionStatus.connecting;
       }
-      return ConnectionStatus.offline;
-    }
-    if (_ircConnections.containsKey(accountId)) {
-      return ConnectionStatus.online;
-    }
-    if (_discordConnections.containsKey(accountId)) {
-      return ConnectionStatus.online;
     }
     return ConnectionStatus.offline;
   }
@@ -49,13 +47,9 @@ class AuthService with ChangeNotifier {
   bool get xmppConnected => _xmppConnections.values.any(
     (c) => c.state == xmpp.XmppConnectionState.Ready,
   );
-  bool get ircConnected => _ircConnections.isNotEmpty;
-  bool get discordConnected => _discordConnections.isNotEmpty;
   List<String> get connectedAccountIds {
     final ids = <String>{
       ..._xmppConnections.keys,
-      ..._ircConnections.keys,
-      ..._discordConnections.keys,
     };
     final sorted = ids.toList()..sort();
     return sorted;
@@ -88,8 +82,7 @@ class AuthService with ChangeNotifier {
     }
     return lines;
   }
-  bool get isConnecting =>
-      _xmppConnecting || _ircConnecting || _discordConnecting;
+  bool get isConnecting => _xmppConnecting;
   bool get isAuthenticated => _authenticatedAccountIds.isNotEmpty;
 
   String? _lastDiagnostic;
@@ -128,6 +121,11 @@ class AuthService with ChangeNotifier {
   Stream<List<Room>> get joinedRoomsStream =>
       _joinedRoomsStreamController.stream;
 
+  final StreamController<List<SpaceNode>> _joinedSpacesStreamController =
+      StreamController<List<SpaceNode>>.broadcast();
+  Stream<List<SpaceNode>> get joinedSpacesStream =>
+      _joinedSpacesStreamController.stream;
+
   ContactStatus _myStatus = ContactStatus.online;
   ContactStatus get myStatus => _myStatus;
   String? _myStatusMessage;
@@ -137,20 +135,34 @@ class AuthService with ChangeNotifier {
   final Map<String, xmpp.Connection> _xmppConnections = {};
   final Map<String, String> _xmppJids = {};
   Set<String> _persistedRooms = {};
+  Set<String> _persistedSpaces = {};
   final Map<String, Completer<List<Map<String, String>>>> _discoveryCompleters =
       {};
+  final Map<String, Completer<Map<String, dynamic>>> _roomInfoCompleters = {};
   final Map<String, XmppProxyService> _xmppProxies = {};
   final Map<String, StreamSubscription> _xmppMessageSubs = {};
   final Map<String, StreamSubscription> _xmppStanzaSubs = {};
+  final Set<String> _pendingVCardFetches = {};
+  final Map<String, DateTime> _vCardLastFetch = {};
+  
+  // Track failed vcard supports to avoid spamming feature-not-implemented
+  final Set<String> _vCardUnsupportedJids = {};
+
   final Map<String, StreamSubscription> _xmppStatusSubs = {};
   final Map<String, JingleSignalingService> _jingleServices = {};
   final Map<String, HttpUploadService> _uploadServices = {};
+  final Map<String, SpacesService> _spacesServices = {};
   final Map<String, List<Map<String, dynamic>>> _accountIceServers = {};
   final Map<String, List<String>> _roomParticipants = {};
 
   final StreamController<Map<String, List<String>>>
   _roomParticipantStreamController =
       StreamController<Map<String, List<String>>>.broadcast();
+  final StreamController<Map<String, dynamic>> _groupInviteStreamController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get groupInviteStream =>
+      _groupInviteStreamController.stream;
+
   Stream<Map<String, List<String>>> get roomParticipantsStream =>
       _roomParticipantStreamController.stream;
 
@@ -165,17 +177,62 @@ class AuthService with ChangeNotifier {
   }
   final Map<String, String?> _uploadServiceJids = {};
 
-  final Map<String, IrcConnection> _ircConnections = {};
-  final Map<String, String> _ircNicks = {};
-  final Map<String, StreamSubscription> _ircMessageSubs = {};
-  final Map<String, Completer<void>> _ircReadyCompleters = {};
+  final OtrService _otr = OtrService();
+  OtrService get otrService => _otr;
 
-  // Discord Storages
-  final Map<String, discord.NyxxGateway> _discordConnections = {};
-  final Map<String, List<StreamSubscription>> _discordSubs = {};
+  xmpp.Connection? get activeXmppConnection =>
+      _activeAccountId != null ? _xmppConnections[_activeAccountId] : null;
+
+  SpacesService? get spacesService =>
+      _activeAccountId != null ? getSpacesService(_activeAccountId!) : null;
+
+  SpacesService? getSpacesService(String accountId) {
+    if (_spacesServices.containsKey(accountId)) {
+      return _spacesServices[accountId];
+    }
+    final conn = _xmppConnections[accountId];
+    if (conn != null) {
+      final service = SpacesService(conn);
+      _spacesServices[accountId] = service;
+      return service;
+    }
+    return null;
+  }
+
+  List<Contact> get currentContacts => List.unmodifiable(_currentContacts);
+
 
   UserProfile? _currentProfile;
   UserProfile? get currentProfile => _currentProfile;
+
+  String getResolvedNickname(String? accountId) {
+    final id = accountId ?? _activeAccountId;
+    String? localPart;
+    if (id != null && _xmppJids.containsKey(id)) {
+      localPart = _xmppJids[id]!.split('@').first.split('/').first;
+    }
+    
+    final profile = _currentProfile;
+    if (profile != null && profile.nickName != null && profile.nickName!.isNotEmpty) {
+      return profile.nickName!;
+    }
+    
+    if (localPart != null && localPart.isNotEmpty) {
+      return localPart;
+    }
+    
+    if (profile != null && profile.displayName.isNotEmpty) {
+      return profile.displayName; 
+    }
+    
+    return 'User';
+  }
+
+  AuthService() {
+    _otr.injectMessage = (bareJid, text) {
+      sendMessage(_activeAccountId ?? '', bareJid, text, isGroup: false);
+    };
+  }
 
   String? _activeAccountId;
   String? get activeAccountId => _activeAccountId;
@@ -185,9 +242,7 @@ class AuthService with ChangeNotifier {
     return await _secureStorage.read(key: 'pass_$_activeAccountId');
   }
 
-  // Reconnection state tracking
-  final Map<String, int> _discordReconnectAttempts = {};
-  final Map<String, bool> _isDiscordReconnecting = {};
+
 
   // Track accounts that are intentionally logged in, even if temporarily disconnected.
   // This prevents the "Login Screen Flap" during network transitions.
@@ -196,35 +251,7 @@ class AuthService with ChangeNotifier {
   static ConnectionProtocol detectProtocol(String rawInput) {
     final input = rawInput.trim();
 
-    // 1. Specific Discord Domain Check (for saved accounts)
-    if (input.toLowerCase().endsWith('@discord.com')) {
-      return ConnectionProtocol.discord;
-    }
-
-    // 2. Raw Discord Token Check
-    // Discord tokens are typically 50-70 characters of base64-like characters
-    // They may have 2-3 dot-separated segments (old format) or be a single segment (newer bot tokens)
-    // A token starting with "Bot " prefix is also common
-    if (input.toLowerCase().startsWith('bot ')) {
-      return ConnectionProtocol.discord;
-    }
-    final parts = input.split('.');
-    // Old format: 2-3 segments like MTIz.NDM1.bG9jYWw= (50+ chars total)
-    // Or: mfa.ABC123... format
-    // Or: Simple base64 token (newer bot tokens)
-    if ((parts.length >= 2 && parts.length <= 3 && input.length > 30) ||
-        input.startsWith('mfa.') ||
-        input.startsWith('MTIz') || // Base64-ish pattern common in tokens
-        (input.length >= 50 && RegExp(r'^[A-Za-z0-9_\-]+$').hasMatch(input))) {
-      return ConnectionProtocol.discord;
-    }
-
-    // 3. IRC Detection
-    if (input.startsWith('irc.') || input.contains('#')) {
-      return ConnectionProtocol.irc;
-    }
-
-    // 4. XMPP Detection (Must contain @ but not be Discord)
+    // XMPP Detection
     if (input.contains('@')) {
       return ConnectionProtocol.xmpp;
     }
@@ -442,20 +469,7 @@ class AuthService with ChangeNotifier {
     await updateMyStatus(status, message: message);
   }
 
-  /// Map Gibber status to Discord status
-  discord.CurrentUserStatus _mapStatusToDiscord(ContactStatus status) {
-    switch (status) {
-      case ContactStatus.online:
-        return discord.CurrentUserStatus.online;
-      case ContactStatus.away:
-      case ContactStatus.xa:
-        return discord.CurrentUserStatus.idle;
-      case ContactStatus.dnd:
-        return discord.CurrentUserStatus.dnd;
-      case ContactStatus.offline:
-        return discord.CurrentUserStatus.offline;
-    }
-  }
+
 
   // --- MEDIA & FILE TRANSFERS (XEP-0363) ---
 
@@ -536,20 +550,6 @@ class AuthService with ChangeNotifier {
     if (_xmppConnections.containsKey(id)) {
       // XMPP: Use HTTP File Upload (XEP-0363)
       await sendFile(id, toJid, file, type: type);
-    } else if (_discordConnections.containsKey(id)) {
-      // Discord: Send via gateway as attachment
-      final fileName = file.path.split(Platform.pathSeparator).last;
-      await sendDiscordMessage(
-        toJid,
-        caption ?? '',
-        accountId: id,
-        file: file,
-        type: type,
-        fileName: fileName,
-      );
-    } else if (_ircConnections.containsKey(id)) {
-      // IRC: (Fallback) Not supported
-      debugPrint('IRC: Multimedia not supported');
     }
   }
 
@@ -658,11 +658,43 @@ class AuthService with ChangeNotifier {
 
   // Fetch VCard (XEP-0054)
   Future<void> fetchVCard(String accountId, String jid) async {
+    if (jid.isEmpty) return;
+    
+    // Normalize JID and check blacklist
+    String cleanJid = jid.toLowerCase().split('/').first;
+    
+    // Fix common typos
+    if (cleanJid.endsWith('.vom')) {
+      cleanJid = cleanJid.replaceFirst('.vom', '.com');
+    }
+    
+    final cacheKey = '$accountId:$cleanJid';
+    
+    if (_vCardUnsupportedJids.contains(cleanJid)) return;
+
+    final now = DateTime.now();
+    if (_vCardLastFetch.containsKey(cacheKey)) {
+      if (now.difference(_vCardLastFetch[cacheKey]!) < const Duration(hours: 1)) {
+        return; // Don't fetch more than once per hour
+      }
+    }
+
+    if (_pendingVCardFetches.contains(cacheKey)) return;
+    _pendingVCardFetches.add(cacheKey);
+
     final conn = _xmppConnections[accountId];
-    if (conn == null) return;
+    if (conn == null) {
+      _pendingVCardFetches.remove(cacheKey);
+      return;
+    }
+
+    _vCardLastFetch[cacheKey] = now;
+
+    // Small random jitter to prevent simultaneous bursts
+    await Future.delayed(Duration(milliseconds: 50 + (jid.hashCode % 450)));
 
     final iq = xmpp.IqStanza(
-      DateTime.now().millisecondsSinceEpoch.toString(),
+      'vcard_${DateTime.now().millisecondsSinceEpoch}_${jid.hashCode}',
       xmpp.IqStanzaType.GET,
     );
     iq.toJid = xmpp.Jid.fromFullJid(jid);
@@ -671,6 +703,11 @@ class AuthService with ChangeNotifier {
     vcard.addAttribute(xmpp.XmppAttribute('xmlns', 'vcard-temp'));
     iq.addChild(vcard);
     conn.writeStanza(iq);
+
+    // Keep it in pending for a bit to avoid rapid fire
+    Timer(const Duration(seconds: 15), () {
+      _pendingVCardFetches.remove(cacheKey);
+    });
   }
 
   // Function to connect to XMPP
@@ -692,7 +729,8 @@ class AuthService with ChangeNotifier {
 
     try {
       final jid = xmpp.Jid.fromFullJid(fullJidStr);
-
+      
+      _xmppProxies[id]?.stop();
       final proxy = XmppProxyService();
       _xmppProxies[id] = proxy;
 
@@ -739,13 +777,11 @@ class AuthService with ChangeNotifier {
       _xmppConnections[id] = conn;
       _xmppJids[id] = jid.fullJid ?? fullJidStr; // Store JID
 
-      // --- CRITICAL: Connect to start the milkshake! ---
-      debugPrint('XMPP: Calling conn.connect() for $id...');
-      conn.connect();
-      // --------------------------------------------------
+
 
       conn.connectionStateStream.listen((state) {
         debugPrint('XMPP Account $id State: $state');
+        notifyListeners();
         if (state == xmpp.XmppConnectionState.Ready) {
           _xmppConnecting = false;
           _activeAccountId ??= id;
@@ -775,9 +811,8 @@ class AuthService with ChangeNotifier {
           // Auto-Join Persistence
           _autoJoinRooms(id);
 
-          _xmppStatusSubs[id] = conn.connectionStateStream.listen((state) {
-            // ...
-          });
+          // Services are initialized on Ready state above.
+          // Redundant listener removed to centralize state handling.
 
           // Pipe events to unified stream
           signaling.events.listen((event) {
@@ -822,7 +857,8 @@ class AuthService with ChangeNotifier {
           presenceManager.presenceStream.listen((presence) {
             final pid = presence.jid?.fullJid ?? presence.jid?.domain;
             if (pid != null) {
-              final index = _currentContacts.indexWhere((c) => c.id == pid);
+              final barePid = pid.split('/').first.toLowerCase();
+              final index = _currentContacts.indexWhere((c) => c.id.toLowerCase().split('/').first == barePid);
               if (index != -1) {
                 _currentContacts[index].status = _mapPresenceToShow(
                   presence.showElement,
@@ -833,29 +869,9 @@ class AuthService with ChangeNotifier {
             }
           });
 
-          // Handle Messages
-          final messageHandler = xmpp.MessageHandler.getInstance(conn);
-          _xmppMessageSubs[id] = messageHandler.messagesStream.listen((m) {
-            if (m != null && m.body != null) {
-              _messageStreamController.add(
-                ChatMessage(
-                  id: DateTime.now().toIso8601String(),
-                  text: m.body!,
-                  timestamp: DateTime.now(),
-                  isSent: false,
-                  senderId: m.fromJid?.fullJid ?? m.fromJid?.domain,
-                  senderName: m.fromJid?.local,
-                  accountId: id,
-                  protocol: 'XMPP',
-                  conversationId: (m.fromJid?.fullJid ?? m.fromJid?.domain)
-                      ?.split('/')
-                      .first,
-                ),
-              );
-            }
-          });
+          // Handle Messages - Relegated entirely to inStanzasStream below
+          // to prevent duplicate message emissions and avoid redundant OTR/OMEMO decryption overlaps.
 
-          // Handle Stanzas (Jingle, MUC, MAM, ChatStates, Receipts)
           _xmppStanzaSubs[id] = conn.inStanzasStream.listen((stanza) async {
             if (stanza is xmpp.PresenceStanza) {
               final fromJid = stanza.fromJid;
@@ -906,6 +922,25 @@ class AuthService with ChangeNotifier {
             }
 
             if (stanza is xmpp.IqStanza) {
+              final fromJidStr = stanza.fromJid?.fullJid;
+              
+              if (stanza.type == xmpp.IqStanzaType.ERROR) {
+                final error = stanza.getChild('error');
+                if (error != null) {
+                  final isNotImplemented = error.getChild('feature-not-implemented') != null;
+                  final isServiceUnavailable = error.getChild('service-unavailable') != null;
+                  
+                  if ((isNotImplemented || isServiceUnavailable) && fromJidStr != null) {
+                    final cleanJid = fromJidStr.toLowerCase().split('/').first;
+                    // If the IQ had a vCard element or starts with vcard_, blacklist it
+                    if (stanza.getChild('vCard') != null || (stanza.id != null && stanza.id!.startsWith('vcard_'))) {
+                      _vCardUnsupportedJids.add(cleanJid);
+                      // debugPrint('VCard not supported by $cleanJid - blacklisting.');
+                    }
+                  }
+                }
+              }
+
               final vcard = stanza.getChild('vCard');
               if (vcard != null &&
                   vcard.getAttribute('xmlns')?.value == 'vcard-temp') {
@@ -970,6 +1005,7 @@ class AuthService with ChangeNotifier {
               if (items != null &&
                   items.getAttribute('xmlns')?.value ==
                       'http://jabber.org/protocol/disco#items') {
+                final discoveredRooms = <Map<String, String>>[];
                 for (var item in items.children) {
                   final jid = item.getAttribute('jid')?.value;
                   final name = item.getAttribute('name')?.value;
@@ -979,7 +1015,14 @@ class AuthService with ChangeNotifier {
                     _uploadServiceJids[id] = jid;
                     _uploadServices[id]?.uploadServiceJid = jid;
                     debugPrint('DISCO: Found HTTP Upload service: $jid');
+                  } else if (jid != null && name != null) {
+                    discoveredRooms.add({'jid': jid, 'name': name});
                   }
+                }
+                
+                if (stanza.id != null && _discoveryCompleters.containsKey(stanza.id)) {
+                  _discoveryCompleters[stanza.id]!.complete(discoveredRooms);
+                  _discoveryCompleters.remove(stanza.id);
                 }
                 return;
               }
@@ -1003,12 +1046,49 @@ class AuthService with ChangeNotifier {
                 if (_serverFeatures[id]!.contains('urn:xmpp:carbons:2')) {
                   _enableCarbons(id);
                 }
+                
+                // Handle MUC Room Info queries
+                if (stanza.id != null && _roomInfoCompleters.containsKey(stanza.id)) {
+                  final Map<String, dynamic> roomInfo = {
+                    'jid': stanza.fromJid?.fullJid ?? '',
+                    'password_protected': false,
+                  };
+                  
+                  // Extract features (e.g. muc_passwordprotected)
+                  for (var feature in info.children.where((c) => c.name == 'feature')) {
+                    if (feature.getAttribute('var')?.value == 'muc_passwordprotected') {
+                      roomInfo['password_protected'] = true;
+                    }
+                  }
+                  
+                  // Extract extended data forms
+                  final xData = info.getChild('x');
+                  if (xData != null && xData.getAttribute('xmlns')?.value == 'jabber:x:data') {
+                    for (var field in xData.children.where((c) => c.name == 'field')) {
+                      final varName = field.getAttribute('var')?.value;
+                      final val = field.getChild('value')?.textValue;
+                      if (varName != null && val != null) {
+                        if (varName == 'muc#roominfo_occupants') roomInfo['users'] = val;
+                        if (varName == 'muc#roominfo_description') roomInfo['description'] = val;
+                        if (varName == 'muc#roominfo_subject') roomInfo['topic'] = val;
+                      }
+                    }
+                  }
+                  
+                  _roomInfoCompleters[stanza.id]!.complete(roomInfo);
+                  _roomInfoCompleters.remove(stanza.id);
+                }
+                
                 return;
               }
 
               final jingle = stanza.getChild('jingle');
-              if (jingle != null &&
-                  jingle.getAttribute('xmlns')?.value == 'urn:xmpp:jingle:1') {
+              if ((jingle != null &&
+                      jingle.getAttribute('xmlns')?.value ==
+                          'urn:xmpp:jingle:1') ||
+                  (stanza.id != null &&
+                      (stanza.id!.startsWith('jingle') ||
+                          stanza.id!.startsWith('cand_')))) {
                 _jingleServices[id]?.handleIncomingIq(stanza);
                 return;
               }
@@ -1034,6 +1114,9 @@ class AuthService with ChangeNotifier {
               }
             }
             if (stanza is xmpp.MessageStanza) {
+              // DISPATCH TO JINGLE (XEP-0353 Signaling)
+              _jingleServices[id]?.handleIncomingMessage(stanza);
+
               // XEP-0184: Auto-respond to delivery requests
               final request = stanza.getChild('request');
               if (request != null &&
@@ -1090,6 +1173,22 @@ class AuthService with ChangeNotifier {
                 );
               }
 
+              // Handle Chat Markers (XEP-0333)
+              final displayed = stanza.getChild('displayed');
+              if (displayed != null &&
+                  displayed.getAttribute('xmlns')?.value ==
+                      'urn:xmpp:chat-markers:0') {
+                _jingleEventController.add(
+                  JingleEvent(
+                    action: JingleAction.transportInfo,
+                    sessionId: 'marker',
+                    fromJid: stanza.fromJid?.fullJid ?? '',
+                    reason: displayed.getAttribute('id')?.value,
+                    accountId: id,
+                  ),
+                );
+              }
+
               // Handle Reactions (XEP-0444)
               final reactions = stanza.getChild('reactions');
               if (reactions != null &&
@@ -1108,6 +1207,54 @@ class AuthService with ChangeNotifier {
                       accountId: id,
                     ),
                   );
+                }
+              }
+
+              // GROUP INVITE DETECTION (Mediated and Direct)
+              for (var child in stanza.children) {
+                final ns = child.getAttribute('xmlns')?.value;
+                
+                // XEP-0249: Direct Invitations or Space Invites
+                if (child.name == 'x' && ns == 'jabber:x:conference') {
+                  final roomJid = child.getAttribute('jid')?.value;
+                  if (roomJid != null) {
+                    debugPrint('MUC: Received Direct Invite to $roomJid');
+                    _groupInviteStreamController.add({
+                      'accountId': id,
+                      'roomJid': roomJid,
+                      'fromJid': stanza.fromJid?.fullJid ?? '',
+                      'reason': child.getAttribute('reason')?.value,
+                      'password': child.getAttribute('password')?.value,
+                    });
+                    
+                    // Generate system message so it appears in the chat UI
+                    _messageStreamController.add(
+                      ChatMessage(
+                        id: 'invite_${DateTime.now().millisecondsSinceEpoch}',
+                        text: 'INVITE: $roomJid',
+                        timestamp: DateTime.now(),
+                        isSent: false,
+                        senderId: stanza.fromJid?.fullJid,
+                        senderName: stanza.fromJid?.local,
+                        type: MessageType.system,
+                      ),
+                    );
+                  }
+                }
+
+                // XEP-0045: Mediated Invitations
+                if (child.name == 'x' && ns == 'http://jabber.org/protocol/muc#user') {
+                  final invite = child.getChild('invite');
+                  if (invite != null) {
+                    final fromJid = invite.getAttribute('from')?.value ?? stanza.fromJid?.fullJid ?? '';
+                    debugPrint('MUC: Received Mediated Invite from $fromJid');
+                    _groupInviteStreamController.add({
+                      'accountId': id,
+                      'roomJid': stanza.fromJid?.fullJid ?? '', 
+                      'fromJid': fromJid,
+                      'reason': invite.getChild('reason')?.textValue,
+                    });
+                  }
                 }
               }
 
@@ -1196,6 +1343,11 @@ class AuthService with ChangeNotifier {
                       ?.value;
                   final isRetraction =
                       stanza.getChild('apply-to')?.getChild('retract') != null;
+
+                  // OTR Decryption Interceptor
+                  if (bareJid.isNotEmpty) {
+                    finalBody = _otr.processIncomingMessage(bareJid, finalBody);
+                  }
 
                   _messageStreamController.add(
                     ChatMessage(
@@ -1358,15 +1510,12 @@ class AuthService with ChangeNotifier {
         } else if (state == xmpp.XmppConnectionState.AuthenticationFailure) {
           _xmppConnecting = false;
           _lastDiagnostic = 'Authentication failed. Check your username and password.';
-          notifyListeners();
         } else if (state == xmpp.XmppConnectionState.AuthenticationNotSupported) {
           _xmppConnecting = false;
           _lastDiagnostic = 'Server does not support any compatible authentication method.';
-          notifyListeners();
         } else if (state == xmpp.XmppConnectionState.StartTlsFailed) {
           _xmppConnecting = false;
           _lastDiagnostic = 'TLS handshake failed. The server may not support secure connections on this port.';
-          notifyListeners();
         } else if (state == xmpp.XmppConnectionState.Closed ||
             state == xmpp.XmppConnectionState.ForcefullyClosed) {
           _xmppConnecting = false;
@@ -1375,7 +1524,6 @@ class AuthService with ChangeNotifier {
                 ? 'Connection was forcefully closed by the server.'
                 : 'Connection closed before authentication completed.';
           }
-          notifyListeners();
         }
       }, onError: _handleXmppStreamError);
 
@@ -1386,195 +1534,6 @@ class AuthService with ChangeNotifier {
     } finally {
       _xmppConnecting = false;
       notifyListeners();
-    }
-  }
-
-  // IRC Connection
-  Future<void> connectIrc({
-    required String host,
-    required int port,
-    required String nick,
-    required String channel,
-    String? accountId,
-    SavedAccount? configData,
-  }) async {
-    final id = accountId ?? 'irc_${DateTime.now().millisecondsSinceEpoch}';
-    _ircConnecting = true;
-    _lastDiagnostic = null;
-    notifyListeners();
-    try {
-      final actualNick = '$nick${DateTime.now().millisecondsSinceEpoch % 1000}';
-      final client = IrcClient(
-        host: host,
-        port: port,
-        secure: configData?.isSecure ?? false,
-        nick: actualNick,
-        user: nick,
-        userRealName: configData?.realName,
-        pass: configData?.serverPassword,
-        auth: configData?.saslAuthPassword,
-      );
-
-      final connection = await client.connect();
-      _ircReadyCompleters[id] = Completer<void>();
-      _ircNicks[id] = actualNick;
-      _ircConnections[id] = connection;
-      _ircConnecting = false;
-      _activeAccountId ??= id;
-      _authenticatedAccountIds.add(id); // Track user intent
-
-      _ircMessageSubs[id] = connection.listen((message) {
-        if (message.command == 'PRIVMSG' && message.parameters.isNotEmpty) {
-          final target = message.parameters.first;
-          final String senderNick =
-              message.prefix?.split('!').first ?? 'irc-user';
-          final isChannel = target.startsWith('#');
-
-          String text = message.parameters.last;
-          bool isAction = false;
-
-          // Detect CTCP ACTION (\x01ACTION text\x01)
-          if (text.startsWith('\x01ACTION ') && text.endsWith('\x01')) {
-            text = text.substring(8, text.length - 1);
-            isAction = true;
-          }
-
-          // Self-Detection (from other clients with same nick)
-          final bool isSentByMe =
-              senderNick.toLowerCase() == actualNick.toLowerCase();
-
-          _messageStreamController.add(
-            ChatMessage(
-              id: 'irc_${DateTime.now().microsecondsSinceEpoch}_$senderNick',
-              text: isAction ? '* $senderNick $text' : text,
-              timestamp: DateTime.now(),
-              isSent: isSentByMe,
-              senderId: senderNick,
-              senderName: senderNick,
-              conversationId: isChannel
-                  ? target
-                  : (isSentByMe ? target : senderNick),
-              accountId: id,
-              protocol: 'IRC',
-              isGroup: isChannel,
-              type: isAction ? MessageType.system : MessageType.text,
-            ),
-          );
-        } else if (message.command == 'JOIN') {
-          final channel = message.parameters.first;
-          final nick = message.prefix?.split('!').first;
-          _messageStreamController.add(
-            ChatMessage(
-              id: 'irc_join_${DateTime.now().microsecondsSinceEpoch}',
-              text: '$nick has joined $channel',
-              timestamp: DateTime.now(),
-              isSent: false,
-              senderId: channel,
-              conversationId: channel,
-              accountId: id,
-              protocol: 'IRC',
-              isGroup: true,
-            ),
-          );
-        } else if (message.command == 'TOPIC') {
-          final channel = message.parameters.first;
-          _messageStreamController.add(
-            ChatMessage(
-              id: 'irc_topic_${DateTime.now().microsecondsSinceEpoch}',
-              text: 'Topic for $channel: ${message.parameters.last}',
-              timestamp: DateTime.now(),
-              isSent: false,
-              senderId: channel,
-              conversationId: channel,
-              accountId: id,
-              protocol: 'IRC',
-              isGroup: true,
-            ),
-          );
-        } else if (message.command == '001') {
-          _ircReadyCompleters[id]?.complete();
-          connection.add(IrcMessage(command: 'JOIN')..arg(channel));
-        } else if (message.command == 'TOPIC') {
-          final channel = message.parameters.first;
-          final topic = message.parameters.last;
-          _messageStreamController.add(
-            ChatMessage(
-              id: 'irc_topic_change_${DateTime.now().microsecondsSinceEpoch}',
-              text: 'Topic for $channel changed to: $topic',
-              timestamp: DateTime.now(),
-              isSent: false,
-              senderId: channel,
-              conversationId: channel,
-              accountId: id,
-              protocol: 'IRC',
-              isGroup: true,
-              type: MessageType.system,
-            ),
-          );
-        } else if (message.command == '332') {
-          // RPL_TOPIC
-          final channel = message.parameters[1];
-          final topic = message.parameters.last;
-          _messageStreamController.add(
-            ChatMessage(
-              id: 'irc_topic_sync_${DateTime.now().microsecondsSinceEpoch}',
-              text: 'Topic: $topic',
-              timestamp: DateTime.now(),
-              isSent: false,
-              senderId: channel,
-              conversationId: channel,
-              accountId: id,
-              protocol: 'IRC',
-              isGroup: true,
-              type: MessageType.system,
-            ),
-          );
-        } else if (message.command == '353') {
-          // RPL_NAMREPLY
-          final channel = message.parameters[2];
-          final users = message.parameters.last.split(' ');
-          _roomParticipants[channel] ??= [];
-          for (var user in users) {
-            final nick = user.replaceAll(
-              RegExp(r'[^a-zA-Z0-9_\-\\\[\]\{\}\^\`]'),
-              '',
-            );
-            if (nick.isNotEmpty &&
-                !_roomParticipants[channel]!.contains(nick)) {
-              _roomParticipants[channel]!.add(nick);
-            }
-          }
-          _roomParticipantStreamController.add(Map.from(_roomParticipants));
-        } else if (message.command == 'QUIT' || message.command == 'PART') {
-          final senderNick = message.prefix?.split('!').first;
-          if (senderNick != null) {
-            final index = _currentContacts.indexWhere(
-              (c) => c.id == senderNick && c.protocol == 'IRC',
-            );
-            if (index != -1) {
-              _currentContacts[index].status = ContactStatus.offline;
-              _contactStreamController.add(List.from(_currentContacts));
-            }
-          }
-          // Setup Auto-Join channels if defined
-          if (configData?.autoJoinChannels != null &&
-              configData!.autoJoinChannels!.isNotEmpty) {
-            for (var c in configData.autoJoinChannels!) {
-              connection.msg(
-                'JOIN $c',
-                to: c,
-              ); // or just use connection.add(IrcMessage(command: 'JOIN')..arg(c)) but let's just let joinIrcChannel handle it later if it exists. Actually irc_dart has raw commands:
-              // Since irc_dart doesn't have an explicit join method, we use internal mapping or let our join method handle it.
-            }
-          }
-        }
-      });
-      notifyListeners();
-    } catch (e) {
-      _ircConnecting = false;
-      notifyListeners();
-    } finally {
-      // Done
     }
   }
 
@@ -1712,6 +1671,33 @@ class AuthService with ChangeNotifier {
     }
   }
 
+  // XEP-0333: Chat Markers
+  void sendChatMarker(
+    String targetJid,
+    String msgId,
+    String markerType, { // 'displayed', 'received', or 'acknowledged'
+    String? accountId,
+    bool isGroup = false,
+  }) {
+    final id = accountId ?? _activeAccountId;
+    final conn = _xmppConnections[id];
+    if (conn != null && conn.state == xmpp.XmppConnectionState.Ready) {
+      final msg = xmpp.MessageStanza(
+        DateTime.now().millisecondsSinceEpoch.toString(),
+        isGroup ? xmpp.MessageStanzaType.GROUPCHAT : xmpp.MessageStanzaType.CHAT,
+      );
+      msg.toJid = xmpp.Jid.fromFullJid(targetJid);
+
+      final marker = xmpp.XmppElement();
+      marker.name = markerType;
+      marker.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:chat-markers:0'));
+      marker.addAttribute(xmpp.XmppAttribute('id', msgId));
+      msg.addChild(marker);
+
+      conn.writeStanza(msg);
+    }
+  }
+
   Future<void> sendXmppReaction(
     String targetJid,
     String originalMsgId,
@@ -1775,10 +1761,7 @@ class AuthService with ChangeNotifier {
         accountId: activeId,
         isGroup: isGroup,
       );
-    } else if (_discordConnections.containsKey(activeId)) {
-      sendDiscordReaction(chatId, messageId, emoji, accountId: activeId);
     }
-    // IRC doesn't support structured reactions
   }
 
   // Unified Message Sender (Standalone)
@@ -1792,10 +1775,15 @@ class AuthService with ChangeNotifier {
     String? replyToId,
     bool isGroup = false,
   }) {
+    String finalMsg = text;
+    if (type == MessageType.text && !isGroup) {
+      finalMsg = _otr.processOutgoingMessage(toId.split('/').first, text);
+    }
+
     if (_xmppConnections.containsKey(accountId)) {
       sendXmppMessage(
         toId,
-        text,
+        finalMsg,
         accountId: accountId,
         type: type,
         filePath: filePath,
@@ -1803,1287 +1791,10 @@ class AuthService with ChangeNotifier {
         replyToId: replyToId,
         isGroup: isGroup,
       );
-    } else if (_discordConnections.containsKey(accountId)) {
-      sendDiscordMessage(toId, text, accountId: accountId);
-    } else {
-      sendIrcMessage(toId, text, accountId: accountId, isGroup: isGroup);
     }
   }
 
-  Future<void> sendIrcMessage(
-    String target,
-    String text, {
-    String? accountId,
-    bool isGroup = false,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _ircConnections[id];
-    final localNick = _ircNicks[id] ?? 'me';
-
-    if (conn != null) {
-      final actualIsGroup = isGroup || target.startsWith('#');
-      conn.msg(text, to: target);
-
-      _messageStreamController.add(
-        ChatMessage(
-          id: 'irc_sent_${DateTime.now().microsecondsSinceEpoch}',
-          text: text,
-          timestamp: DateTime.now(),
-          isSent: true,
-          senderId: localNick,
-          accountId: id!,
-          protocol: 'IRC',
-          conversationId: target,
-          isGroup: actualIsGroup,
-        ),
-      );
-    }
-  }
-
-  /// Initiates an IRC DCC SEND (Direct Client-to-Client) file transfer
-  Future<void> sendIrcFile(
-    String target,
-    String fileName,
-    int fileSize, {
-    String? accountId,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _ircConnections[id];
-    if (conn == null) return;
-
-    // DCC SEND syntax: PRIVMSG <target> :\x01DCC SEND <filename> <ip> <port> <filesize>\x01
-    // For now, we use a placeholder IP/Port as this requires a listening socket (active or passive)
-    const placeholderIp = '0'; // 0 placeholder for now
-    const placeholderPort = '0';
-
-    final dccCommand =
-        '\x01DCC SEND $fileName $placeholderIp $placeholderPort $fileSize\x01';
-    conn.msg(dccCommand, to: target);
-
-    _messageStreamController.add(
-      ChatMessage(
-        id: 'irc_dcc_${DateTime.now().microsecondsSinceEpoch}',
-        text: '📎 Sent DCC File: $fileName ($fileSize bytes)',
-        timestamp: DateTime.now(),
-        isSent: true,
-        senderId: _ircNicks[id] ?? 'me',
-        accountId: id!,
-        protocol: 'IRC',
-        conversationId: target,
-        type: MessageType.file,
-        fileName: fileName,
-      ),
-    );
-
-    debugPrint('IRC ($id): Initiated DCC SEND for $fileName to $target');
-  }
-
-  // --- DISCORD IMPLEMENTATION ---
-
-  /// Retrieves a saved Discord token for a given handle (user#1234)
-  Future<String?> getSavedDiscordToken(String handleOrId) async {
-    // 1. Direct lookup by ID/Handle in Secure Storage
-    final directKey = 'pass_$handleOrId@discord.com';
-    final token = await _secureStorage.read(key: directKey);
-    if (token != null) return token;
-
-    // 2. Fallback: Search _savedAccounts for a matching Discord entry to find its JID
-    for (var acc in _savedAccounts) {
-      if (acc.protocol == 'Discord') {
-        final passKey = 'pass_${acc.fullJid}';
-        final savedToken = await _secureStorage.read(key: passKey);
-        if (savedToken != null) {
-          // Verify this token works for this handle if possible (or just trust the registry)
-          // For now, we trust the first Discord account we find if only one exists
-          return savedToken;
-        }
-      }
-    }
-    return null;
-  }
-
-  /// High-level method to connect Discord and handle result
-  Future<String> connectDiscord(String token, {bool rememberMe = true}) async {
-    _lastDiagnostic = null;
-    notifyListeners();
-    // 1. Initial connection with the token
-    String result = '';
-    try {
-      result = await _connectDiscord(
-        SavedAccount(
-          user: token,
-          domain: 'discord.com',
-          port: 443,
-          protocol: 'Discord',
-        ),
-      );
-    } catch (e) {
-      if (e.toString().contains('4014')) {
-        debugPrint('Discord: Primary connection failed with 4014. Retrying with minimal intents...');
-        // Retry with minimal intents (No privileged intents)
-        result = await _connectDiscord(
-          SavedAccount(
-            user: token,
-            domain: 'discord.com',
-            port: 443,
-            protocol: 'Discord',
-          ),
-          useMinimalIntents: true,
-        );
-      } else {
-        rethrow;
-      }
-    }
-
-    // result is the accountId (snowflake@discord.com)
-    if (result.isEmpty) {
-      throw Exception(_lastDiagnostic ?? 'Discord connection failed (Handshake incomplete).');
-    }
-
-    if (rememberMe) {
-      await saveAccount(
-        SavedAccount(
-          user: result.split('@').first,
-          domain: 'discord.com',
-          port: 443,
-          protocol: 'Discord',
-          displayName: token.length > 20
-              ? 'Discord Bot (${token.substring(0, 8)}...)'
-              : 'Discord Bot',
-        ),
-        token,
-      );
-    }
-    return result;
-  }
-
-  Future<String> _connectDiscord(SavedAccount account, {bool useMinimalIntents = false}) async {
-    final accountId = '${account.user}@${account.domain}';
-    String actualAccountId = '';
-
-    if (_discordConnections.containsKey(accountId)) return accountId;
-
-    _discordConnecting = true;
-    notifyListeners();
-
-    return await runZonedGuarded(
-          () async {
-            try {
-              // 1. Clean token (handle "Bot " prefix carefully)
-              final rawToken = account.user.trim();
-              final isExplicitBot = rawToken.toLowerCase().startsWith('bot ');
-              final token = isExplicitBot ? rawToken.replaceFirst(RegExp(r'^Bot ', caseSensitive: false), '') : rawToken;
-
-              // 2. Select Intents (Adaptive nyxx 6.x constructor path)
-              var intents = discord.GatewayIntents.allUnprivileged;
-              if (!useMinimalIntents) {
-                intents = discord.GatewayIntents(
-                  intents.value |
-                      discord.GatewayIntents.messageContent.value |
-                      discord.GatewayIntents.guildPresences.value |
-                      discord.GatewayIntents.guildMembers.value,
-                );
-              }
-
-              debugPrint('Discord: Connecting with intents ${intents.value} (Minimal: $useMinimalIntents)');
-              
-              final client = await discord.Nyxx.connectGateway(
-                token,
-                intents,
-                options: discord.GatewayClientOptions(
-                  plugins: [discord.logging, discord.ignoreExceptions],
-                ),
-              );
-
-              // Robust handshake: Wait for ready OR informative disconnect
-              final readyCompleter = Completer<void>();
-              final errorCompleter = Completer<String>();
-
-              final readySub = client.onReady.listen((_) {
-                debugPrint('[Discord Handshake] Received READY');
-                if (!readyCompleter.isCompleted) readyCompleter.complete();
-              });
-
-              final resumeSub = client.onResumed.listen((_) {
-                debugPrint('[Discord Handshake] Received RESUMED');
-                if (!readyCompleter.isCompleted) readyCompleter.complete();
-              });
-
-              final disconnectSub = client.gateway.events.listen(
-                (event) {
-                  debugPrint('[Discord Handshake] Event: $event');
-                  // Use dynamic check to avoid lint issues with specific Nyxx event types
-                  final eventStr = event.toString().toLowerCase();
-                  if (eventStr.contains('disconnect') ||
-                      eventStr.contains('close')) {
-                    int? code;
-                    try {
-                      // Nyxx 6.x events often have a 'code' property for disconnections
-                      final dynamic dEvent = event;
-                      code = dEvent.code?.value;
-                    } catch (_) {}
-
-                    String msg = 'Discord connection closed abruptly.';
-                    if (code == 4004) {
-                      msg =
-                          'Discord Authentication Failed. Verify your token is correct and is a BOT token.';
-                    }
-                    if (code == 4014) {
-                      msg =
-                          'Discord Disallowed Intent. Enable "Message Content Intent" in the Discord Developer Portal.';
-                    }
-
-                    if (!errorCompleter.isCompleted &&
-                        !readyCompleter.isCompleted) {
-                      errorCompleter.complete(msg);
-                    }
-                  }
-                },
-                onError: (e, stack) {
-                  debugPrint('Discord Gateway Handshake Error: $e\n$stack');
-                  if (!errorCompleter.isCompleted &&
-                      !readyCompleter.isCompleted) {
-                    errorCompleter.complete('Discord Handshake Error: $e');
-                  }
-                },
-              );
-
-              try {
-                await Future.any([
-                  readyCompleter.future,
-                  errorCompleter.future,
-                ]).timeout(const Duration(seconds: 30));
-
-                if (errorCompleter.isCompleted) {
-                  throw Exception(await errorCompleter.future);
-                }
-              } on TimeoutException {
-                throw Exception(
-                  'Timed out waiting for Discord ready state. Network may be unstable.',
-                );
-              } finally {
-                await readySub.cancel();
-                await resumeSub.cancel();
-                await disconnectSub.cancel();
-              }
-
-              final currentUser = await client.users.fetchCurrentUser();
-
-              // Use the Snowflake ID for the stable account identity (handle can change!)
-              final snowflake = currentUser.id.toString();
-              actualAccountId = '$snowflake@discord.com';
-
-              if (_discordConnections.containsKey(actualAccountId)) {
-                // Already connected with this identity
-                return actualAccountId;
-              }
-
-              // Ensure old subs are cleared if reconnecting
-              if (_discordSubs.containsKey(actualAccountId)) {
-                for (var sub in _discordSubs[actualAccountId]!) {
-                  await sub.cancel();
-                }
-                _discordSubs[actualAccountId]!.clear();
-              }
-
-              _discordConnections[actualAccountId] = client;
-              _discordSubs[actualAccountId] ??= [];
-              _monitorDiscordHealth(actualAccountId, client);
-
-              _activeAccountId ??= actualAccountId;
-              _discordReconnectAttempts[actualAccountId] =
-                  0; // Reset on success
-              _isDiscordReconnecting[actualAccountId] = false;
-              _authenticatedAccountIds.add(
-                actualAccountId,
-              ); // Track user intent
-
-              // REINFORCEMENT: All events and watchers must use the discovered identity, NOT the token
-              final String accountId = actualAccountId;
-
-              // Handle Messages
-              _discordSubs[accountId]!.add(
-                client.onMessageCreate.listen(
-                  (event) {
-                    if (event.message.author.id == client.user.id) return;
-
-                    final isGroup = event.guild != null;
-                    final convId = event.message.channelId.toString();
-
-                    // Extract Attachments
-                    String text = event.message.content;
-                    for (var attachment in event.message.attachments) {
-                      text += '\n📎 ${attachment.url}';
-                    }
-
-                    _messageStreamController.add(
-                      ChatMessage(
-                        id: event.message.id.toString(),
-                        text: text,
-                        timestamp: event.message.timestamp,
-                        isSent: false,
-                        senderId: event.message.author.id.toString(),
-                        senderName: event.message.author.username,
-                        accountId: accountId,
-                        protocol: 'Discord',
-                        conversationId: convId,
-                        isGroup: isGroup,
-                        replyToId: event.message.referencedMessage?.id.toString(),
-                        replyPreview:
-                            event.message.referencedMessage?.content,
-                      ),
-                    );
-                  },
-                  onError: (e) {
-                    debugPrint(
-                      'Discord ($actualAccountId) MessageCreate Error: $e',
-                    );
-                    _lastDiagnostic =
-                        'Discord ($actualAccountId) Stream Error: $e';
-                    notifyListeners();
-                  },
-                ),
-              );
-
-              // Handle Edits (Updates)
-              _discordSubs[actualAccountId]!.add(
-                client.onMessageUpdate.listen(
-                  (event) {
-                    final msg = event.message;
-
-                    final convId = msg.channelId.toString();
-                    _messageStreamController.add(
-                      ChatMessage(
-                        id: msg.id.toString(),
-                        text: msg.content,
-                        timestamp: msg.timestamp,
-                        isSent: msg.author.id == client.user.id,
-                        senderId: msg.author.id.toString(),
-                        senderName: msg.author.username,
-                        accountId: actualAccountId,
-                        protocol: 'Discord',
-                        conversationId: convId,
-                        isGroup: event.guild != null,
-                        replacesId: msg.id.toString(),
-                        replyToId: msg.referencedMessage?.id.toString(),
-                        replyPreview: msg.referencedMessage?.content,
-                        isEdited: msg.editedTimestamp != null,
-                        editTimestamp: msg.editedTimestamp,
-                      ),
-                    );
-                  },
-                  onError: (e) {
-                    debugPrint(
-                      'Discord ($actualAccountId) MessageUpdate Error: $e',
-                    );
-                  },
-                ),
-              );
-
-              // Handle Reaction Adds
-              _discordSubs[actualAccountId]!.add(
-                client.onMessageReactionAdd.listen(
-                  (event) {
-                    final emojiText = _emojiToText(event.emoji);
-                    if (emojiText.isEmpty) return;
-                    _jingleEventController.add(
-                      JingleEvent(
-                        action: JingleAction.transportInfo,
-                        sessionId: 'reaction',
-                        fromJid: event.channelId.toString(),
-                        reason: event.messageId.toString(),
-                        sdp: jsonEncode({
-                          'emoji': emojiText,
-                          'userId': event.userId.toString(),
-                          'op': 'add',
-                        }),
-                        accountId: actualAccountId,
-                      ),
-                    );
-                  },
-                ),
-              );
-
-              // Handle Reaction Removes
-              _discordSubs[actualAccountId]!.add(
-                client.onMessageReactionRemove.listen(
-                  (event) {
-                    final emojiText = _emojiToText(event.emoji);
-                    if (emojiText.isEmpty) return;
-                    _jingleEventController.add(
-                      JingleEvent(
-                        action: JingleAction.transportInfo,
-                        sessionId: 'reaction',
-                        fromJid: event.channelId.toString(),
-                        reason: event.messageId.toString(),
-                        sdp: jsonEncode({
-                          'emoji': emojiText,
-                          'userId': event.userId.toString(),
-                          'op': 'remove',
-                        }),
-                        accountId: actualAccountId,
-                      ),
-                    );
-                  },
-                ),
-              );
-
-              // Handle Deletes
-              _discordSubs[actualAccountId]!.add(
-                client.onMessageDelete.listen(
-                  (event) {
-                    _messageStreamController.add(
-                      ChatMessage(
-                        id: event.id.toString(),
-                        text: '🚫 Message deleted',
-                        timestamp: DateTime.now(),
-                        isSent: false,
-                        type: MessageType.system,
-                        accountId: actualAccountId,
-                        protocol: 'Discord',
-                        conversationId: event.channelId.toString(),
-                      ),
-                    );
-                  },
-                  onError: (e) {
-                    debugPrint(
-                      'Discord ($actualAccountId) MessageDelete Error: $e',
-                    );
-                  },
-                ),
-              );
-
-              // Handle Presence
-              _discordSubs[actualAccountId]!.add(
-                client.onPresenceUpdate.listen(
-                  (event) {
-                    if (event.status == null) return;
-                    final status = _mapDiscordStatus(event.status!);
-                    final contactIdx = _currentContacts.indexWhere(
-                      (c) => c.id == event.user?.id.toString(),
-                    );
-                    if (contactIdx != -1) {
-                      _currentContacts[contactIdx].status = status;
-                      _contactStreamController.add(List.from(_currentContacts));
-                    }
-                  },
-                  onError: (e) {
-                    debugPrint(
-                      'Discord ($actualAccountId) PresenceUpdate Error: $e',
-                    );
-                  },
-                ),
-              );
-
-              // Discover Guild Channels
-              _discordSubs[actualAccountId]!.add(
-                client.onGuildCreate.listen(
-                  (event) async {
-                    final guild = event.guild;
-                    if (guild is discord.Guild) {
-                      final channels = await guild.fetchChannels();
-                      final textChannels = channels
-                          .whereType<discord.GuildTextChannel>();
-
-                      final rooms = textChannels.map((ch) {
-                        return Room(
-                          id: ch.id.toString(),
-                          name: '${guild.name} > ${ch.name}',
-                          protocol: 'Discord',
-                          participants: [],
-                          isGroup: true,
-                          accountId: actualAccountId,
-                        );
-                      }).toList();
-
-                      _joinedRooms.addAll(rooms);
-                      _joinedRoomsStreamController.add(List.from(_joinedRooms));
-                    }
-                  },
-                  onError: (e) {
-                    debugPrint(
-                      'Discord ($actualAccountId) GuildCreate Error: $e',
-                    );
-                  },
-                ),
-              );
-
-              // Fetch initial state once ready
-              client.onReady.listen(
-                (event) async {
-                  debugPrint(
-                    'Discord ($actualAccountId): Client ready as ${client.user.id}. Resetting backoff.',
-                  );
-                  _discordReconnectAttempts[actualAccountId] = 0;
-                  _isDiscordReconnecting[actualAccountId] = false;
-                  _discordConnecting = false;
-                  _lastDiagnostic =
-                      'Discord ($actualAccountId) is connected and ready.';
-
-                  await _discoverDiscordResources(actualAccountId, client);
-                  notifyListeners();
-                },
-                onError: (e) {
-                  debugPrint('Discord ($accountId) Ready State Error: $e');
-                  _reconnectDiscord(accountId);
-                },
-              );
-
-              return actualAccountId;
-            } catch (e, stack) {
-              debugPrint('Discord Login Error: $e\n$stack');
-              final errorStr = e.toString();
-              if (errorStr.contains('401') ||
-                  errorStr.toLowerCase().contains('unauthorized')) {
-                _lastDiagnostic =
-                    'Discord Error: Unauthorized. Ensure your token is a BOT token.';
-              } else if (errorStr.contains('4013') ||
-                  errorStr.contains('intent')) {
-                _lastDiagnostic =
-                    'Discord Error: Disallowed Intents. Ensure "Message Content Intent" is enabled in Discord Dev Portal.';
-              } else {
-                _lastDiagnostic = 'Discord Connection Error: $e';
-              }
-              notifyListeners();
-              throw Exception(_lastDiagnostic);
-            } finally {
-              _discordConnecting = false;
-              notifyListeners();
-            }
-          },
-          (error, stack) {
-            final String errorStr = error.toString();
-            final bool isShardError =
-                errorStr.contains('Shard') && errorStr.contains('disconnected');
-
-            if (isShardError) {
-              debugPrint('DISCORD GATEWAY ALERT (Recoverable): $errorStr');
-            } else {
-              debugPrint('DISCORD CRITICAL ZONE ERROR: $error\n$stack');
-            }
-
-            _lastDiagnostic =
-                'Discord ($actualAccountId) Gateway Error: $errorStr';
-            _discordConnecting = false;
-            notifyListeners();
-
-            // TRIGGER RECOVERY: Handled by _reconnectDiscord which has internal debouncing
-            _reconnectDiscord(
-              actualAccountId.isEmpty ? accountId : actualAccountId,
-            );
-          },
-        ) ??
-        '';
-  }
-
-  Future<void> _discoverDiscordResources(
-    String accountId,
-    discord.NyxxGateway client,
-  ) async {
-    try {
-      final guilds = client.guilds.cache.values;
-      final List<Room> rooms = [];
-
-      for (var guild in guilds) {
-        final channels = await guild.fetchChannels();
-        final textChannels = channels.whereType<discord.GuildTextChannel>();
-        final voiceChannels = channels.whereType<discord.GuildVoiceChannel>();
-
-        // Fetch guild members for participant tracking
-        final List<String> participants = [];
-        try {
-          // Nyxx 6.x: fetchGuildMembers returns a Stream<Member> via HTTP
-          final members = await (client as dynamic).httpEndpoints
-              .fetchGuildMembers(guild.id)
-              .toList();
-          for (var m in members) {
-            participants.add(m.user.username);
-            // Background fetch/cache avatars for members
-            fetchDiscordAvatar(
-              m.user.id.toString(),
-              m.user.avatarUrl(),
-              accountId: accountId,
-            );
-          }
-        } catch (e) {
-          debugPrint('Discord: Error fetching members for ${guild.name}: $e');
-        }
-
-        rooms.addAll(
-          textChannels.map(
-            (ch) => Room(
-              id: ch.id.toString(),
-              name: '${guild.name} > ${ch.name}',
-              protocol: 'Discord',
-              participants: participants,
-              accountId: accountId,
-            ),
-          ),
-        );
-
-        rooms.addAll(
-          voiceChannels.map(
-            (ch) => Room(
-              id: ch.id.toString(),
-              name: '${guild.name} > 🔊 ${ch.name}',
-              protocol: 'Discord',
-              participants: participants,
-              isGroup: true, // Voice channels behave like groups
-              accountId: accountId,
-            ),
-          ),
-        );
-      }
-
-      _joinedRooms.addAll(
-        rooms.where((r) => !_joinedRooms.any((jr) => jr.id == r.id)),
-      );
-      _joinedRoomsStreamController.add(List.from(_joinedRooms));
-
-      // Discovery DMs (Private Channels)
-      // Note: For bots, this only lists channels in cache. For users, it lists active DMs.
-      final dmChannels = client.channels.cache.values
-          .whereType<discord.DmChannel>();
-      for (var dm in dmChannels) {
-        final participant = dm.recipient;
-        _messageStreamController.add(
-          ChatMessage(
-            id: 'ping_${dm.id}',
-            text: '', // Hidden ping to trigger conversation creation
-            timestamp: DateTime.now(),
-            isSent: false,
-            senderId: participant.id.toString(),
-            senderName: participant.username,
-            accountId: accountId,
-            protocol: 'Discord',
-            conversationId: dm.id.toString(),
-            isGroup: false,
-            type: MessageType.system,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Discord Discovery Error: $e');
-    }
-  }
-
-  ContactStatus _mapDiscordStatus(discord.UserStatus status) {
-    if (status == discord.UserStatus.online) return ContactStatus.online;
-    if (status == discord.UserStatus.idle) return ContactStatus.away;
-    if (status == discord.UserStatus.dnd) return ContactStatus.dnd;
-    return ContactStatus.offline;
-  }
-
-  /// Persistent health monitor for Discord gateway health (prevents Unhandled Zoned Errors)
-  void _monitorDiscordHealth(String accountId, discord.NyxxGateway client) {
-    // 1. Monitor for ready states (resets any diagnostic errors)
-    final readySub = client.onReady.listen(
-      (_) {
-        _lastDiagnostic = 'Discord ($accountId) is connected and ready.';
-        _discordConnecting = false;
-        notifyListeners();
-      },
-      onError: (e) {
-        _lastDiagnostic = 'Discord ($accountId) Ready Stream Error: $e';
-        notifyListeners();
-      },
-    );
-
-    // 2. Monitor for background disconnects
-    final disconnectSub = client.gateway.events.listen(
-      (event) {
-        final eventStr = event.toString().toLowerCase();
-        if (eventStr.contains('disconnect') || eventStr.contains('close')) {
-          int? code;
-          try {
-            final dynamic dEvent = event;
-            code = dEvent.code?.value;
-          } catch (_) {}
-
-          _lastDiagnostic =
-              'Discord ($accountId) disconnected unexpectedly (Close Code: ${code ?? "Unknown"}). Attempting auto-reconnect...';
-          notifyListeners();
-
-          // Trigger Reconnection if not a fatal error (4004 = Auth Fail, 4014 = Intents Fail)
-          if (code != 4004 && code != 4014) {
-            _reconnectDiscord(accountId);
-          }
-        }
-      },
-      onError: (e, stack) {
-        _lastDiagnostic =
-            'Discord ($accountId) Critical Gateway Error: $e. Re-enabling guard...';
-        debugPrint('Discord Watchdog ($accountId): $e\n$stack');
-        notifyListeners();
-        _reconnectDiscord(accountId);
-      },
-    );
-
-    _discordSubs[accountId]?.addAll([readySub, disconnectSub]);
-  }
-
-  /// Handles automated reconnection with exponential backoff for Discord accounts
-  /// Discord-Specific: Send a reaction to a message
-  Future<void> sendDiscordReaction(
-    String channelId,
-    String messageId,
-    String emoji, {
-    String? accountId,
-  }) async {
-    final activeId = accountId ?? _activeAccountId;
-    final client = _discordConnections[activeId];
-    if (client == null) return;
-
-    try {
-      final snowflakeChannelId = discord.Snowflake.parse(channelId);
-      final snowflakeMessageId = discord.Snowflake.parse(messageId);
-
-      // Nyxx 6.x: Try using the rest client's http property if available via dynamic cast
-      // or use the specific httpEndpoints if available.
-      await (client as dynamic).httpEndpoints.createReaction(
-        snowflakeChannelId,
-        snowflakeMessageId,
-        emoji,
-      );
-      debugPrint(
-        'Discord ($activeId): Sent reaction $emoji to message $messageId',
-      );
-    } catch (e) {
-      debugPrint('Discord ($activeId): Failed to send reaction: $e');
-    }
-  }
-
-  /// Discord-Specific: Delete a message
-  Future<void> deleteDiscordMessage(
-    String channelId,
-    String messageId, {
-    String? accountId,
-  }) async {
-    final activeId = accountId ?? _activeAccountId;
-    final client = _discordConnections[activeId];
-    if (client == null) return;
-
-    try {
-      final snowflakeChannelId = discord.Snowflake.parse(channelId);
-      final snowflakeMessageId = discord.Snowflake.parse(messageId);
-
-      await (client as dynamic).httpEndpoints.deleteMessage(
-        snowflakeChannelId,
-        snowflakeMessageId,
-      );
-      debugPrint('Discord ($activeId): Deleted message $messageId');
-    } catch (e) {
-      debugPrint('Discord ($activeId): Failed to delete message: $e');
-    }
-  }
-
-  /// Discord-Specific: Edit a message
-  Future<void> editDiscordMessage(
-    String channelId,
-    String messageId,
-    String newText, {
-    String? accountId,
-  }) async {
-    final activeId = accountId ?? _activeAccountId;
-    final client = _discordConnections[activeId];
-    if (client == null) return;
-
-    try {
-      final snowflakeChannelId = discord.Snowflake.parse(channelId);
-      final snowflakeMessageId = discord.Snowflake.parse(messageId);
-      await (client as dynamic).httpEndpoints.updateMessage(
-        snowflakeChannelId,
-        snowflakeMessageId,
-        discord.MessageUpdateBuilder(content: newText),
-      );
-      debugPrint('Discord ($activeId): Edited message $messageId');
-    } catch (e) {
-      debugPrint('Discord ($activeId): Failed to edit message: $e');
-    }
-  }
-
-  Future<void> _reconnectDiscord(String accountId) async {
-    // Prevent overlapping reconnect attempts
-    if (_isDiscordReconnecting[accountId] == true) return;
-
-    _isDiscordReconnecting[accountId] = true;
-    final int attempt = _discordReconnectAttempts[accountId] ?? 0;
-
-    _discordConnecting = true;
-    notifyListeners();
-
-    // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 64s (max)
-    final delaySeconds = (1 << (attempt + 1)).clamp(2, 60);
-    debugPrint(
-      'Discord ($accountId): Reconnecting in $delaySeconds seconds... (Attempt ${attempt + 1})',
-    );
-
-    await Future.delayed(Duration(seconds: delaySeconds));
-
-    // GUARD: Ensure subscriptions for the previous failed instance are cleared
-    if (_discordSubs.containsKey(accountId)) {
-      for (var sub in _discordSubs[accountId]!) {
-        try {
-          await sub.cancel();
-        } catch (_) {}
-      }
-      _discordSubs[accountId]!.clear();
-    }
-
-    try {
-      if (_savedAccounts.isEmpty) {
-        await loadSavedAccounts();
-      }
-      final token = await getSavedDiscordToken(accountId.split('@').first);
-      if (token == null) {
-        _lastDiagnostic =
-            'Discord ($accountId): Reconnection failed - Saved token not found.';
-        _isDiscordReconnecting[accountId] = false;
-        _discordConnecting = false;
-        notifyListeners();
-        return;
-      }
-
-      // Explicitly cleanup old connection
-      if (_discordConnections.containsKey(accountId)) {
-        try {
-          await _discordConnections[accountId]!.close();
-        } catch (_) {}
-        _discordConnections.remove(accountId);
-      }
-
-      _discordReconnectAttempts[accountId] = attempt + 1;
-      String result = '';
-      try {
-        result = await _connectDiscord(
-          SavedAccount(
-            user: token,
-            domain: 'discord.com',
-            port: 443,
-            protocol: 'Discord',
-          ),
-        );
-      } catch (e) {
-        if (e.toString().contains('4014')) {
-          result = await _connectDiscord(
-            SavedAccount(
-              user: token,
-              domain: 'discord.com',
-              port: 443,
-              protocol: 'Discord',
-            ),
-            useMinimalIntents: true,
-          );
-        } else {
-          rethrow;
-        }
-      }
-
-      if (result.isNotEmpty) {
-        debugPrint('Discord ($accountId): Reconnected successfully.');
-      } else {
-        _isDiscordReconnecting[accountId] = false;
-        _reconnectDiscord(accountId);
-      }
-    } catch (e) {
-      debugPrint('Discord ($accountId): Reconnection attempt failed: $e');
-      _isDiscordReconnecting[accountId] = false;
-      _reconnectDiscord(accountId);
-    }
-  }
-
-  Future<void> sendDiscordMessage(
-    String channelId,
-    String text, {
-    String? accountId,
-    File? file,
-    MessageType type = MessageType.text,
-    String? fileName,
-    String? replyToId,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final client = _discordConnections[id];
-    if (client == null) return;
-
-    try {
-      final snowflake = discord.Snowflake.parse(channelId);
-      final channel =
-          await client.channels.fetch(snowflake) as discord.TextChannel;
-
-      final actualFileName =
-          fileName ??
-          (file != null
-              ? file.path.split(Platform.pathSeparator).last
-              : 'attachment');
-      final builder = discord.MessageBuilder(
-        content: text,
-        attachments: file != null
-            ? [
-                discord.AttachmentBuilder(
-                  data: file.readAsBytesSync(),
-                  fileName: actualFileName,
-                ),
-              ]
-            : null,
-        referencedMessage: replyToId != null && replyToId.isNotEmpty
-            ? discord.MessageReferenceBuilder.reply(
-                messageId: discord.Snowflake.parse(replyToId),
-              )
-            : null,
-      );
-
-      final msg = await channel.sendMessage(builder);
-
-      _messageStreamController.add(
-        ChatMessage(
-          id: msg.id.toString(),
-          text: text,
-          timestamp: DateTime.now(),
-          isSent: true,
-          senderId: client.user.id.toString(),
-          accountId: id,
-          protocol: 'Discord',
-          conversationId: channelId,
-          isGroup: true,
-          type: file != null ? type : MessageType.text,
-          fileName: fileName ?? file?.path.split(Platform.pathSeparator).last,
-          filePath: file?.path,
-          replyToId: replyToId,
-        ),
-      );
-    } catch (e) {
-      debugPrint('Discord: Error sending message: $e');
-      rethrow;
-    }
-  }
-
-  Future<void> fetchDiscordAvatar(
-    String userId,
-    String? url, {
-    String? accountId,
-  }) async {
-    if (url == null) {
-      return;
-    }
-    final cached = await AvatarCacheService().hasAvatar(
-      userId,
-      protocol: 'Discord',
-    );
-    if (!cached) {
-      try {
-        final resp = await http.get(Uri.parse(url));
-        if (resp.statusCode == 200) {
-          await AvatarCacheService().saveAvatar(
-            userId,
-            resp.bodyBytes,
-            protocol: 'Discord',
-          );
-          notifyListeners();
-        }
-      } catch (e) {
-        debugPrint('Discord Avatar Fetch Error: $e');
-      }
-    }
-  }
-
-  Future<String?> joinGenericRoom(
-    String destination, {
-    String? accountId,
-  }) async {
-    final protocol = detectProtocol(destination);
-    if (protocol == ConnectionProtocol.xmpp) {
-      return await joinXmppRoom(
-        destination,
-        _currentProfile?.displayName ?? 'User',
-        accountId: accountId,
-      );
-    } else if (protocol == ConnectionProtocol.irc) {
-      return await joinIrcChannel(destination, accountId: accountId);
-    } else if (protocol == ConnectionProtocol.discord) {
-      // Discord uses specific methods for voice/text, but for generic 'join'
-      // we'll assume it's a channel ID for now.
-      debugPrint('Discord: Manual join requested for $destination');
-      return 'Discord joining not fully automated via string';
-    }
-    return 'Unknown protocol for $destination';
-  }
-
-  Future<void> joinDiscordVoiceChannel(
-    String channelId, {
-    String? accountId,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final client = _discordConnections[id];
-    if (client == null) return;
-
-    try {
-      final channelSnowflake = discord.Snowflake.parse(channelId);
-      final channel =
-          await client.channels.fetch(channelSnowflake) as discord.GuildChannel;
-
-      // Update Voice State via Gateway
-      // Nyxx 6.x updateVoiceState takes (guildId, builder)
-      client.gateway.updateVoiceState(
-        channel.guildId,
-        discord.GatewayVoiceStateBuilder(
-          channelId: channelSnowflake,
-          isMuted: false,
-          isDeafened: false,
-        ),
-      );
-      debugPrint('Discord: Gateway signaled join for voice $channelId');
-    } catch (e) {
-      debugPrint('Discord Voice Error: $e');
-    }
-  }
-
-  Future<void> fetchDiscordHistory(
-    String channelId, {
-    String? accountId,
-    String? beforeId,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final client = _discordConnections[id];
-    if (client == null) return;
-
-    try {
-      final channel =
-          await client.channels.fetch(discord.Snowflake.parse(channelId))
-              as discord.TextChannel;
-      final messages = await channel.messages.fetchMany(
-        limit: 50,
-        before: beforeId != null ? discord.Snowflake.parse(beforeId) : null,
-      );
-
-      for (var msg in messages) {
-        _messageStreamController.add(
-          ChatMessage(
-            id: msg.id.toString(),
-            text: msg.content,
-            timestamp: msg.timestamp,
-            isSent: msg.author.id == client.user.id,
-            senderId: msg.author.id.toString(),
-            senderName: msg.author.username,
-            accountId: id,
-            protocol: 'Discord',
-            conversationId: channelId,
-            isGroup: true, // Assuming guild/group for now
-            replyToId: msg.referencedMessage?.id.toString(),
-            replyPreview: msg.referencedMessage?.content,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Discord History Error: $e');
-    }
-  }
-
-  Future<void> fetchDiscordMessageById(
-    String channelId,
-    String messageId, {
-    String? accountId,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final client = _discordConnections[id];
-    if (client == null) return;
-
-    try {
-      final channel =
-          await client.channels.fetch(discord.Snowflake.parse(channelId))
-              as discord.TextChannel;
-      final msg = await channel.messages.fetch(discord.Snowflake.parse(messageId));
-      var text = msg.content;
-      for (var attachment in msg.attachments) {
-        text += '\n📎 ${attachment.url}';
-      }
-
-      _messageStreamController.add(
-        ChatMessage(
-          id: msg.id.toString(),
-          text: text,
-          timestamp: msg.timestamp,
-          isSent: msg.author.id == client.user.id,
-          senderId: msg.author.id.toString(),
-          senderName: msg.author.username,
-          accountId: id,
-          protocol: 'Discord',
-          conversationId: channelId,
-          isGroup: channel is discord.GuildChannel,
-          replyToId: msg.referencedMessage?.id.toString(),
-          replyPreview: msg.referencedMessage?.content,
-        ),
-      );
-    } catch (e) {
-      debugPrint('Discord message fetch error ($channelId/$messageId): $e');
-    }
-  }
-
-  // XEP-0085 Chat State Notifications (Typing Indicators)
-  void sendChatState(
-    String targetJid,
-    String state, {
-    String? accountId,
-    bool isGroup = false,
-  }) {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn != null && conn.state == xmpp.XmppConnectionState.Ready) {
-      final msg = xmpp.MessageStanza(
-        DateTime.now().millisecondsSinceEpoch.toString(),
-        isGroup
-            ? xmpp.MessageStanzaType.GROUPCHAT
-            : xmpp.MessageStanzaType.CHAT,
-      );
-      msg.toJid = xmpp.Jid.fromFullJid(targetJid);
-
-      final stateEl = xmpp.XmppElement();
-      stateEl.name = state; // e.g., 'composing', 'paused', 'active'
-      stateEl.addAttribute(
-        xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/chatstates'),
-      );
-      msg.addChild(stateEl);
-
-      conn.writeStanza(msg);
-    }
-  }
-
-  // MUC Management (Manual XEP-0045)
-  Future<void> joinRoom(
-    String accountId,
-    String roomJid,
-    String nickname,
-  ) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
-
-    debugPrint('MUC: Joining Room $roomJid as $nickname');
-    final presence = xmpp.PresenceStanza();
-    // Join by sending presence to room@service/nick
-    presence.toJid = xmpp.Jid.fromFullJid('$roomJid/$nickname');
-    conn.writeStanza(presence);
-
-    _persistedRooms.add('$accountId|$roomJid|$nickname');
-    _saveJoinedRooms();
-  }
-
-  Future<void> leaveRoom(String accountId, String roomJid) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
-
-    debugPrint('MUC: Leaving Room $roomJid');
-    final presence = xmpp.PresenceStanza();
-    presence.toJid = xmpp.Jid.fromFullJid(roomJid);
-    presence.type = xmpp.PresenceType.UNAVAILABLE;
-    conn.writeStanza(presence);
-
-    _persistedRooms.removeWhere((r) => r.startsWith('$accountId|$roomJid'));
-    _saveJoinedRooms();
-  }
-
-  Future<List<Map<String, String>>> discoverMucRooms(
-    String accountId,
-    String serviceJid,
-  ) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return [];
-
-    final id = 'disco_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
-    iq.toJid = xmpp.Jid.fromFullJid(serviceJid);
-
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(
-      xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#items'),
-    );
-    iq.addChild(query);
-
-    final completer = Completer<List<Map<String, String>>>();
-    _discoveryCompleters[id] = completer;
-
-    conn.writeStanza(iq);
-
-    // Timeout support
-    return completer.future.timeout(
-      const Duration(seconds: 15),
-      onTimeout: () {
-        _discoveryCompleters.remove(id);
-        return [];
-      },
-    );
-  }
-
-  Future<void> _saveJoinedRooms() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('joined_rooms', _persistedRooms.toList());
-  }
-
-  Future<void> _autoJoinRooms(String accountId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = prefs.getStringList('joined_rooms') ?? [];
-    _persistedRooms = list.toSet();
-
-    for (var roomInfo in list) {
-      final parts = roomInfo.split('|');
-      if (parts.length == 3 && parts[0] == accountId) {
-        joinRoom(parts[0], parts[1], parts[2]);
-      }
-    }
-  }
-
-  // --- ADVANCED MESSAGING (XEP-0422, Forwarding) ---
-
-  Future<void> forwardMessage(
-    ChatMessage original,
-    List<String> targetChatIds, {
-    String? accountId,
-    String? targetProtocol,
-  }) async {
-    final curAccountId = accountId ?? _activeAccountId;
-    if (curAccountId == null) return;
-
-    for (var targetId in targetChatIds) {
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      final protocol = targetProtocol ?? _detectForwardProtocol(targetId);
-      if (protocol == 'IRC') {
-        await sendIrcMessage(targetId, original.text, accountId: curAccountId);
-      } else if (protocol == 'Discord') {
-        await sendDiscordMessage(targetId, original.text, accountId: curAccountId);
-      } else {
-        await sendXmppMessage(
-          targetId,
-          original.text,
-          accountId: curAccountId,
-          type: original.type,
-          fileName: original.fileName,
-          filePath: original.filePath,
-        );
-      }
-    }
-  }
-
-  String _detectForwardProtocol(String targetId) {
-    if (_discordConnections.values.any((c) {
-      return true;
-    }) && RegExp(r'^\d+$').hasMatch(targetId)) {
-      return 'Discord';
-    }
-    if (_ircConnections.isNotEmpty && (targetId.startsWith('#') || targetId.startsWith('irc_'))) {
-      return 'IRC';
-    }
-    return 'XMPP';
-  }
-
-  Future<ChatMessage?> fetchQuotedMessage(String msgId) async {
-    return await DatabaseService().getMessageById(msgId);
-  }
-
-  // Next method...
-
-
-
-  // Send Retraction (XEP-0424)
+  // Retraction (XEP-0424)
   Future<void> retractXmppMessage(
     String targetJid,
     String messageId, {
@@ -3128,37 +1839,6 @@ class AuthService with ChangeNotifier {
           xmpp.PresenceData(_mapShowToPresence(status), message ?? '', null),
         );
       }
-    }
-
-    // 2. Sync IRC
-    for (var conn in _ircConnections.values) {
-      if (status == ContactStatus.offline ||
-          status == ContactStatus.away ||
-          status == ContactStatus.xa) {
-        conn.add(
-          IrcMessage(command: 'AWAY')..arg(message ?? 'Away from Gibber'),
-        );
-      } else {
-        conn.add(IrcMessage(command: 'AWAY')); // Clear away status
-      }
-    }
-
-    // 3. Sync Discord
-    for (var gateway in _discordConnections.values) {
-      gateway.updatePresence(
-        discord.PresenceBuilder(
-          status: _mapStatusToDiscord(status),
-          activities: message != null
-              ? [
-                  discord.ActivityBuilder(
-                    name: message,
-                    type: discord.ActivityType.custom,
-                  ),
-                ]
-              : [],
-          isAfk: status == ContactStatus.away || status == ContactStatus.xa,
-        ),
-      );
     }
   }
 
@@ -3219,10 +1899,6 @@ class AuthService with ChangeNotifier {
     if (acc.protocol == 'XMPP' && _xmppConnections.containsKey(acc.fullJid)) {
       _xmppConnections[acc.fullJid]?.close();
       _xmppConnections.remove(acc.fullJid);
-    } else if (acc.protocol == 'IRC' &&
-        _ircConnections.containsKey(acc.fullJid)) {
-      _ircConnections[acc.fullJid]?.close();
-      _ircConnections.remove(acc.fullJid);
     }
 
     _authenticatedAccountIds.remove(acc.fullJid);
@@ -3247,46 +1923,375 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  Future<void> logout() async {
-    for (var sub in _xmppMessageSubs.values) {
-      await sub.cancel();
-    }
-    for (var sub in _xmppStanzaSubs.values) {
-      await sub.cancel();
-    }
-    for (var conn in _xmppConnections.values) {
-      conn.dispose();
-    }
-    for (var proxy in _xmppProxies.values) {
-      proxy.stop();
-    }
-    for (var sub in _ircMessageSubs.values) {
-      await sub.cancel();
-    }
-    for (var conn in _ircConnections.values) {
-      conn.close();
-    }
-    for (var subList in _discordSubs.values) {
-      for (var sub in subList) {
-        await sub.cancel();
-      }
-    }
-    for (var client in _discordConnections.values) {
-      await client.close();
+  Future<void> joinRoom(
+    String accountId,
+    String roomJid,
+    String nickname,
+  ) async {
+    final conn = _xmppConnections[accountId];
+    if (conn == null) return;
+
+    debugPrint('MUC: Joining Room $roomJid as $nickname');
+    final presence = xmpp.PresenceStanza();
+    // Join by sending presence to room@service/nick
+    presence.toJid = xmpp.Jid.fromFullJid('$roomJid/$nickname');
+    conn.writeStanza(presence);
+
+    _persistedRooms.add('$accountId|$roomJid|$nickname');
+    _saveJoinedRooms();
+  }
+
+  Future<void> inviteToRoom(String accountId, String roomJid, String userJid, {String? reason}) async {
+    final conn = _xmppConnections[accountId];
+    if (conn == null) return;
+
+    final msg = xmpp.MessageStanza(
+      DateTime.now().millisecondsSinceEpoch.toString(),
+      xmpp.MessageStanzaType.NORMAL,
+    );
+    msg.toJid = xmpp.Jid.fromFullJid(roomJid);
+
+    final x = xmpp.XmppElement();
+    x.name = 'x';
+    x.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#user'));
+
+    final invite = xmpp.XmppElement();
+    invite.name = 'invite';
+    invite.addAttribute(xmpp.XmppAttribute('to', userJid));
+
+    if (reason != null && reason.isNotEmpty) {
+      final reasonEl = xmpp.XmppElement();
+      reasonEl.name = 'reason';
+      reasonEl.textValue = reason;
+      invite.addChild(reasonEl);
     }
 
+    x.addChild(invite);
+    msg.addChild(x);
+    
+    conn.writeStanza(msg);
+    debugPrint('MUC: Sent mediated invite to $userJid for room $roomJid');
+  }
+
+  Future<void> inviteToRoomDirect(String accountId, String roomJid, String userJid, {String? reason, String? password}) async {
+    final conn = _xmppConnections[accountId];
+    if (conn == null) return;
+
+    final msg = xmpp.MessageStanza(
+      DateTime.now().millisecondsSinceEpoch.toString(),
+      xmpp.MessageStanzaType.CHAT,
+    );
+    msg.toJid = xmpp.Jid.fromFullJid(userJid);
+
+    final x = xmpp.XmppElement();
+    x.name = 'x';
+    x.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:conference'));
+    x.addAttribute(xmpp.XmppAttribute('jid', roomJid));
+    
+    if (reason != null && reason.isNotEmpty) {
+      x.addAttribute(xmpp.XmppAttribute('reason', reason));
+    }
+    if (password != null && password.isNotEmpty) {
+      x.addAttribute(xmpp.XmppAttribute('password', password));
+    }
+
+    msg.addChild(x);
+    conn.writeStanza(msg);
+    debugPrint('MUC: Sent direct invite to $userJid for room $roomJid');
+  }
+
+  Future<void> createRoom(String accountId, String roomJid, String nickname) async {
+      await joinRoom(accountId, roomJid, nickname);
+  }
+
+  Future<void> leaveRoom(String accountId, String roomJid) async {
+    final conn = _xmppConnections[accountId];
+    if (conn == null) return;
+
+    debugPrint('MUC: Leaving Room $roomJid');
+    final presence = xmpp.PresenceStanza();
+    presence.toJid = xmpp.Jid.fromFullJid(roomJid);
+    presence.type = xmpp.PresenceType.UNAVAILABLE;
+    conn.writeStanza(presence);
+
+    _persistedRooms.removeWhere((r) => r.startsWith('$accountId|$roomJid'));
+    _saveJoinedRooms();
+  }
+
+  Future<String?> joinGenericRoom(String destination, {String? accountId}) async {
+      return await joinXmppRoom(destination, getResolvedNickname(accountId), accountId: accountId);
+  }
+
+  void sendChatState(String targetJid, String state, {String? accountId, bool isGroup = false}) {
+    final id = accountId ?? _activeAccountId;
+    final conn = _xmppConnections[id];
+    if (conn != null && conn.state == xmpp.XmppConnectionState.Ready) {
+      final msg = xmpp.MessageStanza(
+        DateTime.now().millisecondsSinceEpoch.toString(),
+        isGroup ? xmpp.MessageStanzaType.GROUPCHAT : xmpp.MessageStanzaType.CHAT,
+      );
+      msg.toJid = xmpp.Jid.fromFullJid(targetJid);
+      final stateEl = xmpp.XmppElement();
+      stateEl.name = state; 
+      stateEl.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/chatstates'));
+      msg.addChild(stateEl);
+      conn.writeStanza(msg);
+    }
+  }
+
+  Future<void> forwardMessage(ChatMessage original, List<String> targetChatIds, {String? accountId, String? targetProtocol}) async {
+    final curAccountId = accountId ?? _activeAccountId;
+    if (curAccountId == null) return;
+    for (var targetId in targetChatIds) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      await sendXmppMessage(
+        targetId,
+        original.text,
+        accountId: curAccountId,
+        type: original.type,
+        fileName: original.fileName,
+        filePath: original.filePath,
+      );
+    }
+  }
+
+  Future<List<Map<String, String>>> discoverMucRooms(String accountId, String serviceJid) async {
+    final conn = _xmppConnections[accountId];
+    if (conn == null) return [];
+    final id = 'disco_${DateTime.now().millisecondsSinceEpoch}';
+    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
+    iq.toJid = xmpp.Jid.fromFullJid(serviceJid);
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#items'));
+    iq.addChild(query);
+    final completer = Completer<List<Map<String, String>>>();
+    _discoveryCompleters[id] = completer;
+    conn.writeStanza(iq);
+    return completer.future.timeout(const Duration(seconds: 15), onTimeout: () {
+      _discoveryCompleters.remove(id);
+      return [];
+    });
+  }
+
+  Future<Map<String, dynamic>> getMucRoomInfo(String accountId, String roomJid) async {
+    final conn = _xmppConnections[accountId];
+    if (conn == null) return {'jid': roomJid, 'name': roomJid, 'description': ''};
+    final id = 'roominfo_${DateTime.now().millisecondsSinceEpoch}';
+    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
+    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#info'));
+    iq.addChild(query);
+    final completer = Completer<Map<String, dynamic>>();
+    _roomInfoCompleters[id] = completer;
+    conn.writeStanza(iq);
+    return completer.future.timeout(const Duration(seconds: 10), onTimeout: () {
+      _roomInfoCompleters.remove(id);
+      return {'jid': roomJid, 'name': roomJid, 'description': ''};
+    });
+  }
+
+  Future<void> requestRoomConfig(String accountId, String roomJid) async {
+    final conn = _xmppConnections[accountId];
+    if (conn == null) return;
+    
+    final id = 'config_${DateTime.now().millisecondsSinceEpoch}';
+    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
+    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'));
+    iq.addChild(query);
+    conn.writeStanza(iq);
+  }
+
+  Future<void> submitRoomConfig(String accountId, String roomJid, Map<String, String> fields) async {
+    final conn = _xmppConnections[accountId];
+    if (conn == null) return;
+
+    final id = 'submit_${DateTime.now().millisecondsSinceEpoch}';
+    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+    
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'));
+    
+    final x = xmpp.XmppElement();
+    x.name = 'x';
+    x.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
+    x.addAttribute(xmpp.XmppAttribute('type', 'submit'));
+    
+    fields.forEach((key, value) {
+      final field = xmpp.XmppElement();
+      field.name = 'field';
+      field.addAttribute(xmpp.XmppAttribute('var', key));
+      final val = xmpp.XmppElement();
+      val.name = 'value';
+      val.textValue = value;
+      field.addChild(val);
+      x.addChild(field);
+    });
+    
+    query.addChild(x);
+    iq.addChild(query);
+    conn.writeStanza(iq);
+  }
+
+  // --- MUC Administration (XEP-0045) ---
+
+  Future<void> setMucRole(String accountId, String roomJid, String nick, String role, {String? reason}) async {
+    final conn = _xmppConnections[accountId];
+    if (conn == null) return;
+    
+    final id = 'role_${DateTime.now().millisecondsSinceEpoch}';
+    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+    
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#admin'));
+    
+    final item = xmpp.XmppElement();
+    item.name = 'item';
+    item.addAttribute(xmpp.XmppAttribute('nick', nick));
+    item.addAttribute(xmpp.XmppAttribute('role', role));
+    
+    if (reason != null && reason.isNotEmpty) {
+      final reasonEl = xmpp.XmppElement();
+      reasonEl.name = 'reason';
+      reasonEl.textValue = reason;
+      item.addChild(reasonEl);
+    }
+    
+    query.addChild(item);
+    iq.addChild(query);
+    conn.writeStanza(iq);
+  }
+
+  Future<void> setMucAffiliation(String accountId, String roomJid, String userJid, String affiliation, {String? reason}) async {
+    final conn = _xmppConnections[accountId];
+    if (conn == null) return;
+    
+    final id = 'affil_${DateTime.now().millisecondsSinceEpoch}';
+    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+    
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#admin'));
+    
+    final item = xmpp.XmppElement();
+    item.name = 'item';
+    item.addAttribute(xmpp.XmppAttribute('jid', userJid));
+    item.addAttribute(xmpp.XmppAttribute('affiliation', affiliation));
+    
+    if (reason != null && reason.isNotEmpty) {
+      final reasonEl = xmpp.XmppElement();
+      reasonEl.name = 'reason';
+      reasonEl.textValue = reason;
+      item.addChild(reasonEl);
+    }
+    
+    query.addChild(item);
+    iq.addChild(query);
+    conn.writeStanza(iq);
+  }
+
+  Future<void> sendXmppSubject(String roomJid, String subject, {String? accountId}) async {
+    final conn = _xmppConnections[accountId ?? _activeAccountId];
+    if (conn == null) return;
+    
+    final msg = xmpp.MessageStanza(
+      DateTime.now().millisecondsSinceEpoch.toString(),
+      xmpp.MessageStanzaType.GROUPCHAT,
+    );
+    msg.toJid = xmpp.Jid.fromFullJid(roomJid);
+    
+    final subjEl = xmpp.XmppElement();
+    subjEl.name = 'subject';
+    subjEl.textValue = subject;
+    msg.addChild(subjEl);
+    
+    conn.writeStanza(msg);
+  }
+
+  Future<void> kickUser(String accountId, String roomJid, String nick, {String? reason}) async {
+    await setMucRole(accountId, roomJid, nick, 'none', reason: reason);
+  }
+
+  Future<void> banUser(String accountId, String roomJid, String userJid, {String? reason}) async {
+    await setMucAffiliation(accountId, roomJid, userJid, 'outcast', reason: reason);
+  }
+
+  List<Map<String, dynamic>> getAuthenticatedAccounts() {
+      return _authenticatedAccountIds.map((id) => {
+        'id': id,
+        'protocol': 'XMPP'
+      }).toList();
+  }
+
+  String getContactName(String accountId, String jid) {
+      final contact = _currentContacts.where((c) => c.id == jid).firstOrNull;
+      if (contact != null) return contact.name;
+      
+      // Cheogram phone number normalization for display
+      if (jid.contains('@cheogram.com')) {
+        return jid.split('@').first;
+      }
+      
+      return jid;
+  }
+
+  Future<void> _saveJoinedRooms() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('joined_rooms', _persistedRooms.toList());
+  }
+
+  Future<void> _saveJoinedSpaces() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('joined_spaces', _persistedSpaces.toList());
+  }
+
+  Future<void> _loadJoinedRooms() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList('joined_rooms') ?? [];
+    _persistedRooms = list.toSet();
+
+    final spacesList = prefs.getStringList('joined_spaces') ?? [];
+    _persistedSpaces = spacesList.toSet();
+    _emitJoinedSpaces();
+  }
+
+  Future<void> _autoJoinRooms(String accountId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList('joined_rooms') ?? [];
+    _persistedRooms = list.toSet();
+
+    for (var roomInfo in list) {
+      final parts = roomInfo.split('|');
+      if (parts.length == 3 && parts[0] == accountId) {
+        joinRoom(parts[0], parts[1], parts[2]);
+      }
+    }
+  }
+
+  Future<void> logout() async {
+    for (var conn in _xmppConnections.values) {
+      conn.close();
+    }
     _xmppConnections.clear();
-    _xmppProxies.clear();
+
+    for (var sub in _xmppMessageSubs.values) {
+      sub.cancel();
+    }
     _xmppMessageSubs.clear();
-    _xmppStanzaSubs.clear();
-    _jingleServices.clear();
-    _ircConnections.clear();
-    _ircMessageSubs.clear();
-    _discordConnections.clear();
-    _discordSubs.clear();
+
     _activeAccountId = null;
+    _authenticatedAccountIds.clear();
     _currentContacts.clear();
-    _authenticatedAccountIds.clear(); // Complete reset
     _contactStreamController.add([]);
 
     notifyListeners();
@@ -3402,17 +2407,21 @@ class AuthService with ChangeNotifier {
     debugPrint('XEP-0280: Carbons enabled for $accountId');
   }
 
-  Future<void> fetchXmppHistory(String jid, {String? accountId}) async {
+  Future<void> fetchXmppHistory(
+    String jid, {
+    String? accountId,
+    DateTime? since,
+  }) async {
     final id = accountId ?? _activeAccountId;
     final conn = _xmppConnections[id];
     if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) return;
     try {
       final mamManager = xmpp.MessageArchiveManager.getInstance(conn);
-      mamManager.queryByTime(jid: xmpp.Jid.fromFullJid(jid));
+      mamManager.queryByTime(jid: xmpp.Jid.fromFullJid(jid), start: since);
 
       // The results will come through the normal message stream from the server,
       // but they will have archived attributes which we should already handle.
-      debugPrint('MAM: Requested history for $jid');
+      debugPrint('MAM: Requested history for $jid ${since != null ? "since $since" : ""}');
     } catch (e) {
       debugPrint('MAM Error: $e');
     }
@@ -3506,6 +2515,7 @@ class AuthService with ChangeNotifier {
     String roomJid,
     String nick, {
     String? accountId,
+    String? password,
   }) async {
     final id = accountId ?? _activeAccountId;
     final conn = _xmppConnections[id];
@@ -3524,6 +2534,14 @@ class AuthService with ChangeNotifier {
       mucX.addAttribute(
         xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc'),
       );
+      
+      if (password != null && password.isNotEmpty) {
+        final passEl = xmpp.XmppElement();
+        passEl.name = 'password';
+        passEl.textValue = password;
+        mucX.addChild(passEl);
+      }
+      
       presence.addChild(mucX);
 
       conn.writeStanza(presence);
@@ -3622,55 +2640,6 @@ class AuthService with ChangeNotifier {
     );
   }
 
-  Future<String?> joinIrcChannel(String channel, {String? accountId}) async {
-    String? id = accountId ?? _activeAccountId;
-    IrcConnection? conn = _ircConnections[id];
-
-    if (conn == null && accountId == null && _ircConnections.isNotEmpty) {
-      id = _ircConnections.keys.first;
-      conn = _ircConnections[id];
-    }
-
-    if (conn == null) return 'IRC not connected';
-
-    // Fix: Wait for connection to be REGISTERED (RPL_WELCOME) before joining
-    if (_ircReadyCompleters[id]?.isCompleted == false) {
-      debugPrint('IRC: Waiting for RPL_WELCOME before joining $channel');
-      await _ircReadyCompleters[id]!.future.timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {},
-      );
-    }
-
-    conn.add(IrcMessage(command: 'JOIN')..arg(channel));
-
-    // Status Feedback
-    _messageStreamController.add(
-      ChatMessage(
-        id: 'irc_join_req_${DateTime.now().microsecondsSinceEpoch}',
-        text: 'Joining $channel...',
-        timestamp: DateTime.now(),
-        isSent: true,
-        senderId: _ircNicks[id] ?? 'me',
-        conversationId: channel,
-        accountId: id,
-        protocol: 'IRC',
-        isGroup: true,
-      ),
-    );
-
-    // Add to joined rooms tracking
-    if (!_joinedRooms.any((r) => r.id == channel)) {
-      _joinedRooms.add(
-        Room(id: channel, name: channel, participants: [], protocol: 'IRC'),
-      );
-      _joinedRoomsStreamController.add(List.from(_joinedRooms));
-    }
-
-    notifyListeners();
-    return null;
-  }
-
   // --- ROSTER & CONTACT MANAGEMENT (XEP-0164, XEP-0191) ---
 
   // XEP-0030: Service Discovery (XEP-0030)
@@ -3704,6 +2673,43 @@ class AuthService with ChangeNotifier {
 
     conn.writeStanza(infoIq);
     conn.writeStanza(itemsIq);
+  }
+
+  // --- Space Management (Bookmarks / Persistence) ---
+
+  List<SpaceNode> get joinedSpaces {
+    return _persistedSpaces.map((s) {
+      final parts = s.split('|');
+      if (parts.length >= 3) {
+        return SpaceNode(
+          domain: parts[0],
+          node: parts[1],
+          name: parts[2],
+        );
+      }
+      return SpaceNode(domain: '', node: '', name: '');
+    }).where((s) => s.domain.isNotEmpty).toList();
+  }
+
+  void _emitJoinedSpaces() {
+    _joinedSpacesStreamController.add(joinedSpaces);
+  }
+
+  Future<void> joinPersistedSpace(String domain, String node, String name) async {
+    final str = '$domain|$node|$name';
+    if (!_persistedSpaces.contains(str)) {
+      _persistedSpaces.add(str);
+      await _saveJoinedSpaces();
+      _emitJoinedSpaces();
+      notifyListeners();
+    }
+  }
+
+  Future<void> leavePersistedSpace(String domain, String node) async {
+    _persistedSpaces.removeWhere((s) => s.startsWith('$domain|$node|'));
+    await _saveJoinedSpaces();
+    _emitJoinedSpaces();
+    notifyListeners();
   }
 
   // --- Profile Management ---
@@ -4064,6 +3070,19 @@ class AuthService with ChangeNotifier {
     presence.toJid = xmpp.Jid.fromFullJid(jid);
     presence.type = xmpp.PresenceType.SUBSCRIBE;
     conn.writeStanza(presence);
+
+    // Optimistic UI Update: Add the contact locally immediately
+    if (!_currentContacts.any((c) => c.id == jid)) {
+      _currentContacts.add(
+        Contact(
+          id: jid,
+          name: nickname ?? xmpp.Jid.fromFullJid(jid).local,
+          protocol: 'XMPP',
+        ),
+      );
+      _contactStreamController.add(List.from(_currentContacts));
+      debugPrint('SOCIAL: Optimistically added $jid to _currentContacts.');
+    }
 
     debugPrint('SOCIAL: Added $jid to roster and sent subscribe request.');
   }

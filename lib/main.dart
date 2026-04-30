@@ -14,10 +14,18 @@ import './services/call_history_service.dart';
 import './services/account_status_notification_service.dart';
 import './providers/theme_provider.dart';
 import './theme/app_theme.dart';
+import './services/desktop_lifecycle_service.dart';
+import './services/mobile_lifecycle_service.dart';
 
 void main() {
-  runZonedGuarded(() {
+  runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+    
+    // Initialize Desktop Lifecycle (System Tray & Background Execution)
+    await DesktopLifecycleService.instance.init();
+    
+    // Initialize Mobile Lifecycle (Foreground Service)
+    await MobileLifecycleService.instance.init();
     
     // Initialize Database for Windows (Phase 9 Robustness)
     if (Platform.isWindows || Platform.isLinux) {

@@ -88,4 +88,5 @@ class AccountStatusNotificationService {
       notificationDetails: NotificationDetails(android: android),
     );
   }
-}
+  void refresh() {}
+  }

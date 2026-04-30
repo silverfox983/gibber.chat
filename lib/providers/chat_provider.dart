@@ -15,10 +15,13 @@ class ChatProvider with ChangeNotifier {
   StreamSubscription? _subscriptionSub;
   StreamSubscription? _joinedRoomsSub;
   StreamSubscription? _blockedSub;
+  StreamSubscription? _groupInviteSub;
+  AuthService? _authService;
 
   final List<Contact> _contacts = [];
   final List<String> _blockedJids = [];
   final List<Map<String, String>> _pendingSubscriptions = [];
+  final List<Map<String, dynamic>> _pendingGroupInvites = [];
   String _messageSearchQuery = '';
   int _selectedSidebarTab =
       0; // 0 for Chats, 1 for Contacts, 2 for Groups, 3 for Dialer, 4 for Profile
@@ -35,10 +38,16 @@ class ChatProvider with ChangeNotifier {
   final Map<String, DateTime> _quoteBackfillAttempts = {};
   List<ChatMessage> _globalSearchResults = [];
   String? _playingMessageId;
+  DateTime? _lastSyncTime;
+  final Map<String, ConnectionStatus> _lastAccountStatus = {};
+  
+  // Persistent drafts per conversation
+  final Map<String, String> _drafts = {};
 
   List<Contact> get contacts => _contacts;
   List<String> get blockedJids => _blockedJids;
   List<Map<String, String>> get pendingSubscriptions => _pendingSubscriptions;
+  List<Map<String, dynamic>> get pendingGroupInvites => _pendingGroupInvites;
   String get messageSearchQuery => _messageSearchQuery;
   int get selectedSidebarTab => _selectedSidebarTab;
   bool get isSyncing => _isSyncing;
@@ -75,6 +84,18 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  void setDraft(String conversationId, String text) {
+    if (text.trim().isEmpty) {
+      _drafts.remove(conversationId);
+    } else {
+      _drafts[conversationId] = text;
+    }
+  }
+
+  String getDraft(String conversationId) {
+    return _drafts[conversationId] ?? '';
+  }
+
   bool isTyping(String conversationId) {
     return _conversations.any((c) => c.id == conversationId && c.isTyping);
   }
@@ -98,17 +119,13 @@ class ChatProvider with ChangeNotifier {
         (c) => c.id == _activeConversationId,
       );
       if (index == -1) {
-        final protocol = AuthService.detectProtocol(_activeConversationId!);
+        AuthService.detectProtocol(_activeConversationId!);
         final contact = _contacts.firstWhere(
           (c) => c.id == _activeConversationId,
           orElse: () => Contact(
             id: _activeConversationId!,
-            name: protocol == ConnectionProtocol.discord
-                ? 'Discord Channel'
-                : _activeConversationId!.split('@').first,
-            protocol: protocol == ConnectionProtocol.discord
-                ? 'Discord'
-                : 'XMPP',
+            name: _activeConversationId!.split('@').first,
+            protocol: 'XMPP',
           ),
         );
         _conversations.add(
@@ -123,6 +140,19 @@ class ChatProvider with ChangeNotifier {
       }
 
       // 2. Perform UI Reset & History Pulse
+      if (_conversations[index].unreadCount > 0 && _conversations[index].messages.isNotEmpty) {
+        final lastMsg = _conversations[index].messages.last;
+        if (!lastMsg.isSent && _authService != null) {
+          _authService!.sendChatMarker(
+            _activeConversationId!,
+            lastMsg.id,
+            'displayed',
+            accountId: _conversations[index].accountId,
+            isGroup: _conversations[index].isGroup,
+          );
+        }
+      }
+
       _conversations[index].unreadCount = 0;
       DatabaseService().resetUnreadCount(_activeConversationId!);
 
@@ -180,15 +210,12 @@ class ChatProvider with ChangeNotifier {
     final id = rawId.split('/').first.toLowerCase();
     int index = _conversations.indexWhere((c) => c.id == id);
     if (index == -1) {
-      final protocol = AuthService.detectProtocol(id);
       final contact = _contacts.firstWhere(
         (c) => c.id == id,
         orElse: () => Contact(
           id: id,
-          name: protocol == ConnectionProtocol.discord
-              ? 'Discord Channel'
-              : id.split('@').first,
-          protocol: protocol == ConnectionProtocol.discord ? 'Discord' : 'XMPP',
+          name: id.split('@').first,
+          protocol: 'XMPP',
         ),
       );
       _conversations.add(
@@ -234,9 +261,6 @@ class ChatProvider with ChangeNotifier {
         id,
         beforeId: beforeId,
       );
-    } else if (authService.discordConnected &&
-        _conversations[index].protocol == 'Discord') {
-      authService.fetchDiscordHistory(id);
     }
     notifyListeners();
   }
@@ -279,17 +303,6 @@ class ChatProvider with ChangeNotifier {
         _isLoadingOlderMessages = false;
         notifyListeners();
       }
-    } else if (conv.protocol == 'Discord') {
-      try {
-        await authService.fetchDiscordHistory(
-          conversationId,
-          accountId: accountId,
-          beforeId: oldestId,
-        );
-      } finally {
-        _isLoadingOlderMessages = false;
-        notifyListeners();
-      }
     } else {
       _isLoadingOlderMessages = false;
       notifyListeners();
@@ -297,6 +310,7 @@ class ChatProvider with ChangeNotifier {
   }
 
   Future<void> initialize(AuthService authService) async {
+    _authService = authService;
     // 1. Load from Disk (Robust Persistence)
     try {
       final cachedConvs = await DatabaseService().getConversations();
@@ -340,6 +354,10 @@ class ChatProvider with ChangeNotifier {
         _pendingSubscriptions.add(request);
         notifyListeners();
       }
+    });
+
+    authService.addListener(() {
+      _handleAuthChange(authService);
     });
 
     _authSub?.cancel();
@@ -424,28 +442,20 @@ class ChatProvider with ChangeNotifier {
         _handleReaction(event.fromJid, event.reason!, event.sdp!);
       } else if (event.sessionId == 'receipt') {
         _handleReceipt(event.fromJid, event.reason!);
+      } else if (event.sessionId == 'marker') {
+        _handleMarker(event.fromJid, event.reason!);
       }
     });
 
     // 4. Setup Joined Rooms Listener
     _joinedRoomsSub?.cancel();
     _joinedRoomsSub = authService.joinedRoomsStream.listen((rooms) {
-      for (var room in rooms) {
-        final id = room.id.toLowerCase();
-        if (!_conversations.any((c) => c.id.toLowerCase() == id)) {
-          final newConv = Conversation(
-            id: id,
-            name: room.name,
-            messages: [],
-            protocol: room.protocol,
-            accountId: authService.activeAccountId,
-            isGroup: true,
-          );
-          _conversations.add(newConv);
-          DatabaseService().upsertConversation(newConv);
-          notifyListeners();
-        }
-      }
+      _updateJoinedRooms(rooms);
+    });
+
+    _groupInviteSub?.cancel();
+    _groupInviteSub = authService.groupInviteStream.listen((invite) {
+      _handleIncomingGroupInvite(invite);
     });
 
     // 5. Setup Blocked List Listener
@@ -459,36 +469,61 @@ class ChatProvider with ChangeNotifier {
     if (authService.xmppConnected) {
       authService.fetchBlockedContacts();
     }
+    _handleAuthChange(authService);
   }
 
-  Future<void> syncAll(AuthService authService) async {
-    if (_isSyncing ||
-        !(authService.xmppConnected || authService.discordConnected)) {
-      return;
-    }
-
-    debugPrint('MAM: Starting Global Sync for ${_contacts.length} contacts...');
-    _isSyncing = true;
-    notifyListeners();
-
-    try {
-      for (final contact in _contacts) {
-        // Skip if already loaded in this session to save bandwidth
-        final index = _conversations.indexWhere((c) => c.id == contact.id);
-        if (index != -1 && _conversations[index].historyLoaded) continue;
-
-        debugPrint('MAM: Syncing ${contact.id}...');
-        loadHistory(contact.id, authService);
-
-        // Windows GPU Thrash Protection: 500ms stagger
-        await Future.delayed(const Duration(milliseconds: 500));
-      }
-    } finally {
-      _isSyncing = false;
-      debugPrint('MAM: Global Sync Complete.');
+  void _handleIncomingGroupInvite(Map<String, dynamic> invite) {
+    // Check if we already have this invite
+    final exists = _pendingGroupInvites.any((i) => 
+      i['roomJid'] == invite['roomJid'] && i['accountId'] == invite['accountId']);
+    
+    if (!exists) {
+      _pendingGroupInvites.add(invite);
       notifyListeners();
     }
   }
+
+  Future<void> acceptGroupInvite(Map<String, dynamic> invite) async {
+    final auth = _authService;
+    if (auth != null) {
+      final roomJid = invite['roomJid'];
+      final accountId = invite['accountId'];
+      final nick = auth.getResolvedNickname(accountId);
+      
+      await auth.joinXmppRoom(roomJid, nick, accountId: accountId);
+      _pendingGroupInvites.removeWhere((i) => 
+        i['roomJid'] == roomJid && i['accountId'] == accountId);
+      
+      setActiveConversation(roomJid);
+      notifyListeners();
+    }
+  }
+
+  void declineGroupInvite(Map<String, dynamic> invite) {
+    _pendingGroupInvites.removeWhere((i) => 
+      i['roomJid'] == invite['roomJid'] && i['accountId'] == invite['accountId']);
+    notifyListeners();
+  }
+
+  void _updateJoinedRooms(List<Room> rooms) {
+    for (var room in rooms) {
+      final id = room.id.toLowerCase();
+      if (!_conversations.any((c) => c.id.toLowerCase() == id)) {
+        final newConv = Conversation(
+          id: id,
+          name: room.name,
+          messages: [],
+          protocol: room.protocol,
+          accountId: _authService?.activeAccountId,
+          isGroup: true,
+        );
+        _conversations.add(newConv);
+        DatabaseService().upsertConversation(newConv);
+        notifyListeners();
+      }
+    }
+  }
+
 
   void _handleTyping(String fromJid, String state) {
     final bareJid = fromJid.split('/').first;
@@ -603,8 +638,25 @@ class ChatProvider with ChangeNotifier {
       (m) => m.id == msgId,
     );
     if (msgIndex != -1) {
-      _conversations[index].messages[msgIndex].status = MessageStatus.delivered;
-      DatabaseService().updateMessageStatus(msgId, MessageStatus.delivered);
+      if (_conversations[index].messages[msgIndex].status != MessageStatus.read) {
+        _conversations[index].messages[msgIndex].status = MessageStatus.delivered;
+        DatabaseService().updateMessageStatus(msgId, MessageStatus.delivered);
+        notifyListeners();
+      }
+    }
+  }
+
+  void _handleMarker(String fromJid, String msgId) {
+    final bareJid = fromJid.split('/').first.toLowerCase();
+    final index = _conversations.indexWhere((c) => c.id == bareJid);
+    if (index == -1) return;
+
+    final msgIndex = _conversations[index].messages.indexWhere(
+      (m) => m.id == msgId,
+    );
+    if (msgIndex != -1) {
+      _conversations[index].messages[msgIndex].status = MessageStatus.read;
+      DatabaseService().updateMessageStatus(msgId, MessageStatus.read);
       notifyListeners();
     }
   }
@@ -648,18 +700,12 @@ class ChatProvider with ChangeNotifier {
       try {
         int index = _conversations.indexWhere((c) => c.id == targetId);
 
-        if (index == -1 &&
-            (protocol != null ||
-                message.protocol != null ||
-                message.type == MessageType.system)) {
+        if (index == -1) {
           final newConv = Conversation(
             id: targetId,
             name: chatName ?? targetId,
             messages: [message],
-            protocol:
-                protocol ??
-                message.protocol ??
-                'XMPP', // Fallback to safe default
+            protocol: protocol ?? message.protocol ?? 'XMPP', // Fallback to safe default
             accountId: message.accountId,
             isGroup: detectedGroup,
             unreadCount:
@@ -718,6 +764,14 @@ class ChatProvider with ChangeNotifier {
           if (targetId != _activeConversationId && !message.isSent) {
             _conversations[index].unreadCount++;
             DatabaseService().incrementUnreadCount(targetId);
+          } else if (targetId == _activeConversationId && !message.isSent && _authService != null) {
+            _authService!.sendChatMarker(
+              targetId,
+              message.id,
+              'displayed',
+              accountId: message.accountId,
+              isGroup: detectedGroup,
+            );
           }
 
           // 2. Queue for Disk Persistence (Phase 15 Batching)
@@ -878,6 +932,22 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
+  Future<void> leaveGroup(String jid, AuthService authService) async {
+    final idx = _conversations.indexWhere((c) => c.id == jid);
+    if (idx != -1) {
+      final accountId = _conversations[idx].accountId ?? authService.activeAccountId;
+      if (accountId != null) {
+        await authService.leaveRoom(accountId, jid);
+      }
+      _conversations.removeAt(idx);
+      await DatabaseService().deleteConversation(jid);
+      if (_activeConversationId == jid) {
+        _activeConversationId = null;
+      }
+      notifyListeners();
+    }
+  }
+
   Future<void> removeContact(String jid, AuthService authService) async {
     final bareJid = jid.toLowerCase().split('/').first;
     final contact = _contacts.firstWhere(
@@ -1014,13 +1084,7 @@ class ChatProvider with ChangeNotifier {
               ?.trim();
       if (accountId == null || accountId.isEmpty) return;
 
-      if (protocol == 'DISCORD') {
-        await auth.fetchDiscordMessageById(
-          conversationId,
-          replyToId,
-          accountId: accountId,
-        );
-      } else if (protocol == 'XMPP') {
+      if (protocol == 'XMPP') {
         final anchorId = message.id.trim().isNotEmpty ? message.id : null;
         await auth.fetchOlderHistory(
           accountId,
@@ -1049,12 +1113,6 @@ class ChatProvider with ChangeNotifier {
           messageId,
           accountId: convo.accountId,
           isGroup: convo.isGroup,
-        );
-      } else if (convo.protocol == 'Discord') {
-        await auth.deleteDiscordMessage(
-          convo.id,
-          messageId,
-          accountId: convo.accountId,
         );
       }
 
@@ -1087,6 +1145,64 @@ class ChatProvider with ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Error updating message: $e');
+    }
+  }
+
+  Future<void> removeConversation(String conversationId) async {
+    _conversations.removeWhere((c) => c.id == conversationId);
+    if (_activeConversationId == conversationId) {
+      _activeConversationId = null;
+    }
+    // Delete from DB
+    await DatabaseService().deleteConversation(conversationId);
+    notifyListeners();
+  }
+
+  void _handleAuthChange(AuthService authService) {
+    for (var accountId in authService.connectedAccountIds) {
+      final currentStatus = authService.getAccountStatus(accountId);
+      final lastStatus = _lastAccountStatus[accountId];
+
+      if (currentStatus == ConnectionStatus.online &&
+          lastStatus != ConnectionStatus.online) {
+        debugPrint(
+          'ChatProvider: Account $accountId reconnected. Triggering sync...',
+        );
+        syncAll(authService, accountId: accountId);
+      }
+      _lastAccountStatus[accountId] = currentStatus;
+    }
+  }
+
+  Future<void> syncAll(AuthService authService, {String? accountId}) async {
+    if (_isSyncing) return;
+    _isSyncing = true;
+    notifyListeners();
+
+    try {
+      // Sync since last sync time, or last 24 hours if null
+      final since = _lastSyncTime ??
+          DateTime.now().subtract(const Duration(hours: 24));
+
+      // Iterate through active conversations and request history
+      for (var conv in _conversations) {
+        if (accountId != null && conv.accountId != accountId) continue;
+
+        // Only sync XMPP conversations
+        if (conv.id.contains('@')) {
+          authService.fetchXmppHistory(
+            conv.id,
+            accountId: conv.accountId,
+            since: since,
+          );
+        }
+      }
+      _lastSyncTime = DateTime.now();
+    } catch (e) {
+      debugPrint('Sync error: $e');
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
     }
   }
 }

@@ -13,72 +13,55 @@ class NexusSearchScreen extends StatefulWidget {
 
 class _NexusSearchScreenState extends State<NexusSearchScreen> {
   final TextEditingController _searchController = TextEditingController();
-  String _selectedProtocol = 'All';
 
   @override
   Widget build(BuildContext context) {
     final chatProvider = Provider.of<ChatProvider>(context);
-    final results = _selectedProtocol == 'All' 
-        ? chatProvider.globalSearchResults 
-        : chatProvider.globalSearchResults.where((m) => m.protocol == _selectedProtocol).toList();
+    final results = chatProvider.globalSearchResults;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Nexus Search', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
+        title: Text('Nexus Search', style: TextStyle(fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onPrimary)),
+        backgroundColor: Theme.of(context).colorScheme.primary,
         elevation: 0,
+        iconTheme: IconThemeData(color: Theme.of(context).colorScheme.onPrimary),
       ),
       body: Column(
         children: [
           // 1. Search Bar Surface
           Container(
-            padding: const EdgeInsets.all(20),
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _searchController,
-                  autofocus: true,
-                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
-                  decoration: InputDecoration(
-                    hintText: 'Search across all accounts...',
-                    prefixIcon: const Icon(Icons.travel_explore_rounded),
-                    suffixIcon: _searchController.text.isNotEmpty 
-                        ? IconButton(icon: const Icon(Icons.close), onPressed: () {
-                            _searchController.clear();
-                            chatProvider.searchGlobalMessages('');
-                          })
-                        : null,
-                    filled: true,
-                    fillColor: Theme.of(context).colorScheme.surface,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                  ),
-                  onSubmitted: (val) => chatProvider.searchGlobalMessages(val),
-                ),
-                const SizedBox(height: 16),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: ['All', 'XMPP', 'IRC', 'Discord'].map((p) {
-                      final isSelected = _selectedProtocol == p;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(p),
-                          selected: isSelected,
-                          onSelected: (val) => setState(() => _selectedProtocol = p),
-                          selectedColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
-                          labelStyle: TextStyle(
-                            fontWeight: FontWeight.bold, 
-                            color: isSelected ? Theme.of(context).colorScheme.primary : Colors.black45
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              boxShadow: [
+                BoxShadow(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
               ],
+            ),
+            child: TextField(
+              controller: _searchController,
+              autofocus: true,
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w600),
+              decoration: InputDecoration(
+                hintText: 'Search across all XMPP accounts...',
+                hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                prefixIcon: Icon(Icons.travel_explore_rounded, color: Theme.of(context).colorScheme.secondary),
+                suffixIcon: _searchController.text.isNotEmpty 
+                    ? IconButton(
+                        icon: Icon(Icons.close_rounded, color: Theme.of(context).colorScheme.onSurfaceVariant), 
+                        onPressed: () {
+                          _searchController.clear();
+                          chatProvider.searchGlobalMessages('');
+                        }
+                      )
+                    : null,
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Theme.of(context).colorScheme.outline)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Theme.of(context).colorScheme.outline)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 2)),
+              ),
+              onSubmitted: (val) => chatProvider.searchGlobalMessages(val),
             ),
           ),
 
@@ -101,37 +84,42 @@ class _NexusSearchScreenState extends State<NexusSearchScreen> {
   }
 
   Widget _buildResultTile(ChatMessage msg, ChatProvider chatProvider) {
-    return Card(
+    return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
+        boxShadow: [
+          BoxShadow(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4)),
+        ],
+      ),
       child: ListTile(
         contentPadding: const EdgeInsets.all(16),
         leading: CircleAvatar(
-          backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
           child: Icon(
-            msg.protocol == 'Discord' ? Icons.discord : (msg.protocol == 'IRC' ? Icons.alternate_email : Icons.chat_bubble_outline),
+            Icons.chat_bubble_rounded,
             size: 18,
-            color: Theme.of(context).colorScheme.primary,
+            color: Theme.of(context).colorScheme.onPrimaryContainer,
           ),
         ),
         title: Row(
           children: [
             Expanded(child: Text(msg.senderName ?? msg.senderId!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
-            Text(DateFormat('MMM d, HH:mm').format(msg.timestamp), style: const TextStyle(fontSize: 10, color: Colors.black26)),
+            Text(DateFormat('MMM d, HH:mm').format(msg.timestamp), style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold)),
           ],
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 4),
-            Text(msg.text, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Colors.black87)),
             const SizedBox(height: 8),
+            Text(msg.text, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface)),
+            const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(8)),
-              child: Text(msg.conversationId ?? 'Global', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.black38)),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(color: Theme.of(context).colorScheme.secondaryContainer, borderRadius: BorderRadius.circular(8)),
+              child: Text(msg.conversationId ?? 'Global', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onSecondaryContainer, letterSpacing: 1.0)),
             ),
           ],
         ),
@@ -148,17 +136,17 @@ class _NexusSearchScreenState extends State<NexusSearchScreen> {
 
   Widget _buildEmptyState(bool isSyncing) {
     if (isSyncing) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary));
     }
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.search_off_rounded, size: 64, color: Colors.black.withValues(alpha: 0.05)),
+          Icon(Icons.search_off_rounded, size: 64, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1)),
           const SizedBox(height: 16),
           Text(
             _searchController.text.isEmpty ? 'Search for any message...' : 'No results found',
-            style: const TextStyle(color: Colors.black26, fontWeight: FontWeight.bold),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold),
           ),
         ],
       ),

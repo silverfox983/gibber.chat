@@ -19,9 +19,12 @@ class _IdentityTrustScreenState extends State<IdentityTrustScreen> {
     final authService = Provider.of<AuthService>(context);
 
     return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Identity Trust List', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text('Identity Trust List', style: TextStyle(fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onPrimary)),
+        backgroundColor: Theme.of(context).colorScheme.primary,
         elevation: 0,
+        iconTheme: IconThemeData(color: Theme.of(context).colorScheme.onPrimary),
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: authService.fetchOmemoIdentities(),
@@ -116,9 +119,9 @@ class _IdentityTrustScreenState extends State<IdentityTrustScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
       ),
       child: ExpansionTile(
         tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

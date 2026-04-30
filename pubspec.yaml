@@ -13,7 +13,6 @@ dependencies:
   xmpp_stone: ^0.4.4-dev.6
   libsignal_protocol_dart: ^0.4.0
   cryptography: ^2.7.0
-  irc_dart: ^1.2.1
   file_picker: ^10.3.10
   record: ^6.2.0
   audioplayers: ^6.1.0
@@ -35,11 +34,16 @@ dependencies:
   url_launcher: ^6.3.2
   open_filex: ^4.7.0
   image_picker: ^1.2.1
-  nyxx: ^6.1.1
   flutter_markdown: ^0.7.7+1
   giphy_get: ^3.6.1+1
   sip_ua: ^1.1.0
   flutter_local_notifications: ^21.0.0
+  tray_manager: ^0.5.2
+  window_manager: ^0.5.1
+  crypto: ^3.0.7
+  pointycastle: ^3.9.1
+  google_fonts: ^8.1.0
+  flutter_foreground_task: ^9.2.2
 
 dev_dependencies:
   flutter_test:

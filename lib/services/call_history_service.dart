@@ -29,6 +29,14 @@ class CallHistoryService with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> deleteLog(CallLog log) async {
+    final prefs = await SharedPreferences.getInstance();
+    _logs.removeWhere((l) => l.timestamp == log.timestamp && l.jid == log.jid);
+    final data = _logs.map((e) => jsonEncode(e.toJson())).toList();
+    await prefs.setStringList(_key, data);
+    notifyListeners();
+  }
+
   Future<void> clearHistory() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);

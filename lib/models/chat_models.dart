@@ -29,6 +29,7 @@ class Contact {
 }
 
 class ChatMessage {
+  dynamic get senderColor => null;
   final String id;
   String text;
   final DateTime timestamp;
@@ -112,7 +113,9 @@ class ChatMessage {
     if (raw == null) return {};
     if (raw is Map<String, dynamic>) {
       return _dedupeReactionMap(
-        raw.map((key, value) => MapEntry(key, List<String>.from(value as List))),
+        raw.map(
+          (key, value) => MapEntry(key, List<String>.from(value as List)),
+        ),
       );
     }
     if (raw is String && raw.isNotEmpty) {

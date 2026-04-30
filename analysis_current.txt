@@ -1,8 +1,0 @@
-Analyzing gibber...                                             
-
-warning • The value of the field '_stanzaSubscription' isn't used. Try removing the field, or using it • lib/services/jingle_signaling_service.dart:52:23 • unused_field
-   info • Angle brackets will be interpreted as HTML. Try using backticks around the content with angle brackets, or try replacing `<` with `&lt;` and `>` with `&gt;` • lib/services/jingle_signaling_service.dart:338:22 • unintended_html_in_doc_comment
-   info • Angle brackets will be interpreted as HTML. Try using backticks around the content with angle brackets, or try replacing `<` with `&lt;` and `>` with `&gt;` • lib/services/jingle_signaling_service.dart:410:30 • unintended_html_in_doc_comment
-warning • The declaration '_stripVideoFromOffer' isn't referenced. Try removing the declaration of '_stripVideoFromOffer' • lib/services/webrtc_manager.dart:1049:10 • unused_element
-
-4 issues found. (ran in 35.9s)

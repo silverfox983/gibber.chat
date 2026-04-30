@@ -1,81 +1,87 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class GibberTheme {
-  // Baby Blue & Gold Palette (Light)
-  static const Color babyBlue = Color(0xFF89BBFE);
-  static const Color gold = Color(0xFFFFD700);
+  // Premium Palette - Light (Arctic Mist)
+  static const Color arcticBlue = Color(0xFF3B82F6);
+  static const Color arcticSurface = Color(0xFFF9FAFB);
+  static const Color arcticOutline = Color(0xFFE5E7EB);
   
-  // Magenta & Turquoise Palette (Dark)
-  static const Color magenta = Color(0xFFE91E63);
-  static const Color turquoise = Color(0xFF00BCD4);
-  
-  // Neutral Colors
-  static const Color deepMidnight = Color(0xFF0F172A);
-  static const Color slateBlue = Color(0xFF1E293B);
+  // Premium Palette - Dark (Midnight Eclipse)
+  static const Color eclipsePurple = Color(0xFF8B5CF6);
+  static const Color eclipseMidnight = Color(0xFF0F172A);
+  static const Color eclipseDeep = Color(0xFF020617);
+  static const Color eclipseSurface = Color(0xFF1E293B);
 
   static ThemeData get light {
-    return ThemeData(
+    final base = ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
       colorScheme: ColorScheme.light(
-        primary: babyBlue,
+        primary: arcticBlue,
         onPrimary: Colors.white,
-        secondary: gold,
-        onSecondary: Colors.black87,
+        secondary: const Color(0xFF10B981), // Emerald
+        onSecondary: Colors.white,
         surface: Colors.white,
-        onSurface: Colors.black87,
-        surfaceContainerHighest: Colors.grey.shade100,
-        onSurfaceVariant: Colors.black54,
-        primaryContainer: Colors.blue.shade50,
-        onPrimaryContainer: Colors.blue.shade900,
-        outline: Colors.black12,
-        error: Colors.red.shade700,
+        onSurface: const Color(0xFF111827),
+        surfaceContainerHighest: const Color(0xFFF3F4F6),
+        onSurfaceVariant: const Color(0xFF4B5563),
+        primaryContainer: const Color(0xFFDBEAFE),
+        onPrimaryContainer: const Color(0xFF1E40AF),
+        outline: arcticOutline,
+        error: const Color(0xFFEF4444),
       ),
-      scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: babyBlue,
-        foregroundColor: Colors.white,
+      scaffoldBackgroundColor: arcticSurface,
+    );
+    
+    return base.copyWith(
+      textTheme: GoogleFonts.outfitTextTheme(base.textTheme),
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF111827),
         elevation: 0,
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: babyBlue,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        centerTitle: false,
+        titleTextStyle: GoogleFonts.outfit(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: const Color(0xFF111827),
         ),
       ),
     );
   }
 
   static ThemeData get dark {
-    return ThemeData(
+    final base = ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
       colorScheme: const ColorScheme.dark(
-        primary: magenta,
+        primary: eclipsePurple,
         onPrimary: Colors.white,
-        secondary: turquoise,
+        secondary: Color(0xFF06B6D4), // Cyan
         onSecondary: Colors.black,
-        surface: deepMidnight,
+        surface: eclipseMidnight,
         onSurface: Colors.white,
-        surfaceContainerHighest: slateBlue,
-        onSurfaceVariant: Colors.white70,
-        primaryContainer: Color(0xFF1E293B), // slateBlue
+        surfaceContainerHighest: eclipseSurface,
+        onSurfaceVariant: Color(0xFF94A3B8),
+        primaryContainer: Color(0xFF4C1D95),
         onPrimaryContainer: Colors.white,
-        outline: Colors.white10,
-        error: Color(0xFFCF6679),
+        outline: Color(0xFF334155),
+        error: Color(0xFFF87171),
       ),
-      scaffoldBackgroundColor: deepMidnight,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: slateBlue,
+      scaffoldBackgroundColor: eclipseDeep,
+    );
+
+    return base.copyWith(
+      textTheme: GoogleFonts.outfitTextTheme(base.textTheme),
+      appBarTheme: AppBarTheme(
+        backgroundColor: eclipseMidnight,
         foregroundColor: Colors.white,
         elevation: 0,
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: magenta,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        centerTitle: false,
+        titleTextStyle: GoogleFonts.outfit(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
         ),
       ),
     );

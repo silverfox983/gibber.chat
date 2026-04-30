@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
-const Duration _connectionTimeout = Duration(seconds: 15);
-const Duration _starttlsTimeout = Duration(seconds: 25);
+const Duration _connectionTimeout = Duration(seconds: 12); 
+const Duration _starttlsTimeout = Duration(seconds: 20);
 
 /// A secure bridge that adapts its TLS handshake to find the correct path for an XMPP server.
 class XmppProxyService {
@@ -80,17 +81,16 @@ class XmppProxyService {
                // We replace ALL authentication/mechanisms blocks with a single clean SASL 1 block
                final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><mechanism>PLAIN</mechanism><mechanism>SCRAM-SHA-1</mechanism></mechanisms>";
                
-               // Wipe SASL 2
-               transformed = transformed.replaceFirst(RegExp(r'<authentication xmlns=.urn:xmpp:sasl:2.>(.*?)</authentication>', dotAll: true), '');
-               // Wipe existing SASL 1 (Case insensitive / varied attributes)
-               transformed = transformed.replaceFirst(RegExp(r'<mechanisms[^>]*>.*?</mechanisms>', dotAll: true), '');
-               
-               // Final assembly: Inject our clean mechanisms right after <stream:features>
-               transformed = transformed.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
-               
-               finalData = Uint8List.fromList(transformed.codeUnits);
-               firstServerPacketTransformed = true;
-               debugPrint('Proxy: Transformation successful. FORCE-INJECTED PLAIN MECHANISM.');
+                // Wipe SASL 2 (urn:xmpp:sasl:2) and legacy mechanisms
+                transformed = transformed.replaceFirst(RegExp(r'<authentication xmlns=.urn:xmpp:sasl:2.>(.*?)</authentication>', dotAll: true), '');
+                transformed = transformed.replaceFirst(RegExp(r'<mechanisms[^>]*>.*?</mechanisms>', dotAll: true), '');
+                
+                // Inject clean mechanisms
+                transformed = transformed.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
+                
+                finalData = Uint8List.fromList(utf8.encode(transformed));
+                firstServerPacketTransformed = true;
+                debugPrint('Proxy: Transformation successful. FORCE-INJECTED SASL mechanisms.');
             }
           }
           final preview = String.fromCharCodes(finalData.take(500)).replaceAll('\n', ' ').replaceAll('\r', ' ');
@@ -131,78 +131,171 @@ class XmppProxyService {
   }
 
   Future<Socket> _establishSecureLink(String host, int port, String sni, Uint8List initialPacket) async {
-    InternetAddress? resolved;
+    final targets = <String>{host, 'xmpp.$host', 'chat.$host'};
+    
+    // 1. SRV Discovery via DoH
     try {
-      final list = await InternetAddress.lookup(host);
-      resolved = list.firstWhere((a) => a.type == InternetAddressType.IPv4, orElse: () => list.first);
-      debugPrint('Proxy: Resolved $host to ${resolved.address}');
-    } catch (e) {
-      resolved = InternetAddress('49.13.15.16');
+      final url = 'https://dns.google/resolve?name=_xmpp-client._tcp.$host&type=SRV';
+      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['Answer'] != null) {
+          for (var answer in data['Answer']) {
+             final srv = answer['data'] as String;
+             final parts = srv.split(' ');
+             if (parts.length >= 4) {
+               targets.add(parts[3].replaceAll(RegExp(r'\.$'), ''));
+             }
+          }
+        }
+      }
+    } catch (_) {}
+
+    debugPrint('Proxy: Starting Parallel Happy-Eyeballs probe on: $targets');
+    
+    final completer = Completer<Socket>();
+    int failedCount = 0;
+    final totalAttempts = targets.length * 3;
+
+    void reportFailure(String target, int port, dynamic error) {
+      debugPrint('Proxy: [Probe Failure] $target:$port -> $error');
+      failedCount++;
+      if (failedCount >= totalAttempts && !completer.isCompleted) {
+        completer.completeError('All connection paths to $host failed. Last error: $error');
+      }
     }
 
-    // THE POLLING-SECURE BRIDGE (The Real Final Fix)
-    try {
-      debugPrint('Proxy: [1/1] Trying Polling-Secure STARTTLS (5222)...');
-      final rawSocket = await RawSocket.connect(resolved, 5222).timeout(_connectionTimeout);
+    for (String target in targets) {
+      debugPrint('Proxy: [Probe Queue] $target (Paths: 5222, 5223, 443)');
       
-      // 1. Send initial XMPP tag
-      rawSocket.write(initialPacket);
+      // Path A: STARTTLS (5222) - HIGH PRIORITY
+      _tryConnectAndHandshakeAsync(target, 5222, initialPacket).then((s) {
+        if (!completer.isCompleted) {
+          debugPrint('Proxy: [Probe Winner] $target:5222 (STARTTLS)');
+          completer.complete(s);
+        } else {
+          s.destroy();
+        }
+      }).catchError((e) {
+        debugPrint('Proxy: [Probe Fail Trace] $target:5222 -> $e');
+        reportFailure(target, 5222, e);
+      });
+
+      // Path B: Direct TLS (5223)
+      Future.delayed(const Duration(milliseconds: 100)).then((_) {
+        _tryDirectTLSAsync(target, 5223, initialPacket).then((s) {
+          if (!completer.isCompleted) {
+             debugPrint('Proxy: [Probe Winner] $target:5223 (Direct TLS)');
+             completer.complete(s);
+          } else {
+            s.destroy();
+          }
+        }).catchError((e) {
+          debugPrint('Proxy: [Probe Fail Trace] $target:5223 -> $e');
+          reportFailure(target, 5223, e);
+        });
+      });
+
+      // Path C: Direct TLS (443)
+      Future.delayed(const Duration(milliseconds: 300)).then((_) {
+        _tryDirectTLSAsync(target, 443, initialPacket).then((s) {
+          if (!completer.isCompleted) {
+            debugPrint('Proxy: [Probe Winner] $target:443 (Direct TLS)');
+            completer.complete(s);
+          } else {
+            s.destroy();
+          }
+        }).catchError((e) {
+          debugPrint('Proxy: [Probe Fail Trace] $target:443 -> $e');
+          reportFailure(target, 443, e);
+        });
+      });
+    }
+
+    return await completer.future.timeout(const Duration(seconds: 45));
+  }
+
+  Future<Socket> _tryConnectAndHandshakeAsync(String host, int port, Uint8List initialPacket) async {
+    final list = await InternetAddress.lookup(host);
+    final resolved = list.firstWhere((a) => a.type == InternetAddressType.IPv4, orElse: () => list.first);
+    
+    final rawSocket = await RawSocket.connect(resolved, port).timeout(_connectionTimeout);
+    
+    String rawTag = String.fromCharCodes(initialPacket);
+    String cleanTag = rawTag.replaceAll(RegExp(r'<\?xml[^?]*\?>'), '').trim();
+    if (!cleanTag.endsWith('>')) {
+      int tagEnd = cleanTag.indexOf('>');
+      if (tagEnd != -1) cleanTag = cleanTag.substring(0, tagEnd + 1);
+    }
+    
+    rawSocket.write(utf8.encode(cleanTag));
+    
+    // Read features, wait for either <starttls or the end of features block
+    final result = await _pollRawUntil(rawSocket, ['<starttls', '</stream:features>']);
+    
+    if (result.matchedMarker == '<starttls') {
+      await _pollRawUntil(rawSocket, ['>']);
+      await Future.delayed(const Duration(milliseconds: 50));
+      rawSocket.write(utf8.encode("<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>"));
+      await _pollRawUntil(rawSocket, ['<proceed']);
+      await _pollRawUntil(rawSocket, ['>']);
       
-      // 2. Poll until <starttls.../> (Zero Stream Locks)
-      await _pollRawUntil(rawSocket, '<starttls');
+      final rawSecure = await RawSecureSocket.secure(rawSocket, onBadCertificate: (cert) => true).timeout(_connectionTimeout);
       
-      // 3. Request upgrade
-      rawSocket.write(Uint8List.fromList("<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>".codeUnits));
-      
-      // 4. Poll until <proceed.../>
-      await _pollRawUntil(rawSocket, '<proceed');
-      await _pollRawUntil(rawSocket, '>');
-      
-      debugPrint('Proxy [1/1]: Marker found via Poll. Upgrading to TLS (Zero Stream Locks)...');
-      
-      // 5. Raw Encryption (Accepts the socket because no .listen() call was ever made)
-      final rawSecure = await RawSecureSocket.secure(
-        rawSocket, 
-        onBadCertificate: (cert) => true,
-      ).timeout(_connectionTimeout);
-      
-      debugPrint('Proxy [1/1]: RawSecure Handshake Successful. Wrapping...');
-      
-      final wrapper = RawToSocket(rawSecure);
-      
-      // Restart Stream inside tunnel
-      _restartStream(wrapper, initialPacket);
-      
-      return wrapper;
-    } catch (e) { 
-      debugPrint('Proxy: [1/1] Failed: $e'); 
-      rethrow;
+      // FINAL VALIDATION: Ensure the tunnel actually speaks XMPP
+      rawSecure.write(utf8.encode(cleanTag));
+      final secureResult = await _pollRawUntil(rawSecure, ['<stream:stream']);
+
+      return RawToSocket(rawSecure, secureResult.accumulated);
+    } else {
+      debugPrint('Proxy: Server does NOT offer STARTTLS. Falling back to unencrypted bridge.');
+      return RawToSocket(rawSocket, result.accumulated);
     }
   }
 
-  /// Manually peeks at the RawSocket OS buffer until the marker is found. 
-  /// This NEVER calls .listen(), fulfilling Dart's requirement for TLS upgrades.
-  Future<void> _pollRawUntil(RawSocket socket, String marker) async {
-    final target = marker.codeUnits;
-    int matchIdx = 0;
-    final stopwatch = Stopwatch()..start();
+  Future<Socket> _tryDirectTLSAsync(String host, int port, Uint8List initialPacket) async {
+    final list = await InternetAddress.lookup(host);
+    final resolved = list.firstWhere((a) => a.type == InternetAddressType.IPv4, orElse: () => list.first);
     
+    final rawSocket = await RawSocket.connect(resolved, port).timeout(_connectionTimeout);
+    final rawSecure = await RawSecureSocket.secure(rawSocket, onBadCertificate: (cert) => true).timeout(_connectionTimeout);
+    
+    // FINAL VALIDATION: Ensure it's not a Web Server
+    String rawTag = String.fromCharCodes(initialPacket);
+    String cleanTag = rawTag.replaceAll(RegExp(r'<\?xml[^?]*\?>'), '').trim();
+    if (!cleanTag.endsWith('>')) {
+      int tagEnd = cleanTag.indexOf('>');
+      if (tagEnd != -1) cleanTag = cleanTag.substring(0, tagEnd + 1);
+    }
+    
+    rawSecure.write(utf8.encode(cleanTag));
+    final result = await _pollRawUntil(rawSecure, ['<stream:stream']);
+
+    return RawToSocket(rawSecure, result.accumulated);
+  }
+
+  Future<_PollResult> _pollRawUntil(dynamic socket, List<String> markers) async {
+    final stopwatch = Stopwatch()..start();
+    String accumulated = "";
     while (stopwatch.elapsed < _starttlsTimeout) {
-      while (socket.available() > 0) {
-        final bytes = socket.read(1);
-        if (bytes == null || bytes.isEmpty) break;
-        final byte = bytes[0];
-        if (byte == target[matchIdx]) {
-          matchIdx++;
-          if (matchIdx == target.length) return;
-        } else {
-          matchIdx = (byte == target[0]) ? 1 : 0;
+      if (socket.available() > 0) {
+        final bytes = socket.read(1024);
+        if (bytes != null) {
+          accumulated += String.fromCharCodes(bytes);
+          for (final marker in markers) {
+             if (accumulated.contains(marker)) {
+                return _PollResult(accumulated, marker);
+             }
+          }
+          if (accumulated.contains('HTTP/1.') || accumulated.contains('<html>')) {
+             throw 'Detected Web Server instead of XMPP';
+          }
+          if (accumulated.contains('<failure') || accumulated.contains('<error')) throw 'XMPP Error';
         }
       }
-      // Micro-delay to avoid CPU spinning while OS buffer fills
-      await Future.delayed(const Duration(milliseconds: 5));
+      await Future.delayed(const Duration(milliseconds: 20));
     }
-    throw 'Polling Timeout: Marker "$marker" never arrived in the plain-text buffer.';
+    throw 'Timeout';
   }
 
   void _restartStream(Socket secure, Uint8List initialPacket) {
@@ -217,23 +310,50 @@ class XmppProxyService {
   }
 }
 
-/// A lightweight delegate that wraps a RawSecureSocket to provide a standard Socket interface.
+class _PollResult {
+  final String accumulated;
+  final String matchedMarker;
+  _PollResult(this.accumulated, this.matchedMarker);
+}
+
 class RawToSocket extends StreamView<Uint8List> implements Socket {
-  final RawSecureSocket _inner;
+  final RawSocket _inner;
+  final List<int> _writeBuffer = [];
+  final StreamController<Uint8List> _controller;
 
-  RawToSocket(this._inner) : super(_buildStream(_inner));
-
-  static Stream<Uint8List> _buildStream(RawSecureSocket socket) {
-    final controller = StreamController<Uint8List>();
-    socket.listen((event) {
+  RawToSocket._(this._inner, this._controller, [String? initialData]) : super(_controller.stream) {
+    if (initialData != null && initialData.isNotEmpty) {
+      Future.microtask(() => _controller.add(Uint8List.fromList(utf8.encode(initialData))));
+    }
+    _inner.listen((event) {
       if (event == RawSocketEvent.read) {
-        final data = socket.read();
-        if (data != null) controller.add(data);
+        Uint8List? data;
+        while ((data = _inner.read()) != null) {
+          _controller.add(data!);
+        }
+      } else if (event == RawSocketEvent.write) {
+        _tryWrite();
       } else if (event == RawSocketEvent.closed || event == RawSocketEvent.readClosed) {
-        controller.close();
+        _controller.close();
       }
-    }, onError: (e) => controller.addError(e), onDone: () => controller.close());
-    return controller.stream;
+    }, onError: (e) => _controller.addError(e), onDone: () => _controller.close());
+  }
+
+  factory RawToSocket(RawSocket inner, [String? initialData]) {
+    return RawToSocket._(inner, StreamController<Uint8List>(), initialData);
+  }
+
+  void _tryWrite() {
+    if (_writeBuffer.isEmpty) return;
+    try {
+      int written = _inner.write(_writeBuffer);
+      if (written > 0) {
+        _writeBuffer.removeRange(0, written);
+      }
+    } catch (e) {
+      debugPrint('Proxy: Write error on RawToSocket: $e');
+      _controller.addError(e);
+    }
   }
 
   @override InternetAddress get address => _inner.address;
@@ -246,15 +366,28 @@ class RawToSocket extends StreamView<Uint8List> implements Socket {
 
   @override Encoding get encoding => utf8;
   @override set encoding(Encoding value) {}
-  @override void add(List<int> data) => _inner.write(data);
+  
+  @override void add(List<int> data) {
+    _writeBuffer.addAll(data);
+    _tryWrite();
+  }
+  
   @override void addError(Object error, [StackTrace? stackTrace]) {}
-  @override Future addStream(Stream<List<int>> stream) async => stream.listen((d) => _inner.write(d)).asFuture();
+  @override Future addStream(Stream<List<int>> stream) async => stream.listen((d) => add(d)).asFuture();
   @override Future close() async => _inner.close();
   @override Future get done => Future.delayed(Duration.zero);
   @override Future flush() async {}
-  @override void write(Object? obj) => _inner.write(utf8.encode(obj.toString()));
+  
+  @override void write(Object? obj) {
+    _writeBuffer.addAll(utf8.encode(obj.toString()));
+    _tryWrite();
+  }
+  
   @override void writeAll(Iterable objects, [String separator = ""]) => write(objects.join(separator));
-  @override void writeCharCode(int charCode) => _inner.write([charCode]);
+  @override void writeCharCode(int charCode) {
+    _writeBuffer.add(charCode);
+    _tryWrite();
+  }
   @override void writeln([Object? obj = ""]) => write("${obj ?? ''}\n");
   @override void destroy() => _inner.close();
 }

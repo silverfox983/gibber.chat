@@ -6,19 +6,25 @@ import 'package:file_picker/file_picker.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'room_settings_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:giphy_get/giphy_get.dart';
 import './room_discovery_screen.dart';
+import '../widgets/link_preview.dart';
+import '../widgets/audio_waveform.dart';
 import '../models/chat_models.dart';
 import '../services/auth_service.dart';
 import '../providers/chat_provider.dart';
+import '../widgets/group_invite_dialog.dart';
+import '../services/avatar_cache_service.dart';
 import '../providers/call_provider.dart';
 import '../services/database_service.dart';
 import './profile_screen.dart';
@@ -31,6 +37,8 @@ import '../providers/theme_provider.dart';
 import './contacts_screen.dart';
 import './nexus_search_screen.dart';
 import './security_settings_screen.dart';
+import '../services/xep_0392_service.dart';
+import './spaces_screen.dart';
 
 class HighlightedText extends StatelessWidget {
   final String text;
@@ -92,7 +100,8 @@ class HighlightedText extends StatelessWidget {
 
     return RichText(
       text: TextSpan(
-        style: style ?? TextStyle(color: Theme.of(context).colorScheme.onSurface),
+        style:
+            style ?? TextStyle(color: Theme.of(context).colorScheme.onSurface),
         children: matches,
       ),
       maxLines: maxLines,
@@ -125,7 +134,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
   String _dialedNumber = '';
   ChatMessage? _replyToMessage;
   Timer? _typingDebouncer;
+  String? _lastSentChatState;
   bool _showScrollToBottom = false;
+  bool _isTypingMsg = false;
   final Set<String> _requestedQuoteBackfills = {};
 
   late AuthService _authService;
@@ -141,6 +152,30 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
     _searchController.addListener(() {
       setState(() => _searchQuery = _searchController.text.toLowerCase());
+    });
+
+    // GROUP INVITE LISTENER & CHAT SWITCHING (Drafts)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      chatProvider.addListener(() {
+        if (!mounted) return;
+        final invites = chatProvider.pendingGroupInvites;
+        if (invites.isNotEmpty) {
+          _showGroupInviteDialog(invites.first);
+        }
+
+        // Handle Active Chat Switching for Drafts
+        final currentChatId = chatProvider.activeConversation?.id;
+        if (currentChatId != _lastChatId) {
+          _lastChatId = currentChatId;
+          if (currentChatId != null) {
+            final draft = chatProvider.getDraft(currentChatId);
+            if (_messageController.text != draft) {
+              _messageController.text = draft;
+            }
+          }
+        }
+      });
     });
 
     _scrollController.addListener(() {
@@ -190,36 +225,49 @@ class _MainChatScreenState extends State<MainChatScreen> {
       // Initialize renderers
       _callProvider.initRenderers();
 
-      // Hook up Typing Indicators (XEP-0085)
+      // Hook up Typing Indicators (XEP-0085) & Drafts
       _messageController.addListener(() {
         if (!mounted) return;
-        final activeChat = Provider.of<ChatProvider>(
-          context,
-          listen: false,
-        ).activeConversation;
-        if (activeChat != null && !_authService.isOmemoEnabled(activeChat.id)) {
-          if (_messageController.text.isNotEmpty) {
+        
+        final hasText = _messageController.text.isNotEmpty;
+        if (_isTypingMsg != hasText) {
+          setState(() => _isTypingMsg = hasText);
+        }
+
+        final cp = Provider.of<ChatProvider>(context, listen: false);
+        final activeChat = cp.activeConversation;
+        
+        if (activeChat != null) {
+          cp.setDraft(activeChat.id, _messageController.text);
+          
+          if (!_authService.isOmemoEnabled(activeChat.id)) {
+            final newState = hasText ? 'composing' : 'active';
+
+          if (newState != _lastSentChatState) {
             _authService.sendChatState(
               activeChat.id,
-              'composing',
+              newState,
               isGroup: activeChat.isGroup,
             );
+            _lastSentChatState = newState;
+          }
+
+          if (newState == 'composing') {
             _typingDebouncer?.cancel();
             _typingDebouncer = Timer(const Duration(seconds: 3), () {
-              _authService.sendChatState(
-                activeChat.id,
-                'paused',
-                isGroup: activeChat.isGroup,
-              );
+              if (mounted && _lastSentChatState != 'paused') {
+                _authService.sendChatState(
+                  activeChat.id,
+                  'paused',
+                  isGroup: activeChat.isGroup,
+                );
+                _lastSentChatState = 'paused';
+              }
             });
           } else {
-            _authService.sendChatState(
-              activeChat.id,
-              'active',
-              isGroup: activeChat.isGroup,
-            );
             _typingDebouncer?.cancel();
           }
+        }
         }
       });
 
@@ -256,17 +304,20 @@ class _MainChatScreenState extends State<MainChatScreen> {
     });
   }
 
-  bool _isDiscordVoiceChat(Conversation chat) {
-    return chat.protocol == 'Discord' && chat.name.contains('🔊');
+  void _showGroupInviteDialog(Map<String, dynamic> invite) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => GroupInviteDialog(invite: invite),
+    );
   }
 
   bool _canStartVoiceCall(Conversation chat) {
-    // All protocols support audio calls except IRC.
-    return chat.protocol != 'IRC';
+    return chat.protocol == 'XMPP' && !chat.isGroup;
   }
 
   bool _canStartVideoCall(Conversation chat) {
-    return chat.protocol == 'XMPP';
+    return chat.protocol == 'XMPP' && !chat.isGroup;
   }
 
   /*
@@ -581,6 +632,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
       if (activeChat != null) {
         if (_lastChatId != activeChat.id) {
           _lastChatId = activeChat.id;
+          _lastSentChatState = null;
           _lastMsgCount = activeChat.messages.length;
           WidgetsBinding.instance.addPostFrameCallback(
             (_) => _scrollToBottom(),
@@ -704,6 +756,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   label: 'Dialer',
                 ),
                 BottomNavigationBarItem(
+                  icon: Icon(Icons.workspaces_outline),
+                  label: 'Spaces',
+                ),
+                BottomNavigationBarItem(
                   icon: Icon(Icons.person_outline),
                   label: 'Profile',
                 ),
@@ -737,7 +793,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 22,
-            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.12),
             letterSpacing: -0.5,
           ),
         ),
@@ -799,7 +857,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                               : null,
                           child: activeChat.avatarBytes == null
                               ? Text(
-                                  activeChat.name.isNotEmpty ? activeChat.name[0] : '?',
+                                  activeChat.name.isNotEmpty
+                                      ? activeChat.name[0]
+                                      : '?',
                                   style: TextStyle(
                                     color: Theme.of(
                                       context,
@@ -913,14 +973,44 @@ class _MainChatScreenState extends State<MainChatScreen> {
                                             ? '${activeChat.protocol} Group'
                                             : activeChat.protocol,
                                         style: TextStyle(
-                                          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant
+                                              .withValues(alpha: 0.5),
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
                                         ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
-                                    if (_authService.isOmemoEnabled(
+                                    if (_authService.otrService.isOtrSessionActive(activeChat.id.split('/').first)) ...[
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.lock_rounded,
+                                              size: 10,
+                                              color: Colors.greenAccent,
+                                            ),
+                                            const SizedBox(width: 2),
+                                            Flexible(
+                                              child: Text(
+                                                'OTR ENCRYPTED',
+                                                style: TextStyle(
+                                                  color: Colors.greenAccent,
+                                                  fontSize: 8,
+                                                  fontWeight: FontWeight.w900,
+                                                  letterSpacing: 0.5,
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ] else if (_authService.isOmemoEnabled(
                                       activeChat.id,
                                     )) ...[
                                       const SizedBox(width: 4),
@@ -942,46 +1032,48 @@ class _MainChatScreenState extends State<MainChatScreen> {
                                               ).colorScheme.primary;
                                               statusIcon =
                                                   Icons.security_rounded;
-                                              statusText = 'ENCRYPTED';
+                                              statusText = 'OMEMO ENCRYPTED';
                                               break;
                                             case 2:
                                               statusColor = Colors.red;
                                               statusIcon =
                                                   Icons.gpp_bad_rounded;
-                                              statusText = 'DISTRUSTED';
+                                              statusText = 'OMEMO DISTRUSTED';
                                               break;
                                             case 0:
                                             default:
                                               statusColor = Colors.orange;
                                               statusIcon =
                                                   Icons.gpp_maybe_rounded;
-                                              statusText = 'UNVERIFIED';
+                                              statusText = 'OMEMO UNVERIFIED';
                                               break;
                                           }
 
-                                          return Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                statusIcon,
-                                                size: 10,
-                                                color: statusColor,
-                                              ),
-                                              const SizedBox(width: 2),
-                                              Flexible(
-                                                child: Text(
-                                                  statusText,
-                                                  style: TextStyle(
-                                                    color: statusColor,
-                                                    fontSize: 8,
-                                                    fontWeight: FontWeight.w900,
-                                                    letterSpacing: 0.5,
-                                                  ),
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
+                                          return Flexible(
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  statusIcon,
+                                                  size: 10,
+                                                  color: statusColor,
                                                 ),
-                                              ),
-                                            ],
+                                                const SizedBox(width: 2),
+                                                Flexible(
+                                                  child: Text(
+                                                    statusText,
+                                                    style: TextStyle(
+                                                      color: statusColor,
+                                                      fontSize: 8,
+                                                      fontWeight: FontWeight.w900,
+                                                      letterSpacing: 0.5,
+                                                    ),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                           );
                                         },
                                       ),
@@ -1013,14 +1105,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
             if (_canStartVoiceCall(activeChat))
               IconButton(
                 icon: Icon(
-                  _isDiscordVoiceChat(activeChat)
-                      ? Icons.keyboard_voice_rounded
-                      : Icons.call_rounded,
+                  Icons.call_rounded,
                   color: Theme.of(context).colorScheme.primary,
                 ),
-                tooltip: _isDiscordVoiceChat(activeChat)
-                    ? 'Join Voice'
-                    : 'Start Audio Call',
+                tooltip: 'Start Audio Call',
                 onPressed: () {
                   final cp = Provider.of<CallProvider>(context, listen: false);
                   cp.startCall(
@@ -1090,22 +1178,35 @@ class _MainChatScreenState extends State<MainChatScreen> {
               onSelected: (val) {
                 final cp = Provider.of<ChatProvider>(context, listen: false);
                 if (val == 'clear') {
-                  cp.clearAll();
+                  cp.clearHistory(activeChat.id);
+                } else if (val == 'delete') {
+                  cp.removeConversation(activeChat.id);
                 } else if (val == 'block') {
                   cp.blockContact(activeChat.id, _authService);
                 } else if (val == 'remove') {
                   cp.removeContact(activeChat.id, _authService);
                   cp.setActiveConversation(null);
+                } else if (val == 'leave') {
+                  cp.leaveGroup(activeChat.id, _authService);
                 } else if (val == 'sync') {
                   cp.loadHistory(activeChat.id, _authService);
                 } else if (val == 'info') {
                   _showRoomInfo(activeChat);
+                } else if (val == 'invite') {
+                  _showInviteDialog(activeChat);
                 } else if (val == 'participants') {
                   showDialog(
                     context: context,
                     builder: (context) => RoomParticipantsDialog(
                       roomJid: activeChat.id,
                       roomName: activeChat.name,
+                    ),
+                  );
+                } else if (val == 'settings') {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => RoomSettingsScreen(room: activeChat),
                     ),
                   );
                 } else if (val == 'call') {
@@ -1129,6 +1230,28 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       builder: (context) => const SecuritySettingsScreen(),
                     ),
                   );
+                } else if (val == 'otr') {
+                  final bareJid = activeChat.id.split('/').first;
+                  if (_authService.otrService.isOtrSessionActive(bareJid)) {
+                    _authService.otrService.endSession(bareJid);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('OTR Session Ended')),
+                    );
+                  } else {
+                    _authService.otrService.startSession(bareJid);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Starting OTR Negotiation...')),
+                    );
+                    // Also send a query message to peer
+                    if (activeChat.accountId != null) {
+                      _authService.sendMessage(
+                        activeChat.accountId!,
+                        activeChat.id,
+                        '?OTR?',
+                      );
+                    }
+                  }
+                  setState(() {});
                 }
               },
               itemBuilder: (context) => [
@@ -1141,10 +1264,31 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     ),
                   ),
                   const PopupMenuItem(
+                    value: 'invite',
+                    child: ListTile(
+                      leading: Icon(Icons.person_add_alt_1_rounded),
+                      title: Text('Invite Participant'),
+                    ),
+                  ),
+                  const PopupMenuItem(
                     value: 'participants',
                     child: ListTile(
                       leading: Icon(Icons.people_outline),
                       title: Text('Participants'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'settings',
+                    child: ListTile(
+                      leading: Icon(Icons.settings_rounded),
+                      title: Text('Room Settings'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'leave',
+                    child: ListTile(
+                      leading: Icon(Icons.exit_to_app_rounded, color: Colors.redAccent),
+                      title: Text('Leave Group', style: TextStyle(color: Colors.redAccent)),
                     ),
                   ),
                   const PopupMenuDivider(),
@@ -1153,16 +1297,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   PopupMenuItem(
                     value: 'call',
                     child: ListTile(
-                      leading: Icon(
-                        _isDiscordVoiceChat(activeChat)
-                            ? Icons.keyboard_voice_rounded
-                            : Icons.call_outlined,
-                      ),
-                      title: Text(
-                        _isDiscordVoiceChat(activeChat)
-                            ? 'Join Voice'
-                            : 'Voice Call',
-                      ),
+                      leading: const Icon(Icons.call_outlined),
+                      title: const Text('Voice Call'),
                     ),
                   ),
                 if (_canStartVideoCall(activeChat))
@@ -1173,6 +1309,22 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       title: Text('Video Call'),
                     ),
                   ),
+                 PopupMenuItem(
+                  value: 'otr',
+                  child: ListTile(
+                    leading: Icon(
+                      _authService.otrService.isOtrSessionActive(activeChat.id.split('/').first)
+                        ? Icons.lock_rounded
+                        : Icons.lock_open_rounded,
+                      color: Colors.greenAccent,
+                    ),
+                    title: Text(
+                      _authService.otrService.isOtrSessionActive(activeChat.id.split('/').first)
+                        ? 'End OTR Session'
+                        : 'Encrypt with OTR',
+                    ),
+                  ),
+                ),
                 const PopupMenuItem(
                   value: 'security',
                   child: ListTile(
@@ -1194,9 +1346,19 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 const PopupMenuItem(
                   value: 'clear',
                   child: ListTile(
-                    leading: Icon(Icons.delete_outline, color: Colors.red),
+                    leading: Icon(Icons.cleaning_services_outlined, color: Colors.orange),
                     title: Text(
                       'Clear Messages',
+                      style: TextStyle(color: Colors.orange),
+                    ),
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: ListTile(
+                    leading: Icon(Icons.delete_outline, color: Colors.red),
+                    title: Text(
+                      'Delete Conversation',
                       style: TextStyle(color: Colors.red),
                     ),
                   ),
@@ -1290,9 +1452,49 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 )
               : null,
         ),
+        _buildConnectionBanner(activeChat),
         Expanded(child: _buildSafeList(activeChat)),
         _buildSafeInput(activeChat),
       ],
+    );
+  }
+
+  Widget _buildConnectionBanner(Conversation activeChat) {
+    if (activeChat.accountId == null) return const SizedBox.shrink();
+    
+    // We use a Consumer or context.watch equivalent if AuthService notifies listeners on connection change
+    // For now we just get the state directly, but assuming the parent build triggered on notifyListeners
+    final status = _authService.getAccountStatus(activeChat.accountId!);
+    if (status == ConnectionStatus.online) return const SizedBox.shrink();
+
+    final isConnecting = status == ConnectionStatus.connecting;
+    
+    return Container(
+      width: double.infinity,
+      color: isConnecting ? Colors.orange.withValues(alpha: 0.9) : Colors.red.withValues(alpha: 0.9),
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (isConnecting)
+            const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            )
+          else
+            const Icon(Icons.cloud_off_rounded, size: 14, color: Colors.white),
+          const SizedBox(width: 8),
+          Text(
+            isConnecting ? 'Connecting...' : 'Waiting for Network',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1332,42 +1534,25 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 ),
               ),
               const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Voice Note',
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  if (isPlaying)
-                    SizedBox(
-                      width: 80,
-                      height: 2,
-                      child: LinearProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          color.withValues(alpha: 0.5),
-                        ),
-                        backgroundColor: color.withValues(alpha: 0.1),
-                      ),
-                    )
-                  else
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AudioWaveform(isPlaying: isPlaying, color: color),
+                    const SizedBox(height: 6),
                     Text(
-                      'Tap to listen',
+                      isPlaying ? 'Playing...' : 'Voice Note',
                       style: TextStyle(
-                        color: color.withValues(alpha: 0.6),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
+                        color: color.withValues(alpha: 0.8),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(width: 12),
             ],
           );
         },
@@ -1461,7 +1646,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
           children: [
             Icon(Icons.insert_drive_file_rounded, color: color, size: 18),
             const SizedBox(width: 8),
-            Expanded(
+            Flexible(
               child: Text(
                 msg.fileName ??
                     (msg.text.startsWith('http')
@@ -1484,32 +1669,67 @@ class _MainChatScreenState extends State<MainChatScreen> {
     // 3. Call Info Handler
     if (msg.type == MessageType.call) {
       final color = isMe
-          ? Colors.white
+          ? Theme.of(context).colorScheme.onPrimary
           : Theme.of(context).colorScheme.onSurfaceVariant;
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.call_made_rounded, color: color, size: 16),
           const SizedBox(width: 8),
-          Text(
-            msg.text,
-            style: TextStyle(
-              color: color,
-              fontSize: 13,
-              fontStyle: FontStyle.italic,
+          Flexible(
+            child: Text(
+              msg.text,
+              style: TextStyle(
+                color: color,
+                fontSize: 13,
+                fontStyle: FontStyle.italic,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
       );
     }
 
-    // 4. Default Text Handler (Markdown)
+    // 4. Default Text Handler (Markdown & /me actions)
     final colorScheme = Theme.of(context).colorScheme;
-    final defaultTextColor = isMe ? Colors.white : colorScheme.onSurface;
+    final defaultTextColor = isMe ? colorScheme.onPrimary : colorScheme.onSurface;
     final secondaryTextColor = isMe
-        ? Colors.white.withValues(alpha: 0.85)
+        ? colorScheme.onPrimary.withValues(alpha: 0.85)
         : colorScheme.onSurfaceVariant;
-    return MarkdownBody(
+
+    if (msg.text.startsWith('/me ')) {
+      final action = msg.text.substring(4);
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Icon(
+              Icons.directions_run_rounded,
+              size: 14,
+              color: defaultTextColor.withValues(alpha: 0.5),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${msg.senderName ?? (isMe ? "You" : "User")} $action',
+                style: TextStyle(
+                  color: defaultTextColor,
+                  fontSize: 13,
+                  fontStyle: FontStyle.italic,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final urlRegex = RegExp(r'(https?:\/\/[^\s]+)', caseSensitive: false);
+    final urlMatch = urlRegex.firstMatch(msg.text);
+    final urlStr = urlMatch?.group(0);
+
+    final markdownWidget = MarkdownBody(
       data: msg.text,
       selectable: true,
       onTapLink: (text, href, title) async {
@@ -1526,13 +1746,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
           fontSize: 13,
           fontWeight: FontWeight.w600,
         ),
-        strong: TextStyle(
-          color: defaultTextColor,
-          fontWeight: FontWeight.w900,
-        ),
+        strong: TextStyle(color: defaultTextColor, fontWeight: FontWeight.w900),
         em: TextStyle(color: defaultTextColor, fontStyle: FontStyle.italic),
         a: TextStyle(
-          color: isMe ? Colors.white : colorScheme.primary,
+          color: isMe ? colorScheme.onPrimary : colorScheme.primary,
           decoration: TextDecoration.underline,
           fontWeight: FontWeight.w700,
         ),
@@ -1555,32 +1772,44 @@ class _MainChatScreenState extends State<MainChatScreen> {
         blockquote: TextStyle(color: secondaryTextColor, fontSize: 12),
         blockquoteDecoration: BoxDecoration(
           color: isMe
-              ? Colors.white.withValues(alpha: 0.1)
+              ? colorScheme.onPrimary.withValues(alpha: 0.1)
               : colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
           borderRadius: BorderRadius.circular(8),
           border: Border(
             left: BorderSide(
-              color: isMe ? Colors.white70 : colorScheme.primary,
+              color: isMe ? colorScheme.onPrimary.withValues(alpha: 0.7) : colorScheme.primary,
               width: 3,
             ),
           ),
         ),
         code: TextStyle(
           backgroundColor: isMe
-              ? Colors.white12
+              ? colorScheme.onPrimary.withValues(alpha: 0.12)
               : colorScheme.onSurface.withValues(alpha: 0.08),
-          color: isMe ? Colors.white : colorScheme.primary,
+          color: isMe ? colorScheme.onPrimary : colorScheme.primary,
           fontSize: 12,
           fontFamily: 'monospace',
         ),
         codeblockDecoration: BoxDecoration(
           color: isMe
-              ? Colors.white10
+              ? colorScheme.onPrimary.withValues(alpha: 0.1)
               : colorScheme.onSurface.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
         ),
       ),
     );
+
+    if (urlStr != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          markdownWidget,
+          LinkPreview(url: urlStr),
+        ],
+      );
+    }
+    return markdownWidget;
   }
 
   Future<void> _sendMessage(
@@ -1591,35 +1820,19 @@ class _MainChatScreenState extends State<MainChatScreen> {
     if (text.isEmpty) return;
 
     try {
-      if (activeChat.protocol == 'IRC') {
-        await _authService.sendIrcMessage(
-          activeChat.id,
-          text,
-          accountId: activeChat.accountId,
-          isGroup: activeChat.isGroup,
-        );
-      } else if (activeChat.protocol == 'Discord') {
-        await _authService.sendDiscordMessage(
-          activeChat.id,
-          text,
-          accountId: activeChat.accountId,
-          replyToId: _replyToMessage?.id,
-        );
-      } else {
-        await _authService.sendXmppMessage(
-          activeChat.id,
-          text,
-          accountId: activeChat.accountId,
-          replyToId: _replyToMessage?.id,
-          isGroup: activeChat.isGroup,
-        );
-        _authService.sendChatState(
-          activeChat.id,
-          'active',
-          accountId: activeChat.accountId,
-          isGroup: activeChat.isGroup,
-        ); // Clear typing state
-      }
+      await _authService.sendXmppMessage(
+        activeChat.id,
+        text,
+        accountId: activeChat.accountId,
+        replyToId: _replyToMessage?.id,
+        isGroup: activeChat.isGroup,
+      );
+      _authService.sendChatState(
+        activeChat.id,
+        'active',
+        accountId: activeChat.accountId,
+        isGroup: activeChat.isGroup,
+      ); // Clear typing state
 
       _messageController.clear();
       setState(() => _replyToMessage = null); // Reset reply
@@ -1644,11 +1857,74 @@ class _MainChatScreenState extends State<MainChatScreen> {
     }
   }
 
+  void _insertMarkdown(String token) {
+    final text = _messageController.text;
+    final selection = _messageController.selection;
+    if (selection.isValid && !selection.isCollapsed) {
+      // Wrap selected text
+      final selectedText = text.substring(selection.start, selection.end);
+      final newText = text.replaceRange(selection.start, selection.end, '$token$selectedText$token');
+      _messageController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: selection.start + token.length * 2 + selectedText.length),
+      );
+    } else {
+      // Insert token at cursor
+      final cursorPosition = selection.isValid ? selection.start : text.length;
+      final newText = text.replaceRange(cursorPosition, cursorPosition, '$token$token');
+      _messageController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: cursorPosition + token.length),
+      );
+    }
+  }
+
+  Widget _buildMarkdownToolbar() {
+    if (!_isTypingMsg) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.1)),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _markdownChip(Icons.format_bold_rounded, '**'),
+          const SizedBox(width: 8),
+          _markdownChip(Icons.format_italic_rounded, '*'),
+          const SizedBox(width: 8),
+          _markdownChip(Icons.strikethrough_s_rounded, '~~'),
+          const SizedBox(width: 8),
+          _markdownChip(Icons.code_rounded, '`'),
+        ],
+      ),
+    );
+  }
+
+  Widget _markdownChip(IconData icon, String token) {
+    return InkWell(
+      onTap: () => _insertMarkdown(token),
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.all(4.0),
+        child: Icon(
+          icon,
+          size: 18,
+          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSafeInput(Conversation activeChat) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildUploadProgressOverlay(_authService, activeChat),
+        _buildMarkdownToolbar(),
         if (_replyToMessage != null)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1785,49 +2061,57 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              GestureDetector(
-                onLongPress: () => _toggleVoiceRecording(activeChat),
-                onLongPressUp: () => _toggleVoiceRecording(activeChat),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  padding: EdgeInsets.all(_isRecording ? 16 : 12),
-                  decoration: BoxDecoration(
-                    color: _isRecording
-                        ? Colors.redAccent.withValues(alpha: 0.8)
-                        : Theme.of(context).colorScheme.primary,
-                    shape: BoxShape.circle,
-                    boxShadow: _isRecording
-                        ? [
-                            BoxShadow(
-                              color: Colors.red.withValues(alpha: 0.4),
-                              blurRadius: 10,
-                              spreadRadius: 2,
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: Icon(
-                    _isRecording ? Icons.stop_rounded : Icons.mic_none_rounded,
-                    color: Theme.of(context).colorScheme.onPrimary,
-                    size: 20,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () => _sendMessage(activeChat),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.send_rounded,
-                    color: Theme.of(context).colorScheme.onPrimary,
-                    size: 20,
-                  ),
-                ),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                transitionBuilder: (Widget child, Animation<double> animation) {
+                  return ScaleTransition(scale: animation, child: child);
+                },
+                child: _isTypingMsg
+                    ? GestureDetector(
+                        key: const ValueKey('sendButton'),
+                        onTap: () => _sendMessage(activeChat),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.send_rounded,
+                            color: Theme.of(context).colorScheme.onPrimary,
+                            size: 20,
+                          ),
+                        ),
+                      )
+                    : GestureDetector(
+                        key: const ValueKey('micButton'),
+                        onLongPress: () => _toggleVoiceRecording(activeChat),
+                        onLongPressUp: () => _toggleVoiceRecording(activeChat),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          padding: EdgeInsets.all(_isRecording ? 16 : 12),
+                          decoration: BoxDecoration(
+                            color: _isRecording
+                                ? Colors.redAccent.withValues(alpha: 0.8)
+                                : Theme.of(context).colorScheme.primary,
+                            shape: BoxShape.circle,
+                            boxShadow: _isRecording
+                                ? [
+                                    BoxShadow(
+                                      color: Colors.red.withValues(alpha: 0.4),
+                                      blurRadius: 10,
+                                      spreadRadius: 2,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Icon(
+                            _isRecording ? Icons.stop_rounded : Icons.mic_none_rounded,
+                            color: Theme.of(context).colorScheme.onPrimary,
+                            size: 20,
+                          ),
+                        ),
+                      ),
               ),
             ],
           ),
@@ -1886,14 +2170,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
       builder: (context) => Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Theme.of(context).colorScheme.surface,
-              Theme.of(context).colorScheme.surfaceContainerHighest,
-            ],
-          ),
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           boxShadow: [
             BoxShadow(
@@ -2259,9 +2536,27 @@ class _MainChatScreenState extends State<MainChatScreen> {
     // Only show sender label in Group Chats (MUC) where identity is ambiguous.
     final bool showSender = !isMe && isGroup;
 
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
+    return Dismissible(
+      key: ValueKey('msg_swipe_${msg.id}'),
+      direction: DismissDirection.horizontal,
+      confirmDismiss: (direction) async {
+        setState(() => _replyToMessage = msg);
+        HapticFeedback.lightImpact();
+        return false; // Bounce back
+      },
+      background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 24),
+        child: Icon(Icons.reply_rounded, color: Theme.of(context).colorScheme.primary),
+      ),
+      secondaryBackground: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        child: Icon(Icons.reply_rounded, color: Theme.of(context).colorScheme.primary),
+      ),
+      child: Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: GestureDetector(
         onLongPress: () => _showMessageOptions(msg),
         child: Column(
           crossAxisAlignment: isMe
@@ -2276,7 +2571,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w900,
-                    color: Theme.of(context).colorScheme.secondary,
+                    color: Xep0392Service.generateColor(
+                      msg.senderId ?? msg.senderName!,
+                      isDarkTheme: Theme.of(context).brightness == Brightness.dark,
+                    ),
                   ),
                 ),
               ),
@@ -2286,42 +2584,22 @@ class _MainChatScreenState extends State<MainChatScreen> {
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                gradient: isMe
-                    ? LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: msg.protocol == 'Discord'
-                            ? [const Color(0xFF5865F2), const Color(0xFF4752C4)]
-                            : msg.protocol == 'IRC'
-                            ? [Colors.green.shade700, Colors.green.shade600]
-                            : [
-                                Theme.of(context).colorScheme.primary,
-                                Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.9),
-                              ],
-                      )
-                    : null,
                 color: isMe
-                    ? null
+                    ? Theme.of(context).colorScheme.primary
                     : Theme.of(context).colorScheme.surfaceContainerHighest,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 5,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(20),
                   topRight: const Radius.circular(20),
                   bottomLeft: Radius.circular(isMe ? 20 : 0),
                   bottomRight: Radius.circular(isMe ? 0 : 20),
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: isMe
-                        ? Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.3)
-                        : Colors.black.withValues(alpha: 0.08),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
               ),
               child: Stack(
                 children: [
@@ -2339,7 +2617,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                             style: TextStyle(
                               fontSize: 9,
                               color: isMe
-                                  ? Colors.white70
+                                  ? Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7)
                                   : Theme.of(context)
                                         .colorScheme
                                         .onSurfaceVariant
@@ -2355,7 +2633,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                                 fontSize: 8,
                                 fontStyle: FontStyle.italic,
                                 color: isMe
-                                    ? Colors.white54
+                                    ? Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.54)
                                     : Theme.of(context)
                                           .colorScheme
                                           .onSurfaceVariant
@@ -2375,7 +2653,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                               Icons.shield_rounded,
                               size: 10,
                               color: isMe
-                                  ? Colors.white54
+                                  ? Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.54)
                                   : Theme.of(context).colorScheme.primary
                                         .withValues(alpha: 0.5),
                             ),
@@ -2392,6 +2670,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
           ],
         ),
       ),
+    ),
     );
   }
 
@@ -2411,7 +2690,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
               child: CircularProgressIndicator(
                 strokeWidth: 1.5,
                 valueColor: AlwaysStoppedAnimation<Color>(
-                  Colors.white.withValues(alpha: 0.6),
+                  Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.6),
                 ),
               ),
             ),
@@ -2420,7 +2699,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
               'Sending...',
               style: TextStyle(
                 fontSize: 8,
-                color: Colors.white.withValues(alpha: 0.5),
+                color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.5),
                 fontStyle: FontStyle.italic,
               ),
             ),
@@ -2433,13 +2712,13 @@ class _MainChatScreenState extends State<MainChatScreen> {
           child: Container(
             padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
+              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.check_rounded,
               size: 12,
-              color: Colors.white70,
+              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7),
             ),
           ),
         );
@@ -2450,13 +2729,13 @@ class _MainChatScreenState extends State<MainChatScreen> {
           child: Container(
             padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
+              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.done_all_rounded,
               size: 12,
-              color: Colors.white70,
+              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7),
             ),
           ),
         );
@@ -2467,9 +2746,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
           child: Container(
             padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.lightBlueAccent, Colors.cyanAccent],
-              ),
+              color: Colors.lightBlueAccent,
               borderRadius: BorderRadius.circular(8),
               boxShadow: [
                 BoxShadow(
@@ -2586,14 +2863,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
       builder: (context) => Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Theme.of(context).colorScheme.surface,
-              Theme.of(context).colorScheme.surfaceContainerHighest,
-            ],
-          ),
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           boxShadow: [
             BoxShadow(
@@ -2603,9 +2873,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
             ),
           ],
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
             Container(
               width: 40,
               height: 4,
@@ -2816,11 +3087,12 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   }
                 },
               ),
-            ],
           ],
-        ),
+        ],
       ),
-    );
+    ),
+  ),
+);
   }
 
   void _showEditMessageDialog(ChatMessage msg) {
@@ -2856,14 +3128,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 final cp = Provider.of<ChatProvider>(context, listen: false);
                 cp.updateMessage(msg.conversationId ?? '', msg.id, newText);
 
-                if (msg.protocol == 'Discord') {
-                  _authService.editDiscordMessage(
-                    msg.conversationId ?? '',
-                    msg.id,
-                    newText,
-                    accountId: msg.accountId,
-                  );
-                } else {
+
                   // Send XMPP message correction (XEP-0308)
                   _authService.sendEditedMessage(
                     msg.conversationId ?? '',
@@ -2872,7 +3137,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     accountId: msg.accountId,
                     isGroup: msg.isGroup,
                   );
-                }
 
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -2963,11 +3227,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       (c) => c.id == targetId,
                       orElse: () => chatProvider.conversations.first,
                     );
-                    _authService.forwardMessage(
-                      msg,
-                      [targetId],
-                      targetProtocol: conv.protocol,
-                    );
+                    _authService.forwardMessage(msg, [
+                      targetId,
+                    ], targetProtocol: conv.protocol);
                   }
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -3108,6 +3370,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
           icon: Icon(Icons.dialpad_outlined),
           selectedIcon: Icon(Icons.dialpad),
           label: Text('Dialer'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.workspaces_outline),
+          selectedIcon: Icon(Icons.workspaces_filled),
+          label: Text('Spaces'),
         ),
         NavigationRailDestination(
           icon: Icon(Icons.person_outline_rounded),
@@ -3408,10 +3675,12 @@ class _MainChatScreenState extends State<MainChatScreen> {
       case 3:
         return _buildDialerSection(authService);
       case 4:
-        return const ProfileScreen(isSidebar: true);
+        return const SpacesScreen();
       case 5:
-        return _buildGlobalSearchList(chatProvider);
+        return const ProfileScreen(isSidebar: true);
       case 6:
+        return _buildGlobalSearchList(chatProvider);
+      case 7:
         return const NexusSearchScreen();
       default:
         return _buildConversationList(chatProvider);
@@ -3488,7 +3757,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
     final filtered = chatProvider.conversations
         .where((c) => c.name.toLowerCase().contains(_searchQuery))
         .toList();
-    return ListView.builder(
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: ListView.builder(
       itemCount: filtered.length,
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemBuilder: (context, index) {
@@ -3513,12 +3784,12 @@ class _MainChatScreenState extends State<MainChatScreen> {
               backgroundColor: isActive
                   ? Theme.of(context).colorScheme.primary
                   : conv.protocol == 'Discord'
-                        ? const Color(0xFF5865F2).withValues(alpha: 0.1)
-                        : conv.protocol == 'IRC'
-                        ? Theme.of(
-                            context,
-                          ).colorScheme.secondary.withValues(alpha: 0.15)
-                        : Colors.grey[100],
+                  ? const Color(0xFF5865F2).withValues(alpha: 0.1)
+                  : conv.protocol == 'IRC'
+                  ? Theme.of(
+                      context,
+                    ).colorScheme.secondary.withValues(alpha: 0.15)
+                  : Colors.grey[100],
               backgroundImage: conv.avatarBytes != null
                   ? MemoryImage(conv.avatarBytes!)
                   : null,
@@ -3611,7 +3882,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       fontSize: 12,
                       color: isActive
                           ? const Color(0xFFE91E63).withValues(alpha: 0.6)
-                          : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                          : Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withValues(alpha: 0.5),
                     ),
                   ),
             selected: isActive,
@@ -3625,7 +3898,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       : '',
                   style: TextStyle(
                     fontSize: 10,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.35),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.35),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -3675,6 +3950,42 @@ class _MainChatScreenState extends State<MainChatScreen> {
           ),
         );
       },
+    ),
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'newMessage',
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        onPressed: () => _showNewMessageDialog(chatProvider),
+        child: const Icon(Icons.message_rounded, color: Colors.white),
+      ),
+    );
+  }
+
+  void _showNewMessageDialog(ChatProvider cp) {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('New Message'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(
+            labelText: 'JID (e.g. user@domain.com)',
+            prefixIcon: Icon(Icons.person_outline),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
+          ElevatedButton(
+            onPressed: () {
+              if (ctrl.text.isNotEmpty) {
+                cp.setActiveConversation(ctrl.text);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('CHAT'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3735,7 +4046,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
                         size: 20,
                       )
                     : Text(
-                        isIrc ? '#' : (conv.name.isNotEmpty ? conv.name[0].toUpperCase() : '?'),
+                        isIrc
+                            ? '#'
+                            : (conv.name.isNotEmpty
+                                  ? conv.name[0].toUpperCase()
+                                  : '?'),
                         style: TextStyle(
                           color: isActive
                               ? Colors.white
@@ -4331,6 +4646,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                         nick,
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
+                      onLongPress: () => _showParticipantMenu(context, room, nick, _authService),
                     );
                   },
                 ),
@@ -4349,6 +4665,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 ),
                 onPressed: () {
                   _authService.leaveRoom(room.accountId ?? '', room.id);
+                  Provider.of<ChatProvider>(context, listen: false).removeConversation(room.id);
                   Navigator.pop(context);
                 },
                 child: const Text(
@@ -4363,6 +4680,120 @@ class _MainChatScreenState extends State<MainChatScreen> {
     );
   }
 
+  void _showInviteDialog(Conversation room) {
+    final TextEditingController jidController = TextEditingController();
+    final TextEditingController reasonController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Invite to Room'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: jidController,
+                decoration: const InputDecoration(
+                  labelText: 'Participant JID',
+                  hintText: 'user@example.com',
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: reasonController,
+                decoration: const InputDecoration(
+                  labelText: 'Reason (Optional)',
+                  hintText: 'Please join this room!',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('CANCEL'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final jid = jidController.text.trim();
+                if (jid.isNotEmpty) {
+                  _authService.inviteToRoom(
+                    room.accountId ?? '',
+                    room.id,
+                    jid,
+                  );
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Invited $jid to room')),
+                  );
+                }
+              },
+              child: const Text('INVITE'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showParticipantMenu(BuildContext context, Conversation room, String nick, AuthService authService) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Manage $nick', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.remove_circle_outline, color: Colors.orange),
+                title: const Text('Kick User'),
+                subtitle: const Text('Remove from room temporarily'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await authService.kickUser(room.accountId ?? '', room.id, nick);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Kicked $nick')));
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.block, color: Colors.red),
+                title: const Text('Ban User'),
+                subtitle: const Text('Prevent from rejoining'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await authService.banUser(room.accountId ?? '', room.id, nick); // Might fail if server expects JID
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Banned $nick')));
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.security, color: Colors.blue),
+                title: const Text('Make Moderator'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await authService.setMucRole(room.accountId ?? '', room.id, nick, 'moderator');
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Made $nick a moderator')));
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildUploadProgressOverlay(
     AuthService authService,
     Conversation activeChat,
@@ -4372,7 +4803,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
           authService.getUploadProgress(activeChat.accountId) ??
           const Stream.empty(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data! <= 0.0 || snapshot.data! >= 1.0) {
+        if (!snapshot.hasData ||
+            snapshot.data! <= 0.0 ||
+            snapshot.data! >= 1.0) {
           return const SizedBox.shrink();
         }
 
@@ -4457,16 +4890,22 @@ class _TypingIndicatorState extends State<_TypingIndicator>
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: List.generate(3, (index) {
+            // Bouncing sine wave
             final delay = index * 0.2;
             final value = ((_controller.value - delay) % 1.0);
-            final opacity = value < 0.5 ? value * 2 : 2 - (value * 2);
-            return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 1),
-              width: 4,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.green.withValues(alpha: opacity.clamp(0.3, 1.0)),
-                shape: BoxShape.circle,
+            // 0.0 -> 0.5 is half-sine wave (up and down)
+            final double bounce = value < 0.5 ? math.sin(value * 2 * math.pi) : 0.0;
+            
+            return Transform.translate(
+              offset: Offset(0, -bounce * 4), // Bounce up 4 pixels
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                width: 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.8),
+                  shape: BoxShape.circle,
+                ),
               ),
             );
           }),

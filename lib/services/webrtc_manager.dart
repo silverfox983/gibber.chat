@@ -148,7 +148,14 @@ class WebRTCManager {
         'autoGainControl': true,
         'googHighpassFilter': true,
       },
-      'video': isVideo ? {'facingMode': 'user'} : false,
+      'video': isVideo ? {
+        'mandatory': {
+          'minWidth': '1280',
+          'minHeight': '720',
+          'minFrameRate': '30',
+        },
+        'facingMode': 'user',
+      } : false,
     };
 
     debugPrint(
@@ -293,10 +300,18 @@ class WebRTCManager {
     });
   }
 
+  Future<void> switchCamera() async {
+    if (_localStream == null) return;
+    for (var track in _localStream!.getVideoTracks()) {
+      await Helper.switchCamera(track);
+    }
+  }
+
   Future<void> _disposePeerConnection() async {
     if (_peerConnection != null) {
       debugPrint('WebRTC: Disposing existing peer connection');
-      _peerConnection!.close();
+      await _peerConnection!.close();
+      await _peerConnection!.dispose();
       _peerConnection = null;
     }
     _remoteStream = null;
@@ -334,7 +349,7 @@ class WebRTCManager {
         );
         for (var track in _localStream!.getTracks()) {
           debugPrint('WebRTC: Adding ${track.kind} track: ${track.id}');
-          _peerConnection!.addTrack(track, _localStream!);
+          await _peerConnection!.addTrack(track, _localStream!);
         }
       } else {
         // Audio-only: add only audio tracks from the existing local stream
@@ -350,7 +365,7 @@ class WebRTCManager {
         }
         for (var track in audioTracks) {
           debugPrint('WebRTC: Adding audio track: ${track.id}');
-          _peerConnection!.addTrack(track, _localStream!);
+          await _peerConnection!.addTrack(track, _localStream!);
         }
       }
 
@@ -407,15 +422,22 @@ class WebRTCManager {
     if (_isDisposed) throw Exception('WebRTC: Engine Disposed');
 
     debugPrint('WebRTC: === CREATE ANSWER START ===');
-    debugPrint('WebRTC: Offer SDP length: ${offer.sdp?.length ?? 0}');
-
-    // Determine video from offer SDP
+    debugPrint('WebRTC: Offer SDP length: ${offer.sdp?.length}');
     _currentIsVideo = offer.sdp?.contains('m=video') ?? false;
     debugPrint('WebRTC: Offer has video: $_currentIsVideo');
+
+    // Save pending candidates that arrived early via trickle ICE before they are wiped
+    final pendingCandidates = List<RTCIceCandidate>.from(_remoteCandidatesQueue);
 
     // CRITICAL: Dispose and recreate peer connection for fresh state
     await _disposePeerConnection();
     await _initPeerConnection();
+
+    // Restore pending candidates
+    if (pendingCandidates.isNotEmpty) {
+      debugPrint('WebRTC: Restored ${pendingCandidates.length} early remote candidates');
+      _remoteCandidatesQueue.addAll(pendingCandidates);
+    }
 
     if (_isDisposed || _peerConnection == null) {
       throw Exception('WebRTC: Engine Disposed during init');
@@ -433,7 +455,7 @@ class WebRTCManager {
       );
       for (var track in _localStream!.getTracks()) {
         debugPrint('WebRTC: Adding ${track.kind} track: ${track.id}');
-        _peerConnection!.addTrack(track, _localStream!);
+        await _peerConnection!.addTrack(track, _localStream!);
       }
 
       // Log audio track status
@@ -1029,6 +1051,24 @@ class WebRTCManager {
       debugPrint('WebRTC: Error disposing recording stream: $e');
     }
     _recordingStream = null;
+  }
+  
+  Future<void> sendDtmf(String tone) async {
+    if (_peerConnection == null) return;
+    try {
+      final senders = await _peerConnection!.getSenders();
+      for (var sender in senders) {
+        if (sender.track?.kind == 'audio') {
+          final dtmfSender = sender.dtmfSender;
+          await dtmfSender.insertDTMF(tone);
+          debugPrint('WebRTC: Sent DTMF tone: $tone');
+          return;
+        }
+      }
+      debugPrint('WebRTC: No audio sender found for DTMF');
+    } catch (e) {
+      debugPrint('WebRTC: Error sending DTMF: $e');
+    }
   }
 
   void _stopStreamTracks(MediaStream? stream) {

@@ -20,6 +20,8 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
   late CallProvider _callProvider;
   Timer? _durationTimer;
   Duration _callDuration = Duration.zero;
+  bool _showDtmfPad = false;
+  bool get isCallActive => _callProvider.state == CallState.active;
 
   @override
   void initState() {
@@ -86,23 +88,24 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final call = Provider.of<CallProvider>(context);
     final isCallActive = call.state == CallState.active;
+    final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Stack(
         children: [
-          // Background layer: Gradient (shown when no video or audio-only)
+          // Background layer: Gradient
           if (!call.isVideo || !isCallActive)
             Positioned.fill(
               child: Container(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Color(0xFF0F172A),
-                      Color(0xFF312E81),
-                      Color(0xFF1E1B4B),
+                      theme.scaffoldBackgroundColor,
+                      theme.colorScheme.primary.withValues(alpha: 0.2),
+                      theme.colorScheme.surface,
                     ],
                   ),
                 ),
@@ -110,8 +113,6 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             ),
 
           // CRITICAL: RTCVideoView - ALWAYS on top when stream exists
-          // This is REQUIRED for audio playback on mobile!
-          // Positioned at the very top of the stack for audio rendering
           if (call.remoteRenderer.srcObject != null) ...[
             Positioned.fill(
               child: IgnorePointer(
@@ -124,27 +125,6 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                 ),
               ),
             ),
-            // Debug: Check if stream has audio tracks
-            Builder(
-              builder: (context) {
-                final stream = call.remoteRenderer.srcObject;
-                if (stream != null) {
-                  debugPrint('CallScreen: RTCVideoView rendered with stream');
-                  debugPrint(
-                    'CallScreen: Stream audio tracks: ${stream.getAudioTracks().length}',
-                  );
-                  debugPrint(
-                    'CallScreen: Stream video tracks: ${stream.getVideoTracks().length}',
-                  );
-                  for (var track in stream.getAudioTracks()) {
-                    debugPrint(
-                      'CallScreen: Audio track - id: ${track.id}, enabled: ${track.enabled}',
-                    );
-                  }
-                }
-                return const SizedBox.shrink();
-              },
-            ),
           ],
 
           // Glassmorphism Overlay (behind controls, above video)
@@ -152,7 +132,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             Positioned.fill(
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: Container(color: Colors.black.withOpacity(0.2)),
+                child: Container(color: theme.colorScheme.surface.withValues(alpha: 0.5)),
               ),
             ),
 
@@ -195,37 +175,20 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
               right: 0,
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   decoration: BoxDecoration(
-                    color: Colors.redAccent.withValues(alpha: 0.9),
+                    color: theme.colorScheme.error.withValues(alpha: 0.9),
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
+                      BoxShadow(color: theme.colorScheme.error.withValues(alpha: 0.3), blurRadius: 10, offset: const Offset(0, 4)),
                     ],
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
-                        Icons.mic_off_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
+                      Icon(Icons.mic_off_rounded, color: theme.colorScheme.onError, size: 20),
                       const SizedBox(width: 8),
-                      const Text(
-                        "You are muted",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      Text("You are muted", style: TextStyle(color: theme.colorScheme.onError, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -238,8 +201,12 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
 
   Widget _buildHeader(CallProvider call) {
     String statusText = 'Connecting...';
-    if (call.state == CallState.incoming) statusText = 'Incoming Call';
-    if (call.state == CallState.outgoing) statusText = 'Calling...';
+    if (call.state == CallState.incoming) {
+      statusText = call.isAccepted ? 'Connecting...' : 'Incoming Call';
+    }
+    if (call.state == CallState.outgoing) {
+      statusText = call.isRinging ? 'Ringing...' : 'Calling...';
+    }
     if (call.state == CallState.active) {
       statusText = _formatDuration(_callDuration);
     }
@@ -256,10 +223,10 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             Flexible(
               child: Text(
                 call.remoteJid?.split('@').first ?? 'Private Caller',
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 28,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w900,
                   letterSpacing: -0.5,
                 ),
                 overflow: TextOverflow.ellipsis,
@@ -278,7 +245,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                 width: 4,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.white38,
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
                   shape: BoxShape.circle,
                 ),
               ),
@@ -288,12 +255,10 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
               statusText,
               style: TextStyle(
                 color: call.state == CallState.active
-                    ? Colors.white70
-                    : Theme.of(
-                        context,
-                      ).colorScheme.primary.withValues(alpha: 0.8),
+                    ? Theme.of(context).colorScheme.onSurfaceVariant
+                    : Theme.of(context).colorScheme.primary,
                 fontSize: 14,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w800,
                 letterSpacing: 1.0,
               ),
             ),
@@ -305,8 +270,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
 
   Widget _buildNetworkQualityIndicator(CallProvider call) {
     final hasRemoteStream = call.remoteRenderer.srcObject != null;
-    final hasAudioTrack = hasRemoteStream &&
-        call.remoteRenderer.srcObject!.getAudioTracks().isNotEmpty;
+    final hasAudioTrack = hasRemoteStream && call.remoteRenderer.srcObject!.getAudioTracks().isNotEmpty;
     int bars;
     Color color;
     String qualityText;
@@ -321,7 +285,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
       qualityText = 'No Audio';
     } else {
       bars = 1;
-      color = Colors.red;
+      color = Theme.of(context).colorScheme.error;
       qualityText = 'Connecting';
     }
 
@@ -336,16 +300,9 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             width: 4,
             height: 6 + (index * 3).toDouble(),
             decoration: BoxDecoration(
-              color: index < bars ? color : Colors.white24,
+              color: index < bars ? color : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(2),
-              boxShadow: index < bars
-                  ? [
-                      BoxShadow(
-                        color: color.withValues(alpha: 0.5),
-                        blurRadius: 4,
-                      ),
-                    ]
-                  : null,
+              boxShadow: index < bars ? [BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 4)] : null,
             ),
           );
         }),
@@ -355,8 +312,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
 
   Widget _buildConnectionQualityText(CallProvider call) {
     final hasRemoteStream = call.remoteRenderer.srcObject != null;
-    final hasAudioTrack = hasRemoteStream &&
-        call.remoteRenderer.srcObject!.getAudioTracks().isNotEmpty;
+    final hasAudioTrack = hasRemoteStream && call.remoteRenderer.srcObject!.getAudioTracks().isNotEmpty;
     String qualityText;
     Color qualityColor;
 
@@ -368,7 +324,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
       qualityColor = Colors.orange;
     } else {
       qualityText = 'Waiting';
-      qualityColor = Colors.red;
+      qualityColor = Theme.of(context).colorScheme.error;
     }
 
     return Container(
@@ -376,24 +332,17 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         color: qualityColor.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: qualityColor.withValues(alpha: 0.5),
-          width: 1,
-        ),
+        border: Border.all(color: qualityColor.withValues(alpha: 0.5), width: 1),
       ),
       child: Text(
-        qualityText,
-        style: TextStyle(
-          color: qualityColor,
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.5,
-        ),
+        qualityText.toUpperCase(),
+        style: TextStyle(color: qualityColor, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.0),
       ),
     );
   }
 
   Widget _buildVisualizer(CallProvider call) {
+    final theme = Theme.of(context);
     return Center(
       child: Stack(
         alignment: Alignment.center,
@@ -404,17 +353,14 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
               return AnimatedBuilder(
                 animation: _pulseController,
                 builder: (context, child) {
-                  double value =
-                      (_pulseController.value + (index * 0.33)) % 1.0;
+                  double value = (_pulseController.value + (index * 0.33)) % 1.0;
                   return Container(
                     width: 260 * value,
                     height: 260 * value,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: Theme.of(context).colorScheme.primary.withValues(
-                          alpha: 0.5 * (1 - value),
-                        ),
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5 * (1 - value)),
                         width: 2,
                       ),
                     ),
@@ -425,27 +371,27 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
 
           // DUAL Neon Visualizer Rings (Active Call)
           if (call.state == CallState.active) ...[
-            // REMOTE WAVE (Outer - Neon Blue)
+            // REMOTE WAVE
             CustomPaint(
               painter: WaveformPainter(
                 _waveController,
                 true,
                 context: context,
                 volume: call.remoteVolume,
-                color: const Color(0xFF00FFFF), // Neon Cyan
+                color: Theme.of(context).colorScheme.secondary,
                 radius: 105,
                 isGlow: true,
               ),
               child: const SizedBox(width: 200, height: 200),
             ),
-            // LOCAL WAVE (Inner - Neon Pink)
+            // LOCAL WAVE
             CustomPaint(
               painter: WaveformPainter(
                 _waveController,
                 true,
                 context: context,
                 volume: call.localVolume,
-                color: const Color(0xFFFF007F), // Neon Magenta
+                color: Theme.of(context).colorScheme.primary,
                 radius: 85,
                 isLocal: true,
                 isGlow: true,
@@ -460,14 +406,11 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             height: 140,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white10,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5)),
               boxShadow: [
                 BoxShadow(
-                  color:
-                      (call.isMicMuted
-                              ? Colors.redAccent
-                              : Theme.of(context).colorScheme.primary)
-                          .withValues(alpha: 0.2),
+                  color: (call.isMicMuted ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.primary).withValues(alpha: 0.2),
                   blurRadius: 40,
                   spreadRadius: 5,
                 ),
@@ -475,48 +418,76 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             ),
             child: Center(
               child: call.isMicMuted
-                  ? const Icon(
-                      Icons.mic_off_rounded,
-                      color: Colors.redAccent,
-                      size: 48,
-                    )
-                  : const Icon(
-                      Icons.person_rounded,
-                      color: Colors.white24,
-                      size: 64,
-                    ),
+                  ? Icon(Icons.mic_off_rounded, color: Theme.of(context).colorScheme.error, size: 48)
+                  : Icon(Icons.person_rounded, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5), size: 64),
             ),
           ),
+
+          // DTMF KEYPAD OVERLAY
+          if (_showDtmfPad && isCallActive)
+            Positioned.fill(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Container(
+                  color: theme.colorScheme.surface.withValues(alpha: 0.9),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(height: 40),
+                      Text(
+                        'DTMF Keypad',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 40),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 48),
+                        child: _buildDtmfGrid(call),
+                      ),
+                      const SizedBox(height: 40),
+                      _enhancedCircleButton(
+                        icon: Icons.close_rounded,
+                        label: 'Hide',
+                        isActive: true,
+                        activeColor: theme.colorScheme.outline,
+                        onPressed: () => setState(() => _showDtmfPad = false),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
   Widget _buildControls(CallProvider call) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32),
       child: Column(
         children: [
           // Primary controls row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 20,
+            runSpacing: 20,
             children: [
               _enhancedCircleButton(
-                icon: call.isMicMuted
-                    ? Icons.mic_off_rounded
-                    : Icons.mic_rounded,
+                icon: call.isMicMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
                 label: call.isMicMuted ? 'Unmute' : 'Mute',
                 isActive: !call.isMicMuted,
-                activeColor: Colors.redAccent,
+                activeColor: Theme.of(context).colorScheme.error,
                 onPressed: () {
                   HapticFeedback.lightImpact();
                   call.toggleMute();
                 },
               ),
               _enhancedCircleButton(
-                icon: call.isSpeakerOn
-                    ? Icons.volume_up_rounded
-                    : Icons.volume_down_rounded,
+                icon: call.isSpeakerOn ? Icons.volume_up_rounded : Icons.volume_down_rounded,
                 label: call.isSpeakerOn ? 'Speaker On' : 'Speaker Off',
                 isActive: call.isSpeakerOn,
                 activeColor: Theme.of(context).colorScheme.primary,
@@ -525,12 +496,23 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                   call.toggleSpeaker();
                 },
               ),
+              if (isCallActive)
+                _enhancedCircleButton(
+                  icon: Icons.dialpad_rounded,
+                  label: 'Keypad',
+                  isActive: _showDtmfPad,
+                  activeColor: theme.colorScheme.primary,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    setState(() => _showDtmfPad = !_showDtmfPad);
+                  },
+                ),
               if (call.state == CallState.active)
                 _enhancedCircleButton(
                   icon: Icons.fiber_manual_record_rounded,
                   label: call.isRecording ? 'Stop Rec' : 'Record',
                   isActive: call.isRecording,
-                  activeColor: Colors.redAccent,
+                  activeColor: Theme.of(context).colorScheme.error,
                   onPressed: () {
                     HapticFeedback.mediumImpact();
                     call.toggleRecording();
@@ -538,15 +520,24 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                 ),
               if (call.isVideo)
                 _enhancedCircleButton(
-                  icon: call.isCameraOff
-                      ? Icons.videocam_off_rounded
-                      : Icons.videocam_rounded,
+                  icon: call.isCameraOff ? Icons.videocam_off_rounded : Icons.videocam_rounded,
                   label: call.isCameraOff ? 'Camera On' : 'Camera Off',
                   isActive: !call.isCameraOff,
                   activeColor: Theme.of(context).colorScheme.secondary,
                   onPressed: () {
                     HapticFeedback.lightImpact();
                     call.toggleCamera();
+                  },
+                ),
+              if (call.isVideo && !call.isCameraOff)
+                _enhancedCircleButton(
+                  icon: Icons.flip_camera_ios_rounded,
+                  label: 'Switch',
+                  isActive: true,
+                  activeColor: Theme.of(context).colorScheme.secondary,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    call.switchCamera();
                   },
                 ),
             ],
@@ -592,7 +583,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     Color? activeColor,
     required VoidCallback onPressed,
   }) {
-    final color = activeColor ?? Colors.white;
+    final color = activeColor ?? Theme.of(context).colorScheme.onSurface;
     final isOff = !isActive;
 
     return Column(
@@ -603,32 +594,28 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: isOff ? Colors.white12 : color.withValues(alpha: 0.2),
+              color: isOff ? Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3) : color.withValues(alpha: 0.2),
               shape: BoxShape.circle,
               border: Border.all(
-                color: isOff ? Colors.white24 : color,
+                color: isOff ? Theme.of(context).colorScheme.outline.withValues(alpha: 0.3) : color,
                 width: 2,
               ),
               boxShadow: isActive
                   ? [
-                      BoxShadow(
-                        color: color.withValues(alpha: 0.4),
-                        blurRadius: 12,
-                        spreadRadius: 2,
-                      ),
+                      BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 12, spreadRadius: 2),
                     ]
                   : null,
             ),
-            child: Icon(icon, color: isOff ? Colors.white38 : color, size: 28),
+            child: Icon(icon, color: isOff ? Theme.of(context).colorScheme.onSurfaceVariant : color, size: 28),
           ),
         ),
         const SizedBox(height: 10),
         Text(
           label,
           style: TextStyle(
-            color: isActive ? Colors.white : Colors.white54,
+            color: isActive ? Theme.of(context).colorScheme.onSurface : Theme.of(context).colorScheme.onSurfaceVariant,
             fontSize: 11,
-            fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+            fontWeight: isActive ? FontWeight.w900 : FontWeight.bold,
           ),
         ),
       ],
@@ -636,30 +623,19 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
   }
 
   Widget _endCallButton({required VoidCallback onPressed}) {
+    final errorColor = Theme.of(context).colorScheme.error;
     return GestureDetector(
       onTap: onPressed,
       child: Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Colors.redAccent, Colors.red],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+          color: errorColor,
           shape: BoxShape.circle,
           boxShadow: [
-            BoxShadow(
-              color: Colors.redAccent.withValues(alpha: 0.5),
-              blurRadius: 20,
-              spreadRadius: 2,
-            ),
+            BoxShadow(color: errorColor.withValues(alpha: 0.5), blurRadius: 20, spreadRadius: 2),
           ],
         ),
-        child: const Icon(
-          Icons.call_end_rounded,
-          color: Colors.white,
-          size: 32,
-        ),
+        child: Icon(Icons.call_end_rounded, color: Theme.of(context).colorScheme.onError, size: 32),
       ),
     );
   }
@@ -675,30 +651,21 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
         GestureDetector(
           onTap: onPressed,
           child: Container(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.2),
+              color: color,
               shape: BoxShape.circle,
-              border: Border.all(color: color, width: 2),
               boxShadow: [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.4),
-                  blurRadius: 12,
-                  spreadRadius: 2,
-                ),
+                BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 12, spreadRadius: 2),
               ],
             ),
-            child: Icon(icon, color: color, size: 28),
+            child: Icon(icon, color: Colors.black, size: 32),
           ),
         ),
         const SizedBox(height: 10),
         Text(
           label,
-          style: TextStyle(
-            color: color,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
+          style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w900),
         ),
       ],
     );
@@ -708,9 +675,48 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final minutes = twoDigits(d.inMinutes.remainder(60));
     final seconds = twoDigits(d.inSeconds.remainder(60));
-    return d.inHours > 0
-        ? '${twoDigits(d.inHours)}:$minutes:$seconds'
-        : '$minutes:$seconds';
+    return d.inHours > 0 ? '${twoDigits(d.inHours)}:$minutes:$seconds' : '$minutes:$seconds';
+  }
+
+  Widget _buildDtmfGrid(CallProvider call) {
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: 3,
+      mainAxisSpacing: 16,
+      crossAxisSpacing: 16,
+      childAspectRatio: 1.0,
+      children: [
+        '1', '2', '3',
+        '4', '5', '6',
+        '7', '8', '9',
+        '*', '0', '#',
+      ].map((tone) => _dtmfButton(tone, call)).toList(),
+    );
+  }
+
+  Widget _dtmfButton(String tone, CallProvider call) {
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          call.sendDtmf(tone);
+        },
+        customBorder: const CircleBorder(),
+        child: Center(
+          child: Text(
+            tone,
+            style: TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w900,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -752,41 +758,25 @@ class WaveformPainter extends CustomPainter {
 
     final double centerX = size.width / 2;
     final double centerY = size.height / 2;
-    // Mirroring parity: Use fewer bars for inner ring
     final int barCount = isLocal ? 32 : 48;
     final double angleStep = (2 * math.pi) / barCount;
 
-    // WebRTC audioLevel squared (from stats) = 0.0 to 1.0 (already sqrt'd in manager)
     final level = volume;
 
     for (int i = 0; i < barCount; i++) {
-      double angle =
-          (i * angleStep) +
-          (isLocal ? animation.value * 0.2 : -animation.value * 0.1);
+      double angle = (i * angleStep) + (isLocal ? animation.value * 0.2 : -animation.value * 0.1);
 
-      // SENSITIVITY: Minimum height plus dynamic energy pulse
-      double barHeight =
-          3 +
-          (level * 45 * (0.8 + 0.2 * math.sin(animation.value * math.pi + i)));
+      double barHeight = 3 + (level * 45 * (0.8 + 0.2 * math.sin(animation.value * math.pi + i)));
 
-      // HARNESS: Outer radius varies by energy
       double innerRadius = radius;
       double outerRadius = radius + barHeight;
 
-      // Draw mirroring strokes
       canvas.drawLine(
-        Offset(
-          centerX + innerRadius * math.cos(angle),
-          centerY + innerRadius * math.sin(angle),
-        ),
-        Offset(
-          centerX + outerRadius * math.cos(angle),
-          centerY + outerRadius * math.sin(angle),
-        ),
+        Offset(centerX + innerRadius * math.cos(angle), centerY + innerRadius * math.sin(angle)),
+        Offset(centerX + outerRadius * math.cos(angle), centerY + outerRadius * math.sin(angle)),
         paint,
       );
 
-      // GLOW PULSE (Internal glow)
       if (isGlow && level > 0.1) {
         final glowPaint = Paint()
           ..color = baseColor.withValues(alpha: 0.3)
@@ -794,14 +784,8 @@ class WaveformPainter extends CustomPainter {
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
 
         canvas.drawLine(
-          Offset(
-            centerX + innerRadius * math.cos(angle),
-            centerY + innerRadius * math.sin(angle),
-          ),
-          Offset(
-            centerX + (outerRadius + 2) * math.cos(angle),
-            centerY + (outerRadius + 2) * math.sin(angle),
-          ),
+          Offset(centerX + innerRadius * math.cos(angle), centerY + innerRadius * math.sin(angle)),
+          Offset(centerX + outerRadius * math.cos(angle), centerY + outerRadius * math.sin(angle)),
           glowPaint,
         );
       }
@@ -809,5 +793,5 @@ class WaveformPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant WaveformPainter oldDelegate) => true;
 }
