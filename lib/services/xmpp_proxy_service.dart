@@ -275,27 +275,53 @@ class XmppProxyService {
   }
 
   Future<_PollResult> _pollRawUntil(dynamic socket, List<String> markers) async {
-    final stopwatch = Stopwatch()..start();
+    final completer = Completer<_PollResult>();
     String accumulated = "";
-    while (stopwatch.elapsed < _starttlsTimeout) {
-      if (socket.available() > 0) {
-        final bytes = socket.read(1024);
+    StreamSubscription? sub;
+
+    sub = socket.listen((event) {
+      if (event == RawSocketEvent.read) {
+        final bytes = socket.read();
         if (bytes != null) {
-          accumulated += String.fromCharCodes(bytes);
+          accumulated += utf8.decode(bytes, allowMalformed: true);
           for (final marker in markers) {
              if (accumulated.contains(marker)) {
-                return _PollResult(accumulated, marker);
+                sub?.cancel();
+                if (!completer.isCompleted) completer.complete(_PollResult(accumulated, marker));
+                return;
              }
           }
           if (accumulated.contains('HTTP/1.') || accumulated.contains('<html>')) {
-             throw 'Detected Web Server instead of XMPP';
+             sub?.cancel();
+             if (!completer.isCompleted) completer.completeError('Detected Web Server instead of XMPP');
+             return;
           }
-          if (accumulated.contains('<failure') || accumulated.contains('<error')) throw 'XMPP Error';
+          if (accumulated.contains('<failure') || accumulated.contains('<error')) {
+             sub?.cancel();
+             if (!completer.isCompleted) completer.completeError('XMPP Error');
+             return;
+          }
         }
+      } else if (event == RawSocketEvent.closed || event == RawSocketEvent.readClosed) {
+         sub?.cancel();
+         if (!completer.isCompleted) completer.completeError('Socket closed unexpectedly');
       }
-      await Future.delayed(const Duration(milliseconds: 20));
-    }
-    throw 'Timeout';
+    }, onError: (e) {
+      sub?.cancel();
+      if (!completer.isCompleted) completer.completeError(e);
+    }, onDone: () {
+      sub?.cancel();
+      if (!completer.isCompleted) completer.completeError('Socket closed unexpectedly');
+    });
+
+    final timer = Timer(_starttlsTimeout, () {
+      sub?.cancel();
+      if (!completer.isCompleted) completer.completeError('Timeout');
+    });
+
+    return await completer.future.whenComplete(() {
+      timer.cancel();
+    });
   }
 
   void _restartStream(Socket secure, Uint8List initialPacket) {
