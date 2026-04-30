@@ -221,12 +221,9 @@ class XmppProxyService {
     
     final rawSocket = await RawSocket.connect(resolved, port).timeout(_connectionTimeout);
     
-    String rawTag = String.fromCharCodes(initialPacket);
-    String cleanTag = rawTag.replaceAll(RegExp(r'<\?xml[^?]*\?>'), '').trim();
-    if (!cleanTag.endsWith('>')) {
-      int tagEnd = cleanTag.indexOf('>');
-      if (tagEnd != -1) cleanTag = cleanTag.substring(0, tagEnd + 1);
-    }
+    // Some servers are extremely sensitive to the exact attribute order in the header.
+    // We use the same battle-tested header that worked in our standalone test.
+    final cleanTag = "<stream:stream to='$host' xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' version='1.0'>\n";
     
     // Attach listener FIRST to prevent race condition if server responds instantly
     final resultFuture = _pollRawUntil(rawSocket, ['<starttls', '</stream:features>']);
@@ -240,7 +237,7 @@ class XmppProxyService {
       await Future.delayed(const Duration(milliseconds: 50));
       
       final r3Future = _pollRawUntil(rawSocket, ['<proceed'], existingSub: r2.sub, initialData: r2.accumulated);
-      final startTlsTag = "<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>";
+      final startTlsTag = "<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>\n";
       final written = rawSocket.write(utf8.encode(startTlsTag));
       print('!!! PROXY_DIAG: [Probe Write] Sending STARTTLS ($written bytes) -> $startTlsTag');
       final r3 = await r3Future;
