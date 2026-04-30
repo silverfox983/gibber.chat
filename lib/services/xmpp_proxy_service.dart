@@ -384,19 +384,23 @@ class RawToSocket extends StreamView<Uint8List> implements Socket {
 
   RawToSocket._(this._inner, this._controller, [String? initialData, StreamSubscription<RawSocketEvent>? existingSub]) : super(_controller.stream) {
     if (initialData != null && initialData.isNotEmpty) {
-      Future.microtask(() => _controller.add(Uint8List.fromList(utf8.encode(initialData))));
+      Future.microtask(() {
+        if (!_controller.isClosed) {
+          _controller.add(Uint8List.fromList(utf8.encode(initialData)));
+        }
+      });
     }
     
     void handleEvent(event) {
       if (event == RawSocketEvent.read) {
         Uint8List? data;
         while ((data = _inner.read()) != null) {
-          _controller.add(data!);
+          if (!_controller.isClosed) _controller.add(data!);
         }
       } else if (event == RawSocketEvent.write) {
         _tryWrite();
       } else if (event == RawSocketEvent.closed || event == RawSocketEvent.readClosed) {
-        _controller.close();
+        if (!_controller.isClosed) _controller.close();
       }
     }
 
