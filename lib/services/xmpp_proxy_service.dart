@@ -245,6 +245,7 @@ class XmppProxyService {
       
       r4.sub?.onData(null);
       r4.sub?.resume();
+      print('!!! PROXY_DIAG: Finalizing TLS upgrade with resumed subscription.');
       final rawSecure = await RawSecureSocket.secure(rawSocket, subscription: r4.sub as StreamSubscription<RawSocketEvent>?, onBadCertificate: (cert) => true).timeout(_connectionTimeout);
       
       // FINAL VALIDATION: Ensure the tunnel actually speaks XMPP
@@ -289,7 +290,7 @@ class XmppProxyService {
     bool checkMarkers() {
       for (final marker in markers) {
          if (accumulated.contains(marker)) {
-            sub?.pause();
+            if (existingSub == null) sub?.pause();
             if (!completer.isCompleted) completer.complete(_PollResult(accumulated, marker, sub));
             return true;
          }
