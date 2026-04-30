@@ -1399,6 +1399,23 @@ class AuthService with ChangeNotifier {
                   );
                 }
 
+                // Identify if this message was sent by us (MUC Echo)
+                bool isMe = false;
+                final myBareJid = _xmppJids[id]?.split('/').first.toLowerCase() ?? '';
+                final myUsername = myBareJid.split('@').first;
+                if (nick == myUsername || 
+                    nick == _currentProfile?.displayName || 
+                    nick == _currentProfile?.nickName) {
+                  isMe = true;
+                }
+
+                // If it's a live echo of our own message, suppress it to prevent duplicates
+                // (Historical MAM messages from us will have a <delay> tag and should be kept)
+                final delay = stanza.getChild('delay');
+                if (isMe && delay == null) {
+                  return; 
+                }
+
                 if (finalBody != null) {
                   _messageStreamController.add(
                     ChatMessage(
@@ -1407,7 +1424,8 @@ class AuthService with ChangeNotifier {
                           'xmpp_${DateTime.now().microsecondsSinceEpoch}',
                       text: finalBody,
                       timestamp: DateTime.now(),
-                      isSent: false,
+                      isSent: isMe,
+
                       senderId: fromJid,
                       senderName: nick,
                       accountId: id,
@@ -1682,7 +1700,8 @@ class AuthService with ChangeNotifier {
             ? xmpp.MessageStanzaType.GROUPCHAT
             : xmpp.MessageStanzaType.CHAT,
       );
-      msg.toJid = xmpp.Jid.fromFullJid(targetJid);
+      final finalTarget = isGroup ? targetJid.split('/').first : targetJid;
+      msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
 
       // OMEMO Encryption Layer
       final isOmemo = _omemoEnabled[targetJid.toLowerCase()] ?? false;
