@@ -1641,19 +1641,19 @@ class AuthService with ChangeNotifier {
         } else if (state == xmpp.XmppConnectionState.AuthenticationFailure) {
           _xmppConnecting = false;
           _lastDiagnostic = 'Authentication failed. Check your username and password.';
-          conn.close();
+          conn.dispose();
           _xmppProxies[id]?.stop();
           if (!connectionCompleter.isCompleted) connectionCompleter.completeError(Exception(_lastDiagnostic));
         } else if (state == xmpp.XmppConnectionState.AuthenticationNotSupported) {
           _xmppConnecting = false;
           _lastDiagnostic = 'Server does not support any compatible authentication method.';
-          conn.close();
+          conn.dispose();
           _xmppProxies[id]?.stop();
           if (!connectionCompleter.isCompleted) connectionCompleter.completeError(Exception(_lastDiagnostic));
         } else if (state == xmpp.XmppConnectionState.StartTlsFailed) {
           _xmppConnecting = false;
           _lastDiagnostic = 'TLS handshake failed. The server may not support secure connections on this port.';
-          conn.close();
+          conn.dispose();
           _xmppProxies[id]?.stop();
           if (!connectionCompleter.isCompleted) connectionCompleter.completeError(Exception(_lastDiagnostic));
         } else if (state == xmpp.XmppConnectionState.Closed ||
@@ -1663,7 +1663,7 @@ class AuthService with ChangeNotifier {
             _lastDiagnostic = state == xmpp.XmppConnectionState.ForcefullyClosed
                 ? 'Connection was forcefully closed by the server.'
                 : 'Connection closed before authentication completed.';
-            conn.close();
+            conn.dispose();
             _xmppProxies[id]?.stop();
             if (!connectionCompleter.isCompleted) connectionCompleter.completeError(Exception(_lastDiagnostic));
           }
