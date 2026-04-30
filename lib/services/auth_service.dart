@@ -1115,6 +1115,50 @@ class AuthService with ChangeNotifier {
                 );
                 return;
               }
+
+              // Parse PubSub Bookmarks (XEP-0048 / XEP-0402)
+              final pubsub = stanza.getChild('pubsub');
+              if (pubsub != null && pubsub.getAttribute('xmlns')?.value == 'http://jabber.org/protocol/pubsub') {
+                final items = pubsub.getChild('items');
+                if (items != null) {
+                  final node = items.getAttribute('node')?.value;
+                  if (node == 'storage:bookmarks') {
+                    for (var item in items.children) {
+                      final storage = item.getChild('storage');
+                      if (storage != null && storage.getAttribute('xmlns')?.value == 'storage:bookmarks') {
+                        for (var conf in storage.children) {
+                          if (conf.name == 'conference') {
+                            final jid = conf.getAttribute('jid')?.value;
+                            final name = conf.getAttribute('name')?.value;
+                            if (jid != null) {
+                              final parts = jid.split('@');
+                              if (parts.length == 2) {
+                                  joinPersistedSpace(parts[1], parts[0], name ?? parts[0]);
+                                  debugPrint('SYNC: Synced bookmark space $jid (Legacy)');
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  } else if (node == 'urn:xmpp:bookmarks:1') {
+                    for (var item in items.children) {
+                      final conf = item.getChild('conference');
+                      if (conf != null && conf.getAttribute('xmlns')?.value == 'urn:xmpp:bookmarks:1') {
+                         final jid = item.getAttribute('id')?.value ?? conf.getAttribute('jid')?.value;
+                         final name = conf.getAttribute('name')?.value;
+                         if (jid != null) {
+                            final parts = jid.split('@');
+                            if (parts.length == 2) {
+                                joinPersistedSpace(parts[1], parts[0], name ?? parts[0]);
+                                debugPrint('SYNC: Synced bookmark space $jid (Modern)');
+                            }
+                         }
+                      }
+                    }
+                  }
+                }
+              }
             }
             if (stanza is xmpp.MessageStanza) {
               // DISPATCH TO JINGLE (XEP-0353 Signaling)
@@ -2451,17 +2495,31 @@ class AuthService with ChangeNotifier {
     
     // 3. Sync Bookmarks (PubSub MUCs)
     try {
-      final iq = xmpp.IqStanza('bookmark_sync_${DateTime.now().millisecondsSinceEpoch}', xmpp.IqStanzaType.GET);
-      final pubsub = xmpp.XmppElement();
-      pubsub.name = 'pubsub';
-      pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
-      final items = xmpp.XmppElement();
-      items.name = 'items';
-      items.addAttribute(xmpp.XmppAttribute('node', 'storage:bookmarks')); 
-      pubsub.addChild(items);
-      iq.addChild(pubsub);
-      conn.writeStanza(iq);
-      debugPrint('SYNC: Dispatched bookmark fetch request.');
+      // Legacy storage:bookmarks
+      final iq1 = xmpp.IqStanza('bookmark_sync_legacy_${DateTime.now().millisecondsSinceEpoch}', xmpp.IqStanzaType.GET);
+      final pubsub1 = xmpp.XmppElement();
+      pubsub1.name = 'pubsub';
+      pubsub1.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+      final items1 = xmpp.XmppElement();
+      items1.name = 'items';
+      items1.addAttribute(xmpp.XmppAttribute('node', 'storage:bookmarks')); 
+      pubsub1.addChild(items1);
+      iq1.addChild(pubsub1);
+      conn.writeStanza(iq1);
+
+      // Modern urn:xmpp:bookmarks:1
+      final iq2 = xmpp.IqStanza('bookmark_sync_modern_${DateTime.now().millisecondsSinceEpoch}', xmpp.IqStanzaType.GET);
+      final pubsub2 = xmpp.XmppElement();
+      pubsub2.name = 'pubsub';
+      pubsub2.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+      final items2 = xmpp.XmppElement();
+      items2.name = 'items';
+      items2.addAttribute(xmpp.XmppAttribute('node', 'urn:xmpp:bookmarks:1')); 
+      pubsub2.addChild(items2);
+      iq2.addChild(pubsub2);
+      conn.writeStanza(iq2);
+
+      debugPrint('SYNC: Dispatched bookmark fetch requests (Legacy + Modern).');
     } catch (e) {
       debugPrint('SYNC: Failed to dispatch bookmark fetch - $e');
     }
