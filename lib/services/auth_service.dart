@@ -1182,7 +1182,7 @@ class AuthService with ChangeNotifier {
               if (eventEl != null && eventEl.getAttribute('xmlns')?.value == 'http://jabber.org/protocol/pubsub#event') {
                 final items = eventEl.getChild('items');
                 if (items != null && items.getAttribute('node')?.value == 'urn:xmpp:omemo:0:devices') {
-                  final bareJid = stanza.fromJid?.split('/').first.toLowerCase() ?? '';
+                  final bareJid = stanza.fromJid?.fullJid?.split('/').first.toLowerCase() ?? '';
                   if (bareJid.isNotEmpty) {
                     for (var item in items.children.where((c) => c.name == 'item')) {
                       final list = item.getChild('list');

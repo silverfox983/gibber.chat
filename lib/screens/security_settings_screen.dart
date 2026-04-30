@@ -229,9 +229,13 @@ class SecuritySettingsScreen extends StatelessWidget {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
           TextButton(
             onPressed: () async {
-              await authService.resetOmemoKeys();
-              if (context.mounted) Navigator.pop(context);
-              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Identity keys reset successfully.')));
+              if (authService.activeAccountId != null) {
+                await authService.resetOmemoKeys(authService.activeAccountId!);
+              }
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Identity keys reset successfully.')));
+              }
             },
             child: const Text('RESET', style: TextStyle(color: Colors.red)),
           ),
