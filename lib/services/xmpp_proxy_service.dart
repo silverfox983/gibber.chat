@@ -232,18 +232,16 @@ class XmppProxyService {
     final result = await resultFuture;
     
     if (result.matchedMarker == '<starttls') {
-      final r2 = await _pollRawUntil(rawSocket, ['>'], existingSub: result.sub, initialData: result.accumulated);
-      print('!!! PROXY_DIAG: Handshake step 2 (Features End) reached.');
-      await Future.delayed(const Duration(milliseconds: 50));
-      
-      final r3Future = _pollRawUntil(rawSocket, ['<proceed'], existingSub: r2.sub, initialData: r2.accumulated);
-      final startTlsTag = "<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>\n";
+      // Step 2: Immediate STARTTLS request as soon as marker is seen (matching test_tls.dart)
+      final startTlsTag = '<starttls xmlns="urn:ietf:params:xml:ns:xmpp-tls"/>';
       final written = rawSocket.write(utf8.encode(startTlsTag));
       print('!!! PROXY_DIAG: [Probe Write] Sending STARTTLS ($written bytes) -> $startTlsTag');
-      final r3 = await r3Future;
+      
+      final r3 = await _pollRawUntil(rawSocket, ['<proceed'], existingSub: result.sub, initialData: result.accumulated);
+      print('!!! PROXY_DIAG: Handshake proceed marker reached.');
       
       final r4 = await _pollRawUntil(rawSocket, ['>'], existingSub: r3.sub, initialData: r3.accumulated);
-      print('!!! PROXY_DIAG: Handshake step 4 (Proceed End) reached.');
+      print('!!! PROXY_DIAG: Handshake proceed tag end reached.');
       
       r4.sub?.pause();
       final rawSecure = await RawSecureSocket.secure(rawSocket, subscription: r4.sub as StreamSubscription<RawSocketEvent>?, onBadCertificate: (cert) => true).timeout(_connectionTimeout);
