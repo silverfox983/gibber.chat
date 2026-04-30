@@ -234,22 +234,23 @@ class XmppProxyService {
     final result = await _pollRawUntil(rawSocket, ['<starttls', '</stream:features>']);
     
     if (result.matchedMarker == '<starttls') {
-      await _pollRawUntil(rawSocket, ['>']);
+      final r2 = await _pollRawUntil(rawSocket, ['>'], existingSub: result.sub);
       await Future.delayed(const Duration(milliseconds: 50));
       rawSocket.write(utf8.encode("<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>"));
-      await _pollRawUntil(rawSocket, ['<proceed']);
-      await _pollRawUntil(rawSocket, ['>']);
+      final r3 = await _pollRawUntil(rawSocket, ['<proceed'], existingSub: r2.sub);
+      final r4 = await _pollRawUntil(rawSocket, ['>'], existingSub: r3.sub);
       
-      final rawSecure = await RawSecureSocket.secure(rawSocket, onBadCertificate: (cert) => true).timeout(_connectionTimeout);
+      r4.sub?.pause();
+      final rawSecure = await RawSecureSocket.secure(rawSocket, subscription: r4.sub as StreamSubscription<RawSocketEvent>?, onBadCertificate: (cert) => true).timeout(_connectionTimeout);
       
       // FINAL VALIDATION: Ensure the tunnel actually speaks XMPP
       rawSecure.write(utf8.encode(cleanTag));
       final secureResult = await _pollRawUntil(rawSecure, ['<stream:stream']);
 
-      return RawToSocket(rawSecure, secureResult.accumulated);
+      return RawToSocket(rawSecure, secureResult.accumulated, secureResult.sub as StreamSubscription<RawSocketEvent>?);
     } else {
       debugPrint('Proxy: Server does NOT offer STARTTLS. Falling back to unencrypted bridge.');
-      return RawToSocket(rawSocket, result.accumulated);
+      return RawToSocket(rawSocket, result.accumulated, result.sub as StreamSubscription<RawSocketEvent>?);
     }
   }
 
@@ -271,23 +272,23 @@ class XmppProxyService {
     rawSecure.write(utf8.encode(cleanTag));
     final result = await _pollRawUntil(rawSecure, ['<stream:stream']);
 
-    return RawToSocket(rawSecure, result.accumulated);
+    return RawToSocket(rawSecure, result.accumulated, result.sub as StreamSubscription<RawSocketEvent>?);
   }
 
-  Future<_PollResult> _pollRawUntil(dynamic socket, List<String> markers) async {
+  Future<_PollResult> _pollRawUntil(dynamic socket, List<String> markers, {StreamSubscription? existingSub}) async {
     final completer = Completer<_PollResult>();
     String accumulated = "";
-    StreamSubscription? sub;
+    StreamSubscription? sub = existingSub;
 
-    sub = socket.listen((event) {
+    void onData(dynamic event) {
       if (event == RawSocketEvent.read) {
         final bytes = socket.read();
         if (bytes != null) {
           accumulated += utf8.decode(bytes, allowMalformed: true);
           for (final marker in markers) {
              if (accumulated.contains(marker)) {
-                sub?.cancel();
-                if (!completer.isCompleted) completer.complete(_PollResult(accumulated, marker));
+                sub?.pause();
+                if (!completer.isCompleted) completer.complete(_PollResult(accumulated, marker, sub));
                 return;
              }
           }
@@ -306,13 +307,26 @@ class XmppProxyService {
          sub?.cancel();
          if (!completer.isCompleted) completer.completeError('Socket closed unexpectedly');
       }
-    }, onError: (e) {
+    }
+
+    void onError(e) {
       sub?.cancel();
       if (!completer.isCompleted) completer.completeError(e);
-    }, onDone: () {
+    }
+
+    void onDone() {
       sub?.cancel();
       if (!completer.isCompleted) completer.completeError('Socket closed unexpectedly');
-    });
+    }
+
+    if (sub == null) {
+       sub = socket.listen(onData, onError: onError, onDone: onDone);
+    } else {
+       sub.onData(onData);
+       sub.onError(onError);
+       sub.onDone(onDone);
+       sub.resume();
+    }
 
     final timer = Timer(_starttlsTimeout, () {
       sub?.cancel();
@@ -339,7 +353,8 @@ class XmppProxyService {
 class _PollResult {
   final String accumulated;
   final String matchedMarker;
-  _PollResult(this.accumulated, this.matchedMarker);
+  final StreamSubscription? sub;
+  _PollResult(this.accumulated, this.matchedMarker, this.sub);
 }
 
 class RawToSocket extends StreamView<Uint8List> implements Socket {
@@ -347,11 +362,12 @@ class RawToSocket extends StreamView<Uint8List> implements Socket {
   final List<int> _writeBuffer = [];
   final StreamController<Uint8List> _controller;
 
-  RawToSocket._(this._inner, this._controller, [String? initialData]) : super(_controller.stream) {
+  RawToSocket._(this._inner, this._controller, [String? initialData, StreamSubscription<RawSocketEvent>? existingSub]) : super(_controller.stream) {
     if (initialData != null && initialData.isNotEmpty) {
       Future.microtask(() => _controller.add(Uint8List.fromList(utf8.encode(initialData))));
     }
-    _inner.listen((event) {
+    
+    void handleEvent(event) {
       if (event == RawSocketEvent.read) {
         Uint8List? data;
         while ((data = _inner.read()) != null) {
@@ -362,11 +378,20 @@ class RawToSocket extends StreamView<Uint8List> implements Socket {
       } else if (event == RawSocketEvent.closed || event == RawSocketEvent.readClosed) {
         _controller.close();
       }
-    }, onError: (e) => _controller.addError(e), onDone: () => _controller.close());
+    }
+
+    if (existingSub != null) {
+      existingSub.onData(handleEvent);
+      existingSub.onError((e) => _controller.addError(e));
+      existingSub.onDone(() => _controller.close());
+      existingSub.resume();
+    } else {
+      _inner.listen(handleEvent, onError: (e) => _controller.addError(e), onDone: () => _controller.close());
+    }
   }
 
-  factory RawToSocket(RawSocket inner, [String? initialData]) {
-    return RawToSocket._(inner, StreamController<Uint8List>(), initialData);
+  factory RawToSocket(RawSocket inner, [String? initialData, StreamSubscription<RawSocketEvent>? existingSub]) {
+    return RawToSocket._(inner, StreamController<Uint8List>(), initialData, existingSub);
   }
 
   void _tryWrite() {
