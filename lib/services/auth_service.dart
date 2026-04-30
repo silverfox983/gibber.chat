@@ -810,6 +810,9 @@ class AuthService with ChangeNotifier {
 
           // Auto-Join Persistence
           _autoJoinRooms(id);
+          
+          // Trigger Full Data Sync (MAM, Bookmarks, vCard)
+          _syncAllXmppData(id, conn);
 
           // Services are initialized on Ready state above.
           // Redundant listener removed to centralize state handling.
@@ -2424,6 +2427,43 @@ class AuthService with ChangeNotifier {
       debugPrint('MAM: Requested history for $jid ${since != null ? "since $since" : ""}');
     } catch (e) {
       debugPrint('MAM Error: $e');
+    }
+  }
+
+  void _syncAllXmppData(String accountId, xmpp.Connection conn) {
+    debugPrint('SYNC: Triggering full account sync for $accountId');
+    
+    // 1. Sync User Avatar/vCard
+    fetchMyVCard(accountId: accountId);
+    
+    // 2. Global MAM Catchup (Offline Messages)
+    try {
+      final iq = xmpp.IqStanza('mam_sync_${DateTime.now().millisecondsSinceEpoch}', xmpp.IqStanzaType.SET);
+      final query = xmpp.XmppElement();
+      query.name = 'query';
+      query.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:mam:2'));
+      iq.addChild(query);
+      conn.writeStanza(iq);
+      debugPrint('SYNC: Dispatched global MAM request.');
+    } catch (e) {
+      debugPrint('SYNC: Failed to dispatch global MAM - $e');
+    }
+    
+    // 3. Sync Bookmarks (PubSub MUCs)
+    try {
+      final iq = xmpp.IqStanza('bookmark_sync_${DateTime.now().millisecondsSinceEpoch}', xmpp.IqStanzaType.GET);
+      final pubsub = xmpp.XmppElement();
+      pubsub.name = 'pubsub';
+      pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+      final items = xmpp.XmppElement();
+      items.name = 'items';
+      items.addAttribute(xmpp.XmppAttribute('node', 'storage:bookmarks')); 
+      pubsub.addChild(items);
+      iq.addChild(pubsub);
+      conn.writeStanza(iq);
+      debugPrint('SYNC: Dispatched bookmark fetch request.');
+    } catch (e) {
+      debugPrint('SYNC: Failed to dispatch bookmark fetch - $e');
     }
   }
 
