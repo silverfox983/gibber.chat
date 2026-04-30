@@ -62,7 +62,7 @@ class OmemoService {
   
   final _aes = AesGcm.with128bits();
 
-  Future<void> initialize() async {
+  Future<void> initialize(String bareJid) async {
     final prefs = await SharedPreferences.getInstance();
     _deviceId = prefs.getInt('omemo_device_id');
     
@@ -76,14 +76,14 @@ class OmemoService {
     if (_deviceId == null || !exists) {
       _deviceId ??= Random().nextInt(2147483647);
       await prefs.setInt('omemo_device_id', _deviceId!);
-      await resetIdentity();
+      await resetIdentity(bareJid);
     }
   }
 
-  Future<void> resetIdentity() async {
+  Future<void> resetIdentity(String bareJid) async {
     await _generateNewKeys();
     if (_conn != null && _conn!.state == xmpp.XmppConnectionState.Ready) {
-      await publishDeviceList(_conn!);
+      await publishDeviceList(_conn!, bareJid);
       await publishBundle(_conn!);
     }
   }
@@ -105,6 +105,29 @@ class OmemoService {
     }
     await _store.storeSignedPreKey(signedPreKey.id, signedPreKey);
     debugPrint('OMEMO: Keys generated and stored for Device ID $_deviceId');
+  }
+
+  Future<void> checkAndReplenishPreKeys() async {
+    try {
+      final prekeys = await _store.loadPreKeys();
+      if (prekeys.length < 20) {
+        debugPrint('OMEMO: PreKeys depleted (${prekeys.length} remaining). Replenishing...');
+        int maxId = 0;
+        for (var p in prekeys) {
+          if (p.id > maxId) maxId = p.id;
+        }
+        final newPreKeys = KeyHelper.generatePreKeys(maxId + 1, 100);
+        for (var p in newPreKeys) {
+          await _store.storePreKey(p.id, p);
+        }
+        if (_conn != null && _conn!.state == xmpp.XmppConnectionState.Ready) {
+           await publishBundle(_conn!);
+        }
+        debugPrint('OMEMO: Successfully replenished PreKeys.');
+      }
+    } catch (e) {
+      debugPrint('OMEMO: Failed to replenish PreKeys - $e');
+    }
   }
 
   // Fingerprints for UI
@@ -139,20 +162,31 @@ class OmemoService {
 
   // --- PEP (PubSub) Logic ---
 
-  Future<void> publishDeviceList(xmpp.Connection conn) async {
+  Future<void> publishDeviceList(xmpp.Connection conn, String bareJid, {bool clearOtherDevices = false}) async {
+    final Set<int> activeDevices = {};
+    if (!clearOtherDevices) {
+      final existing = await fetchDeviceList(bareJid);
+      activeDevices.addAll(existing);
+    }
+    activeDevices.add(_deviceId!);
+
     final iq = xmpp.IqStanza(DateTime.now().millisecondsSinceEpoch.toString(), xmpp.IqStanzaType.SET);
     final pubsub = xmpp.XmppElement()..name = 'pubsub'..addAttribute(xmpp.XmppAttribute('xmlns', nsPubsub));
     final publish = xmpp.XmppElement()..name = 'publish'..addAttribute(xmpp.XmppAttribute('node', '$nsOmemo:devices'));
     final item = xmpp.XmppElement()..name = 'item';
     final list = xmpp.XmppElement()..name = 'list'..addAttribute(xmpp.XmppAttribute('xmlns', nsOmemo));
-    final device = xmpp.XmppElement()..name = 'device'..addAttribute(xmpp.XmppAttribute('id', _deviceId.toString()));
     
-    list.addChild(device);
+    for (var devId in activeDevices) {
+      final device = xmpp.XmppElement()..name = 'device'..addAttribute(xmpp.XmppAttribute('id', devId.toString()));
+      list.addChild(device);
+    }
+    
     item.addChild(list);
     publish.addChild(item);
     pubsub.addChild(publish);
     iq.addChild(pubsub);
     conn.writeStanza(iq);
+    debugPrint('OMEMO: Published device list: $activeDevices');
   }
 
   Future<void> publishBundle(xmpp.Connection conn) async {
@@ -220,6 +254,11 @@ class OmemoService {
   }
 
   Future<void> buildSession(String bareJid, int deviceId) async {
+    final address = SignalProtocolAddress(bareJid, deviceId);
+    if (await _store.containsSession(address)) {
+      return; // Session already established
+    }
+
     try {
       final iq = xmpp.IqStanza('omemo_bun_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
       iq.toJid = xmpp.Jid.fromFullJid(bareJid);
@@ -369,7 +408,24 @@ class OmemoService {
         header.addChild(keyElement);
         addedKeys = true;
       } catch (e) {
-        debugPrint('OMEMO: Failed to encrypt for device $rDeviceId: $e');
+        debugPrint('OMEMO: Failed to encrypt for device $rDeviceId: $e. Attempting session heal...');
+        // Session Healing: Delete corrupted session, rebuild from fresh bundle, and retry once.
+        await store.deleteSession(address);
+        await buildSession(bareJid, rDeviceId);
+        try {
+          final cipher = SessionCipher(store, store, store, store, address);
+          final encryptedKey = await cipher.encrypt(encryptionKey);
+          final keyElement = xmpp.XmppElement()..name = 'key'..addAttribute(xmpp.XmppAttribute('rid', rDeviceId.toString()));
+          keyElement.textValue = base64Encode(encryptedKey.serialize());
+          if (encryptedKey.getType() == CiphertextMessage.PREKEY_TYPE) {
+            keyElement.addAttribute(xmpp.XmppAttribute('prekey', 'true'));
+          }
+          header.addChild(keyElement);
+          addedKeys = true;
+          debugPrint('OMEMO: Session healed for $rDeviceId!');
+        } catch (healError) {
+          debugPrint('OMEMO: Session heal failed for $rDeviceId: $healError');
+        }
       }
     }
 

@@ -339,8 +339,11 @@ class AuthService with ChangeNotifier {
 
   int getLocalOmemoDeviceId() => _omemo.localDeviceId;
 
-  Future<void> resetOmemoKeys() async {
-    await _omemo.resetIdentity();
+  Future<void> resetOmemoKeys(String accountId) async {
+    final bareJid = _xmppJids[accountId]?.split('/').first.toLowerCase();
+    if (bareJid != null) {
+      await _omemo.resetIdentity(bareJid);
+    }
     notifyListeners();
   }
 
@@ -777,8 +780,9 @@ class AuthService with ChangeNotifier {
       }
 
       final conn = xmpp.Connection(accountSettings);
+      final bareJid = fullJidStr.split('/').first.toLowerCase();
       _omemo.setConnection(conn);
-      await _omemo.initialize();
+      await _omemo.initialize(bareJid);
 
       _xmppConnections[id] = conn;
       _xmppJids[id] = jid.fullJid ?? fullJidStr; // Store JID
@@ -794,8 +798,10 @@ class AuthService with ChangeNotifier {
           _authenticatedAccountIds.add(id); // Track user intent
 
           // OMEMO: Publish keys now that we're connected & authenticated (XEP-0384)
-          _omemo.publishDeviceList(conn);
+          final bareJid = fullJidStr.split('/').first.toLowerCase();
+          _omemo.publishDeviceList(conn, bareJid);
           _omemo.publishBundle(conn);
+          _omemo.checkAndReplenishPreKeys();
 
           final presenceManager = xmpp.PresenceManager.getInstance(conn);
           presenceManager.sendPresence(
@@ -1171,6 +1177,35 @@ class AuthService with ChangeNotifier {
               }
             }
             if (stanza is xmpp.MessageStanza) {
+              // Parse PubSub PEP Events (XEP-0163)
+              final eventEl = stanza.getChild('event');
+              if (eventEl != null && eventEl.getAttribute('xmlns')?.value == 'http://jabber.org/protocol/pubsub#event') {
+                final items = eventEl.getChild('items');
+                if (items != null && items.getAttribute('node')?.value == 'urn:xmpp:omemo:0:devices') {
+                  final bareJid = stanza.fromJid?.split('/').first.toLowerCase() ?? '';
+                  if (bareJid.isNotEmpty) {
+                    for (var item in items.children.where((c) => c.name == 'item')) {
+                      final list = item.getChild('list');
+                      if (list != null && list.getAttribute('xmlns')?.value == OmemoService.nsOmemo) {
+                        for (var device in list.children.where((c) => c.name == 'device')) {
+                          final idStr = device.getAttribute('id')?.value;
+                          if (idStr != null) {
+                            final devId = int.tryParse(idStr);
+                            if (devId != null) {
+                              // Dynamically fetch bundle for new devices
+                              _omemo.buildSession(bareJid, devId).then((_) {
+                                notifyListeners();
+                              });
+                            }
+                          }
+                        }
+                        debugPrint('OMEMO: Received live device list update from $bareJid');
+                      }
+                    }
+                  }
+                }
+              }
+
               // DISPATCH TO JINGLE (XEP-0353 Signaling)
               _jingleServices[id]?.handleIncomingMessage(stanza);
 
@@ -1333,6 +1368,14 @@ class AuthService with ChangeNotifier {
                   );
                   if (decrypted != null) {
                     finalBody = decrypted;
+                  } else {
+                    finalBody = '🔒 [Decryption Failed - Rebuilding Session...]';
+                    // Auto-heal session
+                    _omemo.fetchDeviceList(roomJid.toLowerCase()).then((devices) {
+                      for (var devId in devices) {
+                        _omemo.buildSession(roomJid.toLowerCase(), devId);
+                      }
+                    });
                   }
                 }
 
@@ -1390,6 +1433,14 @@ class AuthService with ChangeNotifier {
                   );
                   if (decrypted != null) {
                     finalBody = decrypted;
+                  } else {
+                    finalBody = '🔒 [Decryption Failed - Rebuilding Session...]';
+                    // Auto-heal session
+                    _omemo.fetchDeviceList(bareJid).then((devices) {
+                      for (var devId in devices) {
+                        _omemo.buildSession(bareJid, devId);
+                      }
+                    });
                   }
                 }
 
