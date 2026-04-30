@@ -287,9 +287,9 @@ class XmppProxyService {
 
     void onData(dynamic event) {
       if (event == RawSocketEvent.read) {
-        final bytes = socket.read();
-        if (bytes != null) {
-          accumulated += utf8.decode(bytes, allowMalformed: true);
+        Uint8List? bytes;
+        while ((bytes = socket.read()) != null) {
+          accumulated += utf8.decode(bytes!, allowMalformed: true);
           for (final marker in markers) {
              if (accumulated.contains(marker)) {
                 sub?.pause();
