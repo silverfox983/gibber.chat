@@ -15,7 +15,7 @@
 
 **Gibber** is a modern, high-performance, and beautifully crafted unified communication client built natively with **Flutter** and **Dart**. 
 
-Designed to break down walled gardens, Gibber acts as a universal bridge for disparate chat networks. It seamlessly integrates traditional federated protocols like **XMPP (Jabber)** alongside support architectures for IRC, Discord, and SIP/VoIP, aggregating all your conversations into a single, cohesive interface.
+Designed to break down walled gardens, Gibber acts as a universal bridge for disparate chat networks. It seamlessly integrates traditional protocols like **XMPP (Jabber)** alongside support architectures for IRC, Discord, and SIP/VoIP, aggregating all your conversations into a single, cohesive interface.
 
 Unlike contemporary proprietary platforms, **Gibber is strictly a client application**. There is no centralized "Gibber Server" harvesting your data, nor is there a proprietary backend database. Gibber connects *directly* to standard, decentralized network servers (like `movim.eu` or your own self-hosted XMPP server), ensuring absolute data ownership, zero vendor lock-in, and uncompromising privacy for its users.
 
@@ -29,6 +29,11 @@ Unlike contemporary proprietary platforms, **Gibber is strictly a client applica
 - **High Fidelity:** From markdown rendering to WebRTC video calls, Gibber supports the rich features expected of a modern chat app without sacrificing its decentralized roots.
 
 ---
+
+## STATE OF GIBBER.
+
+Gibber is a mobile first application for xmpp. things are somewhat unstable in alpha release. most things work. If there are funds it will get development otherwise it is provided as is.
+
 
 ## ✨ Key Features
 
