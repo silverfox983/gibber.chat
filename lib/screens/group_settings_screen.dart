@@ -128,6 +128,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: null,
         onPressed: () async {
           final fields = {
             'muc#roomconfig_roomname': _nameController.text,
@@ -190,11 +191,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             ...participants.map((p) => ListTile(
               leading: CircleAvatar(
                 backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-                child: Text(p.isNotEmpty ? p[0].toUpperCase() : '?', style: TextStyle(color: Theme.of(context).colorScheme.onSecondaryContainer, fontSize: 12, fontWeight: FontWeight.bold)),
+                child: Text(p.nickname.isNotEmpty ? p.nickname[0].toUpperCase() : '?', style: TextStyle(color: Theme.of(context).colorScheme.onSecondaryContainer, fontSize: 12, fontWeight: FontWeight.bold)),
               ),
-              title: Text(p, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              subtitle: const Text('XMPP', style: TextStyle(fontSize: 11)),
-              trailing: p.toLowerCase() == (authService.currentProfile?.displayName ?? '').toLowerCase()
+              title: Text(p.nickname, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              subtitle: Text(p.role != null && p.role != 'none' ? p.role! : (p.affiliation ?? 'Member'), style: const TextStyle(fontSize: 11)),
+              trailing: p.nickname.toLowerCase() == (authService.currentProfile?.displayName ?? '').toLowerCase()
                 ? const Icon(Icons.person_pin_rounded, color: Colors.blue, size: 16)
                 : null,
             )),

@@ -6,7 +6,7 @@ import '../services/registration_service.dart';
 import '../models/registration_models.dart';
 
 class InviteScreen extends StatefulWidget {
-  const InviteScreen({Key? key}) : super(key: key);
+  const InviteScreen({super.key});
 
   @override
   State<InviteScreen> createState() => _InviteScreenState();
@@ -15,13 +15,25 @@ class InviteScreen extends StatefulWidget {
 class _InviteScreenState extends State<InviteScreen> {
   bool _isLoading = false;
   InviteResult? _inviteResult;
+  RegistrationService? _regService;
+
+  @override
+  void dispose() {
+    _regService?.dispose();
+    super.dispose();
+  }
 
   Future<void> _generateInvite() async {
     final auth = Provider.of<AuthService>(context, listen: false);
     final conn = auth.activeXmppConnection;
 
     if (conn == null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Not connected to XMPP'), backgroundColor: Theme.of(context).colorScheme.error));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Not connected to XMPP'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
       return;
     }
 
@@ -31,8 +43,13 @@ class _InviteScreenState extends State<InviteScreen> {
     });
 
     final domain = conn.account.domain;
-    final regService = RegistrationService(conn);
-    final result = await regService.generateUserInvitation(domain);
+    
+    if (_regService == null || _regService!.connection != conn) {
+      _regService?.dispose();
+      _regService = RegistrationService(conn);
+    }
+    
+    final result = await _regService!.generateUserInvitation(domain);
 
     setState(() {
       _isLoading = false;
@@ -40,13 +57,25 @@ class _InviteScreenState extends State<InviteScreen> {
     });
 
     if (result == null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Failed to generate invite. Your server may not support XEP-0401.'), backgroundColor: Theme.of(context).colorScheme.error));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Failed to generate invite. Your server may not support XEP-0401.',
+          ),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
     }
   }
 
   void _copyToClipboard(String text) {
     Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Copied to clipboard'), backgroundColor: Theme.of(context).colorScheme.secondary));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Copied to clipboard'),
+        backgroundColor: Theme.of(context).colorScheme.secondary,
+      ),
+    );
   }
 
   @override
@@ -55,7 +84,13 @@ class _InviteScreenState extends State<InviteScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('Server Invites', style: TextStyle(fontWeight: FontWeight.w900, color: theme.colorScheme.onPrimary)),
+        title: Text(
+          'Server Invites',
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            color: theme.colorScheme.onPrimary,
+          ),
+        ),
         elevation: 0,
         backgroundColor: theme.colorScheme.primary,
         iconTheme: IconThemeData(color: theme.colorScheme.onPrimary),
@@ -67,7 +102,12 @@ class _InviteScreenState extends State<InviteScreen> {
           children: [
             Text(
               'INVITE FRIENDS',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2),
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+                color: theme.colorScheme.onSurfaceVariant,
+                letterSpacing: 1.2,
+              ),
             ),
             const SizedBox(height: 16),
             Container(
@@ -77,17 +117,29 @@ class _InviteScreenState extends State<InviteScreen> {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: theme.colorScheme.outline),
                 boxShadow: [
-                  BoxShadow(color: theme.colorScheme.onSurface.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4)),
+                  BoxShadow(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
                 ],
               ),
               child: Column(
                 children: [
-                  Icon(Icons.person_add_alt_1_rounded, size: 64, color: theme.colorScheme.primary.withValues(alpha: 0.5)),
+                  Icon(
+                    Icons.person_add_alt_1_rounded,
+                    size: 64,
+                    color: theme.colorScheme.primary.withValues(alpha: 0.5),
+                  ),
                   const SizedBox(height: 16),
                   Text(
                     'Generate a secure invite link to allow your friends to register an account on your server and automatically add you to their roster.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 32),
                   SizedBox(
@@ -95,14 +147,26 @@ class _InviteScreenState extends State<InviteScreen> {
                     child: ElevatedButton.icon(
                       onPressed: _isLoading ? null : _generateInvite,
                       icon: _isLoading
-                          ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: theme.colorScheme.onSecondary))
+                          ? SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: theme.colorScheme.onSecondary,
+                              ),
+                            )
                           : const Icon(Icons.generating_tokens_rounded),
-                      label: Text('GENERATE INVITE LINK', style: TextStyle(fontWeight: FontWeight.w900)),
+                      label: Text(
+                        'GENERATE INVITE LINK',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: theme.colorScheme.secondary,
                         foregroundColor: theme.colorScheme.onSecondary,
                         padding: const EdgeInsets.symmetric(vertical: 20),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                         elevation: 0,
                       ),
                     ),
@@ -112,7 +176,15 @@ class _InviteScreenState extends State<InviteScreen> {
             ),
             const SizedBox(height: 48),
             if (_inviteResult != null) ...[
-              Text('INVITATION LINK GENERATED!', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Colors.green, letterSpacing: 1.2)),
+              Text(
+                'INVITATION LINK GENERATED!',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  color: Colors.green,
+                  letterSpacing: 1.2,
+                ),
+              ),
               const SizedBox(height: 16),
               Container(
                 decoration: BoxDecoration(
@@ -124,24 +196,59 @@ class _InviteScreenState extends State<InviteScreen> {
                   children: [
                     if (_inviteResult!.landingUrl != null) ...[
                       ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                        leading: Icon(Icons.public_rounded, color: theme.colorScheme.primary),
-                        title: const Text('Web Link (Recommended)', style: TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(_inviteResult!.landingUrl!, style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 8,
+                        ),
+                        leading: Icon(
+                          Icons.public_rounded,
+                          color: theme.colorScheme.primary,
+                        ),
+                        title: const Text(
+                          'Web Link (Recommended)',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text(
+                          _inviteResult!.landingUrl!,
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
                         trailing: IconButton(
-                          icon: Icon(Icons.copy_rounded, color: theme.colorScheme.secondary),
-                          onPressed: () => _copyToClipboard(_inviteResult!.landingUrl!),
+                          icon: Icon(
+                            Icons.copy_rounded,
+                            color: theme.colorScheme.secondary,
+                          ),
+                          onPressed: () =>
+                              _copyToClipboard(_inviteResult!.landingUrl!),
                         ),
                       ),
                       Divider(height: 1, color: theme.colorScheme.outline),
                     ],
                     ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                      leading: Icon(Icons.link_rounded, color: theme.colorScheme.primary),
-                      title: const Text('App URI (Advanced)', style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text(_inviteResult!.uri, style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 8,
+                      ),
+                      leading: Icon(
+                        Icons.link_rounded,
+                        color: theme.colorScheme.primary,
+                      ),
+                      title: const Text(
+                        'App URI (Advanced)',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        _inviteResult!.uri,
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                       trailing: IconButton(
-                        icon: Icon(Icons.copy_rounded, color: theme.colorScheme.secondary),
+                        icon: Icon(
+                          Icons.copy_rounded,
+                          color: theme.colorScheme.secondary,
+                        ),
                         onPressed: () => _copyToClipboard(_inviteResult!.uri),
                       ),
                     ),
@@ -151,7 +258,14 @@ class _InviteScreenState extends State<InviteScreen> {
               if (_inviteResult!.expire != null) ...[
                 const SizedBox(height: 16),
                 Center(
-                  child: Text('Expires: \${_inviteResult!.expire!.toLocal()}', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    'Expires: \${_inviteResult!.expire!.toLocal()}',
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ],
             ],

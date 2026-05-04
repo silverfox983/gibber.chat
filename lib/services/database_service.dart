@@ -23,7 +23,7 @@ class DatabaseService {
     String path = testPath ?? join(await getDatabasesPath(), 'pidgin_chat.db');
     return await openDatabase(
       path,
-      version: 10,
+      version: 12,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -47,7 +47,9 @@ class DatabaseService {
             edit_timestamp TEXT,
             reactions TEXT,
             reactions_json TEXT,
-            reply_preview TEXT
+            reply_preview TEXT,
+            forwarded_from TEXT,
+            encryption_type TEXT
           )
         ''');
         await db.execute(
@@ -198,6 +200,16 @@ class DatabaseService {
           );
           await db.execute(
             'ALTER TABLE messages ADD COLUMN reply_preview TEXT',
+          );
+        }
+        if (oldVersion < 11) {
+          await db.execute(
+            'ALTER TABLE messages ADD COLUMN forwarded_from TEXT',
+          );
+        }
+        if (oldVersion < 12) {
+          await db.execute(
+            'ALTER TABLE messages ADD COLUMN encryption_type TEXT',
           );
         }
       },
@@ -526,22 +538,16 @@ class DatabaseService {
     final db = await database;
     final Map<String, List<Map<String, dynamic>>> tables = {};
 
-    final List<String> tableNames = [
-      'messages',
-      'conversations',
-      'signal_sessions',
-      'signal_identities',
-      'signal_pre_keys',
-      'signal_signed_pre_keys',
-      'signal_config',
-    ];
+    final List<Map<String, dynamic>> tableRecords = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+    );
 
-    for (var tableName in tableNames) {
+    for (var record in tableRecords) {
+      final tableName = record['name'] as String;
       try {
         final rows = await db.query(tableName);
         tables[tableName] = rows;
       } catch (e) {
-        // Table might not exist yet if not used
         tables[tableName] = [];
       }
     }

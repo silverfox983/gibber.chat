@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/spaces_service.dart';
+import '../services/auth_service.dart';
 
 class CreateSpaceDialog extends StatefulWidget {
   final SpacesService spacesService;
@@ -23,28 +24,48 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
   final _nameController = TextEditingController();
   final _nodeController = TextEditingController();
   final _descController = TextEditingController();
+  late final TextEditingController _domainController;
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.domain;
+    // Default to pubsub.domain.com — the standard PubSub service location.
+    // If the server uses the domain itself as pubsub host, the user can change it.
+    _domainController = TextEditingController(
+      text: d.contains('.') ? 'pubsub.$d' : d,
+    );
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
     _nodeController.dispose();
     _descController.dispose();
+    _domainController.dispose();
     super.dispose();
   }
 
+  bool _showNameError = false;
+
   Future<void> _createSpace() async {
     final name = _nameController.text.trim();
-    final node = _nodeController.text.trim().isNotEmpty 
-        ? _nodeController.text.trim() 
+    final node = _nodeController.text.trim().isNotEmpty
+        ? _nodeController.text.trim()
         : 'space_${DateTime.now().millisecondsSinceEpoch}';
-    
-    if (name.isEmpty) return;
+    final targetDomain = _domainController.text.trim();
 
-    setState(() => _isLoading = true);
+    if (name.isEmpty) {
+      setState(() => _showNameError = true);
+      return;
+    }
+    if (targetDomain.isEmpty) return;
 
-    final success = await widget.spacesService.createSpace(
-      widget.domain,
+    setState(() { _isLoading = true; _showNameError = false; });
+
+    final errorMessage = await widget.spacesService.createSpace(
+      targetDomain,
       node,
       name,
       description: _descController.text.trim(),
@@ -52,13 +73,20 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
 
     setState(() => _isLoading = false);
 
-    if (success) {
-      if (mounted) Navigator.pop(context);
+    if (errorMessage == null) {
+      if (mounted) {
+        Provider.of<AuthService>(context, listen: false).joinPersistedSpace(targetDomain, node, name);
+        Navigator.pop(context);
+      }
       widget.onSuccess();
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to create space.')),
+          SnackBar(
+            content: Text(errorMessage),
+            duration: const Duration(seconds: 5),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       }
     }
@@ -92,106 +120,117 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                 ),
               ],
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Icon(
-                  Icons.workspaces_rounded,
-                  size: 48,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Create New Space',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.5,
-                    color: theme.colorScheme.onSurface,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Icon(
+                    Icons.workspaces_rounded,
+                    size: 48,
+                    color: theme.colorScheme.primary,
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Spaces allow you to group multiple rooms and communities together.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: theme.colorScheme.onSurfaceVariant,
+                  const SizedBox(height: 16),
+                  Text(
+                    'Create New Space',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
+                      color: theme.colorScheme.onSurface,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 32),
-                _buildTextField(
-                  controller: _nameController,
-                  label: 'Space Name',
-                  icon: Icons.title_rounded,
-                  theme: theme,
-                ),
-                const SizedBox(height: 16),
-                _buildTextField(
-                  controller: _descController,
-                  label: 'Description (Optional)',
-                  icon: Icons.description_rounded,
-                  theme: theme,
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 16),
-                _buildTextField(
-                  controller: _nodeController,
-                  label: 'Node ID (Optional)',
-                  icon: Icons.code_rounded,
-                  theme: theme,
-                ),
-                const SizedBox(height: 32),
-                if (_isLoading)
-                  const Center(child: CircularProgressIndicator())
-                else
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Spaces allow you to group multiple rooms and communities together.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  _buildTextField(
+                    controller: _nameController,
+                    label: 'Space Name',
+                    icon: Icons.title_rounded,
+                    theme: theme,
+                    errorText: _showNameError ? 'Space name is required' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    controller: _descController,
+                    label: 'Description (Optional)',
+                    icon: Icons.description_rounded,
+                    theme: theme,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    controller: _domainController,
+                    label: 'PubSub Domain',
+                    icon: Icons.dns_rounded,
+                    theme: theme,
+                    helperText: 'Usually pubsub.yourdomain.com — check with your server admin',
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    controller: _nodeController,
+                    label: 'Node ID (Optional)',
+                    icon: Icons.code_rounded,
+                    theme: theme,
+                  ),
+                  const SizedBox(height: 32),
+                  if (_isLoading)
+                    const Center(child: CircularProgressIndicator())
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
                             ),
-                          ),
-                          child: Text(
-                            'Cancel',
-                            style: TextStyle(
-                              color: theme.colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.bold,
+                            child: Text(
+                              'Cancel',
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _createSpace,
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            backgroundColor: theme.colorScheme.primary,
-                            foregroundColor: theme.colorScheme.onPrimary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: _createSpace,
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              backgroundColor: theme.colorScheme.primary,
+                              foregroundColor: theme.colorScheme.onPrimary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              elevation: 0,
                             ),
-                            elevation: 0,
-                          ),
-                          child: const Text(
-                            'Create',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0.5,
+                            child: const Text(
+                              'Create',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-              ],
+                      ],
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -205,6 +244,8 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
     required IconData icon,
     required ThemeData theme,
     int maxLines = 1,
+    String? helperText,
+    String? errorText,
   }) {
     return TextField(
       controller: controller,
@@ -216,7 +257,10 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
       decoration: InputDecoration(
         labelText: label,
         labelStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-        prefixIcon: Icon(icon, color: theme.colorScheme.primary),
+        prefixIcon: Icon(icon, color: errorText != null ? theme.colorScheme.error : theme.colorScheme.primary),
+        helperText: helperText,
+        helperMaxLines: 2,
+        errorText: errorText,
         filled: true,
         fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
         border: OutlineInputBorder(
@@ -226,13 +270,15 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(
-            color: theme.colorScheme.outline.withValues(alpha: 0.2),
+            color: errorText != null
+                ? theme.colorScheme.error
+                : theme.colorScheme.outline.withValues(alpha: 0.2),
           ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(
-            color: theme.colorScheme.primary,
+            color: errorText != null ? theme.colorScheme.error : theme.colorScheme.primary,
             width: 2,
           ),
         ),

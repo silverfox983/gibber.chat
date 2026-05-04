@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import '../models/chat_models.dart';
 import '../services/backup_service.dart';
+import '../services/data_export_service.dart';
 import './login_screen.dart';
 import './security_settings_screen.dart';
 
@@ -28,6 +30,7 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
         iconTheme: IconThemeData(color: Theme.of(context).colorScheme.onPrimary),
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: null,
         onPressed: () {
           Navigator.push(
             context,
@@ -116,10 +119,10 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
                     Divider(height: 1, color: Theme.of(context).colorScheme.outline),
                     ListTile(
                       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                      leading: const Icon(Icons.cloud_upload_rounded, color: Colors.blue, size: 28),
-                      title: const Text('Export Profile', style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: const Text('Create an encrypted backup of your data'),
-                      onTap: () => _handleExport(authService),
+                      leading: const Icon(Icons.archive_rounded, color: Colors.purple, size: 28),
+                      title: const Text('Export Backup Archive', style: TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: const Text('ZIP encrypted profile, voice notes, and calls'),
+                      onTap: () => _handleFullExport(authService),
                       enabled: !_isProcessing,
                     ),
                     Divider(height: 1, color: Theme.of(context).colorScheme.outline),
@@ -134,6 +137,43 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
                   ],
                 ),
               ),
+              const SizedBox(height: 32),
+              Text('APPEARANCE & SOUNDS', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+              const SizedBox(height: 16),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Theme.of(context).colorScheme.outline),
+                ),
+                child: Column(
+                  children: [
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      leading: const Icon(Icons.music_note_rounded, color: Colors.blue, size: 28),
+                      title: const Text('Custom Ringtone', style: TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: const Text('Select an audio file for incoming calls'),
+                      onTap: _pickCustomRingtone,
+                    ),
+                    Divider(height: 1, color: Theme.of(context).colorScheme.outline),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      leading: const Icon(Icons.restore_rounded, color: Colors.redAccent, size: 28),
+                      title: const Text('Reset Ringtone', style: TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: const Text('Restore default Gibber ringtone'),
+                      onTap: () async {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.remove('custom_ringtone_path');
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: const Text('Ringtone reset to default.'), backgroundColor: Theme.of(context).colorScheme.secondary),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
               if (_isProcessing)
                 const Padding(
                   padding: EdgeInsets.all(32),
@@ -144,6 +184,37 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _pickCustomRingtone() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.audio,
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('custom_ringtone_path', result.files.single.path!);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Custom ringtone saved!'),
+              backgroundColor: Theme.of(context).colorScheme.secondary,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to pick ringtone: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
   }
 
   Future<String?> _showPasswordDialog({required bool isExport}) async {
@@ -190,34 +261,32 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
     );
   }
 
-  Future<void> _handleExport(AuthService authService) async {
+  Future<void> _handleFullExport(AuthService authService) async {
     final password = await _showPasswordDialog(isExport: true);
     if (password == null || password.isEmpty) return;
 
     setState(() => _isProcessing = true);
     try {
-      final backupService = BackupService(authService);
-      final jsonStr = await backupService.generateBackup();
-      final encryptedData = await backupService.encryptBackup(jsonStr, password);
-      
-      String? outputPath = await FilePicker.platform.saveFile(
-        dialogTitle: 'Save Gibber Backup',
-        fileName: 'gibber_backup_\${DateTime.now().millisecondsSinceEpoch}.gibber',
-        type: FileType.any,
-      );
+      final exportService = DataExportService(authService);
+      final zipPath = await exportService.createFullExport(password);
 
-      if (outputPath != null) {
-        await backupService.saveBackupToFile(encryptedData, outputPath);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: const Text('Secure backup exported successfully!'), backgroundColor: Theme.of(context).colorScheme.secondary)
-          );
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Export compiled! Opening share menu...'),
+            backgroundColor: Theme.of(context).colorScheme.secondary,
+          ),
+        );
       }
+
+      await exportService.shareExport(zipPath);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: \$e'), backgroundColor: Theme.of(context).colorScheme.error)
+          SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       }
     } finally {
@@ -251,20 +320,31 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
       );
 
       if (result != null && result.files.single.path != null) {
-        final backupService = BackupService(authService);
-        final encodedData = await backupService.loadBackupFromFile(result.files.single.path!);
+        final filePath = result.files.single.path!;
+        final isZip = filePath.toLowerCase().endsWith('.zip');
         
         String? password = '';
-        if (!encodedData.trim().startsWith('{')) {
+        if (isZip) {
           password = await _showPasswordDialog(isExport: false);
           if (password == null) {
             setState(() => _isProcessing = false);
             return;
           }
+        } else {
+          // Check if it's an unencrypted JSON or an encrypted .gibber
+          final backupService = BackupService(authService);
+          final encodedData = await backupService.loadBackupFromFile(filePath);
+          if (!encodedData.trim().startsWith('{')) {
+            password = await _showPasswordDialog(isExport: false);
+            if (password == null) {
+              setState(() => _isProcessing = false);
+              return;
+            }
+          }
         }
 
-        final jsonStr = await backupService.decryptBackup(encodedData, password);
-        await backupService.restoreBackup(jsonStr);
+        final exportService = DataExportService(authService);
+        await exportService.importFullBackup(filePath, password ?? '');
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

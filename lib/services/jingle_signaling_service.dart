@@ -64,9 +64,9 @@ class JingleSignalingService {
 
   // Track pending outgoing sessions awaiting <proceed/> - stores SDP and metadata
   final Map<String, Map<String, dynamic>> _pendingProposeSessions = {};
-  
+
   // Timers for XEP-0353 fallbacks
-  final Map<String, Timer> _proposeFallbackTimers = {};
+
 
   // Callback for when <proceed/> is received for an outgoing call
   Function(String sessionId, String sdp, String toJid)? onProceedReceived;
@@ -88,13 +88,20 @@ class JingleSignalingService {
     debugPrint('Jingle: Initialized for ${connection.fullJid.fullJid}');
   }
 
+  void _writeStanza(xmpp.AbstractStanza stanza) {
+    if (connection.state != xmpp.XmppConnectionState.Ready) {
+      debugPrint(
+        'Jingle: ERROR - Attempted to send stanza while XMPP is not Ready (State: ${connection.state})',
+      );
+      throw Exception('XMPP Connection is not ready. Please reconnect.');
+    }
+    connection.writeStanza(stanza);
+  }
+
   void dispose() {
     _stanzaSubscription?.cancel();
     _stanzaSubscription = null;
-    for (var t in _proposeFallbackTimers.values) {
-      t.cancel();
-    }
-    _proposeFallbackTimers.clear();
+
     if (!_eventController.isClosed) {
       _eventController.close();
     }
@@ -103,19 +110,31 @@ class JingleSignalingService {
   // AuthService handles dispatching to these public handlers
 
   void handleIncomingMessage(xmpp.MessageStanza stanza) {
+    if (stanza.type == xmpp.MessageStanzaType.ERROR) {
+      debugPrint('Jingle: Ignoring bounced Jingle message (type=error)');
+      return;
+    }
+
     // 1. Skip Jingle signaling from MAM (archived calls) or delayed messages
     final mamResult = stanza.getChild('result');
     final delay = stanza.getChild('delay');
-    if ((mamResult != null && mamResult.getAttribute('xmlns')?.value == 'urn:xmpp:mam:2') ||
-        (delay != null && delay.getAttribute('xmlns')?.value == 'urn:xmpp:delay')) {
-      debugPrint('Jingle: Ignoring historical Jingle Message (MAM or delayed).');
+    if ((mamResult != null &&
+            mamResult.getAttribute('xmlns')?.value == 'urn:xmpp:mam:2') ||
+        (delay != null &&
+            delay.getAttribute('xmlns')?.value == 'urn:xmpp:delay')) {
+      debugPrint(
+        'Jingle: Ignoring historical Jingle Message (MAM or delayed).',
+      );
       return;
     }
 
     // 2. Filter out self-sent messages (including reflected carbons)
-    final fromJidStr = stanza.fromJid != null ? '${stanza.fromJid!.local}@${stanza.fromJid!.domain}'.toLowerCase() : '';
-    final myJidStr = '${connection.fullJid.local}@${connection.fullJid.domain}'.toLowerCase();
-    
+    final fromJidStr = stanza.fromJid != null
+        ? '${stanza.fromJid!.local}@${stanza.fromJid!.domain}'.toLowerCase()
+        : '';
+    final myJidStr = '${connection.fullJid.local}@${connection.fullJid.domain}'
+        .toLowerCase();
+
     // We only filter if it's a Carbon-sent or we are sure it's us
     final isCarbonSent = stanza.getChild('sent') != null;
     if (isCarbonSent && fromJidStr == myJidStr) {
@@ -143,12 +162,17 @@ class JingleSignalingService {
       final name = child.name;
 
       // Handle XEP-0353 elements (urn:xmpp:jingle-message:0/1 namespace)
-      if (ns == 'urn:xmpp:jingle-message:0' || ns == 'urn:xmpp:jingle-message:1') {
-        debugPrint('Jingle: Found XEP-0353 element: $name in NS: $ns from ${stanza.fromJid?.fullJid}');
+      if (ns == 'urn:xmpp:jingle-message:0' ||
+          ns == 'urn:xmpp:jingle-message:1') {
+        debugPrint(
+          'Jingle: Found XEP-0353 element: $name in NS: $ns from ${stanza.fromJid?.fullJid}',
+        );
         _processJingleMessageElement(child, stanza);
         continue;
       } else if (name == 'ringing' || name == 'propose' || name == 'proceed') {
-        debugPrint('Jingle: Found potential Jingle Message element $name but NS is $ns');
+        debugPrint(
+          'Jingle: Found potential Jingle Message element $name but NS is $ns',
+        );
       }
 
       // Handle legacy Jingle in MESSAGE (some implementations send directly)
@@ -184,12 +208,21 @@ class JingleSignalingService {
         _handleReject(sid, fromJid, element);
         break;
       case 'ringing':
-        debugPrint('Jingle: [XEP-0353] Remote is ringing from $fromJid, sid: $sid');
-        
+        debugPrint(
+          'Jingle: [XEP-0353] Remote is ringing from $fromJid, sid: $sid',
+        );
+
+        // Cancel fallback timer since we know they support XEP-0353 and received the proposal
+
+
         // DYNAMIC JID UPDATE: If we were waiting on a bare JID, we now have a full JID
         final pending = _pendingProposeSessions[sid];
-        if (pending != null && !pending['toJid'].contains('/') && fromJid.contains('/')) {
-          debugPrint('Jingle: [XEP-0353] Updating bare JID to full JID: $fromJid');
+        if (pending != null &&
+            !pending['toJid'].contains('/') &&
+            fromJid.contains('/')) {
+          debugPrint(
+            'Jingle: [XEP-0353] Updating bare JID to full JID: $fromJid',
+          );
           pending['toJid'] = fromJid;
         }
 
@@ -246,7 +279,7 @@ class JingleSignalingService {
     );
 
     // DYNAMIC JID UPDATE: Ensure we use the full JID that sent the proceed
-    if (pending != null && fromJid.contains('/')) {
+    if (fromJid.contains('/')) {
       pending['toJid'] = fromJid;
     }
 
@@ -256,8 +289,7 @@ class JingleSignalingService {
 
     // Remove from pending
     _pendingProposeSessions.remove(sid);
-    _proposeFallbackTimers[sid]?.cancel();
-    _proposeFallbackTimers.remove(sid);
+
 
     // Now send the actual Jingle IQ with session-initiate
     sendSessionInitiateIq(toJid, sid, sdp, isVideo: isVideo);
@@ -269,8 +301,7 @@ class JingleSignalingService {
   void _handleReject(String sid, String fromJid, xmpp.XmppElement element) {
     debugPrint('Jingle: [XEP-0353] Session rejected, sid: $sid');
     _pendingProposeSessions.remove(sid);
-    _proposeFallbackTimers[sid]?.cancel();
-    _proposeFallbackTimers.remove(sid);
+
 
     String? reason;
     final reasonEl = element.getChild('reason');
@@ -473,6 +504,9 @@ class JingleSignalingService {
       propose.addChild(descVideo);
     }
 
+    proposeMessage.body = isVideo
+        ? '📹 Incoming video call...'
+        : '📞 Incoming audio call...';
     proposeMessage.addChild(propose);
 
     // Store SDP for when proceed is received
@@ -486,42 +520,9 @@ class JingleSignalingService {
     debugPrint(
       'Jingle: [XEP-0353] Sending <propose/> to $toJid, sid: $sessionId',
     );
-    connection.writeStanza(proposeMessage);
+    _writeStanza(proposeMessage);
 
-    // FALLBACK: If we don't get <proceed/> in 8 seconds, send standard IQ anyway
-    // This handles clients/gateways that don't support XEP-0353.
-    // CRITICAL: Only send fallback IQ if we have a full JID or it's a known gateway service.
-    // Sending session-initiate to a bare JID of a regular user will almost always fail.
-    _proposeFallbackTimers[sessionId] = Timer(const Duration(seconds: 8), () {
-      final pending = _pendingProposeSessions[sessionId];
-      if (pending != null) {
-        final jidStr = pending['toJid'] as String;
-        final isFullJid = jidStr.contains('/');
-        final isGateway = jidStr.contains('cheogram') || jidStr.contains('gateway') || jidStr.contains('+');
 
-        if (isFullJid || isGateway) {
-          debugPrint(
-            'Jingle: [XEP-0353] Fallback triggered for $sessionId - sending IQ session-initiate to $jidStr',
-          );
-          sendSessionInitiateIq(
-            jidStr,
-            sessionId,
-            pending['sdp'],
-            isVideo: pending['isVideo'] ?? false,
-          );
-          // Only remove if we actually sent the fallback IQ
-          _pendingProposeSessions.remove(sessionId);
-          _proposeFallbackTimers.remove(sessionId);
-        } else {
-          debugPrint(
-            'Jingle: [XEP-0353] Timeout for $sessionId on bare JID $jidStr - waiting for response instead of falling back to invalid IQ.',
-          );
-          // CRITICAL: DO NOT remove from _pendingProposeSessions yet. 
-          // We must wait for the remote to respond with a full JID.
-          _proposeFallbackTimers.remove(sessionId);
-        }
-      }
-    });
   }
 
   /// Send actual Jingle session-initiate via IQ stanza
@@ -555,7 +556,7 @@ class JingleSignalingService {
     _messageInitiatedSessions.add(sessionId);
 
     debugPrint('Jingle: [INITIATE] Sending IQ to $toJid');
-    connection.writeStanza(iq);
+    _writeStanza(iq);
   }
 
   /// XEP-0353: Send session-accept via MESSAGE stanza
@@ -579,7 +580,12 @@ class JingleSignalingService {
     jingle.addAttribute(XmppAttribute('responder', connection.fullJid.fullJid));
 
     final expectedOrder = _sessionContentMap[sessionId];
-    final contents = _generateContentsFromSdp(sdp, 'initiator', sessionId, expectedOrder: expectedOrder);
+    final contents = _generateContentsFromSdp(
+      sdp,
+      'initiator',
+      sessionId,
+      expectedOrder: expectedOrder,
+    );
     for (var content in contents) {
       jingle.addChild(content);
     }
@@ -587,9 +593,7 @@ class JingleSignalingService {
     message.addChild(jingle);
     _messageInitiatedSessions.add(sessionId);
 
-    debugPrint(
-      'Jingle: [STANDARD] Sending session-accept via IQ to $toJid',
-    );
+    debugPrint('Jingle: [STANDARD] Sending session-accept via IQ to $toJid');
     sendSessionAccept(toJid, sessionId, sdp, isVideo: isVideo);
   }
 
@@ -607,8 +611,10 @@ class JingleSignalingService {
     proceed.addAttribute(XmppAttribute('id', sessionId));
     message.addChild(proceed);
 
-    debugPrint('Jingle: [XEP-0353] Sending <proceed/> to $toJid, sid: $sessionId');
-    connection.writeStanza(message);
+    debugPrint(
+      'Jingle: [XEP-0353] Sending <proceed/> to $toJid, sid: $sessionId',
+    );
+    _writeStanza(message);
   }
 
   /// XEP-0353: Send transport-info via MESSAGE stanza
@@ -667,40 +673,48 @@ class JingleSignalingService {
     debugPrint(
       'Jingle: [XEP-0353] Sending transport-info via MESSAGE to $toJid',
     );
-    connection.writeStanza(message);
+    _writeStanza(message);
 
     // Also send via standard IQ for redundancy and fallback
     sendIceCandidate(toJid, sessionId, candidateMap, isVideo: isVideo);
   }
 
-  /// XEP-0353: Send session-terminate via MESSAGE stanza
-  void sendSessionTerminateViaMessage(
-    String toJid,
-    String sessionId, {
-    String reason = 'success',
-  }) {
+  /// XEP-0353: Send <retract/> via MESSAGE stanza (used by caller to cancel)
+  void sendRetractViaMessage(String toJid, String sessionId) {
     final message = xmpp.MessageStanza(
       DateTime.now().millisecondsSinceEpoch.toString(),
       xmpp.MessageStanzaType.CHAT,
     );
     message.addAttribute(XmppAttribute('to', toJid));
 
-    final jingle = xmpp.XmppElement();
-    jingle.name = 'jingle';
-    jingle.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
-    jingle.addAttribute(XmppAttribute('action', 'session-terminate'));
-    jingle.addAttribute(XmppAttribute('sid', sessionId));
+    final retract = xmpp.XmppElement();
+    retract.name = 'retract';
+    retract.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle-message:0'));
+    retract.addAttribute(XmppAttribute('id', sessionId));
+    message.addChild(retract);
+    message.body = '📞 Call cancelled.';
 
-    final reasonEl = xmpp.XmppElement();
-    reasonEl.name = reason;
-    jingle.addChild(reasonEl);
+    debugPrint('Jingle: [XEP-0353] Sending <retract/> via MESSAGE to $toJid');
+    _writeStanza(message);
+  }
 
-    message.addChild(jingle);
-
-    debugPrint(
-      'Jingle: [XEP-0353] Sending session-terminate via MESSAGE to $toJid',
+  /// XEP-0353: Send <reject/> via MESSAGE stanza (used by callee to decline)
+  void sendRejectViaMessage(String toJid, String sessionId) {
+    final message = xmpp.MessageStanza(
+      DateTime.now().millisecondsSinceEpoch.toString(),
+      xmpp.MessageStanzaType.CHAT,
     );
-    connection.writeStanza(message);
+    message.addAttribute(XmppAttribute('to', toJid));
+
+    final reject = xmpp.XmppElement();
+    reject.name = 'reject';
+    reject.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle-message:0'));
+    reject.addAttribute(XmppAttribute('id', sessionId));
+    message.addChild(reject);
+    message.body = '📞 Call declined.';
+
+    debugPrint('Jingle: [XEP-0353] Sending <reject/> via MESSAGE to $toJid');
+    _writeStanza(message);
   }
 
   void sendSessionInitiate(
@@ -726,14 +740,19 @@ class JingleSignalingService {
     jingle.addAttribute(XmppAttribute('initiator', connection.fullJid.fullJid));
 
     final contents = _generateContentsFromSdp(sdp, 'initiator', sessionId);
-    
+
     // PRE-TRICKLE OPTIMIZATION: Include any candidates gathered during createOffer/setLocalDescription
     final pending = _pendingOutgoingCandidates.remove(sessionId);
     if (pending != null && pending.isNotEmpty) {
-      debugPrint('Jingle: Including ${pending.length} pre-gathered candidates in session-initiate');
+      debugPrint(
+        'Jingle: Including ${pending.length} pre-gathered candidates in session-initiate',
+      );
       for (var cand in pending) {
         final contentName = cand['sdpMid']?.toString() ?? '0';
-        final content = contents.firstWhere((c) => c.getAttribute('name')?.value == contentName, orElse: () => contents.first);
+        final content = contents.firstWhere(
+          (c) => c.getAttribute('name')?.value == contentName,
+          orElse: () => contents.first,
+        );
         final transport = content.getChild('transport');
         if (transport != null) {
           final candEl = xmpp.XmppElement();
@@ -754,7 +773,7 @@ class JingleSignalingService {
     debugPrint(
       'Jingle: Sending session-initiate to $toJid with ${contents.length} contents (IQ: $iqId)',
     );
-    connection.writeStanza(iq);
+    _writeStanza(iq);
   }
 
   void sendSessionAccept(
@@ -769,7 +788,7 @@ class JingleSignalingService {
     // CRITICAL: Force both 'to' and 'id' to ensure routing and tracking integrity
     iq.addAttribute(XmppAttribute('to', toJid));
     iq.addAttribute(XmppAttribute('id', iqId));
-    
+
     // CRITICAL: Mark session as acknowledged at the VERY START
     // This prevents candidates generated during the conversion from being queued
     _acknowledgedSessions.add(sessionId);
@@ -783,8 +802,13 @@ class JingleSignalingService {
     jingle.addAttribute(XmppAttribute('responder', connection.fullJid.fullJid));
 
     final expectedOrder = _sessionContentMap[sessionId];
-    final contents = _generateContentsFromSdp(sdp, 'initiator', sessionId, expectedOrder: expectedOrder);
-    
+    final contents = _generateContentsFromSdp(
+      sdp,
+      'initiator',
+      sessionId,
+      expectedOrder: expectedOrder,
+    );
+
     // PRE-TRICKLE OPTIMIZATION: Include robust candidates in session-accept
     final key = sessionId.trim();
     final pending = _pendingOutgoingCandidates.remove(key) ?? [];
@@ -793,18 +817,18 @@ class JingleSignalingService {
 
     if (pending.isNotEmpty) {
       final sdpLower = sdp.toLowerCase();
-      
+
       for (var cand in pending) {
         final candStr = cand['candidate']?.toString() ?? '';
         final type = cand['type']?.toString() ?? '';
-        
+
         // Strategy: Include up to 10 host/srflx candidates in session-accept.
         // This supports non-trickle gateways and provides robust failover.
         bool shouldInclude = false;
         if (type == 'srflx' || type == 'host') {
           shouldInclude = true;
         }
-        
+
         if (shouldInclude && toInclude.length >= 10) {
           shouldInclude = false;
         }
@@ -820,13 +844,15 @@ class JingleSignalingService {
             }
           }
         }
-        
+
         // If not included in the accept stanza, postpone for transport-info
         toPostpone.add(cand);
       }
 
       if (toInclude.isNotEmpty) {
-        debugPrint('Jingle: Including ${toInclude.length} pre-gathered candidates in session-accept');
+        debugPrint(
+          'Jingle: Including ${toInclude.length} pre-gathered candidates in session-accept',
+        );
         for (var cand in toInclude) {
           final contentName = cand['sdpMid']?.toString() ?? '0';
           final content = contents.firstWhere(
@@ -847,7 +873,9 @@ class JingleSignalingService {
 
       // Re-queue postponed candidates so they are flushed after the accept stanza is sent
       if (toPostpone.isNotEmpty) {
-        _pendingOutgoingCandidates.putIfAbsent(key, () => []).addAll(toPostpone);
+        _pendingOutgoingCandidates
+            .putIfAbsent(key, () => [])
+            .addAll(toPostpone);
       }
     }
 
@@ -856,23 +884,25 @@ class JingleSignalingService {
     }
 
     iq.addChild(jingle);
-    
+
     debugPrint(
       'Jingle: Sending session-accept to $toJid with ${contents.length} contents',
     );
-    connection.writeStanza(iq);
+    _writeStanza(iq);
 
     // FLUSH: Send all candidates that were postponed or arrived during preparation
     // This MUST happen after the session-accept stanza is sent.
-    final acceptCandsRaw = toInclude.map((c) => c['candidate'] as String).toSet();
+    final acceptCandsRaw = toInclude
+        .map((c) => c['candidate'] as String)
+        .toSet();
     final queued = _pendingOutgoingCandidates.remove(key);
-    
+
     if (queued != null && queued.isNotEmpty) {
       final sdpLower = sdp.toLowerCase();
       final remaining = queued.where((c) {
         final candStr = c['candidate'] as String;
         if (acceptCandsRaw.contains(candStr)) return false;
-        
+
         // Deduplicate against candidates already in the SDP
         final parts = candStr.split(' ');
         if (parts.length > 5) {
@@ -881,9 +911,11 @@ class JingleSignalingService {
         }
         return true;
       }).toList();
-      
+
       if (remaining.isNotEmpty) {
-        debugPrint('Jingle: [FLUSH] Sending ${remaining.length} additional candidates via transport-info');
+        debugPrint(
+          'Jingle: [FLUSH] Sending ${remaining.length} additional candidates via transport-info',
+        );
         for (var cand in remaining) {
           sendIceCandidate(toJid, sessionId, cand);
         }
@@ -899,14 +931,20 @@ class JingleSignalingService {
   }) {
     // HARDENING: If session is not in our content map yet (e.g. candidates generated before session-initiate),
     // or not acknowledged, queue the candidate for flushing.
-    if (!_sessionContentMap.containsKey(sessionId) || !_acknowledgedSessions.contains(sessionId)) {
-      debugPrint('Jingle: Session $sessionId not ready for transport-info, queuing candidate');
-      _pendingOutgoingCandidates.putIfAbsent(sessionId, () => []).add(candidateMap);
+    if (!_sessionContentMap.containsKey(sessionId) ||
+        !_acknowledgedSessions.contains(sessionId)) {
+      debugPrint(
+        'Jingle: Session $sessionId not ready for transport-info, queuing candidate',
+      );
+      _pendingOutgoingCandidates
+          .putIfAbsent(sessionId, () => [])
+          .add(candidateMap);
       return;
     }
 
     // CRITICAL: Use high-precision ID to avoid collisions when flushing multiple candidates
-    final iqId = 'cand_${DateTime.now().microsecondsSinceEpoch}_${candidateMap['sdpMid'] ?? 0}_${_candidateCounter++}';
+    final iqId =
+        'cand_${DateTime.now().microsecondsSinceEpoch}_${candidateMap['sdpMid'] ?? 0}_${_candidateCounter++}';
     _iqToSessionId[iqId] = sessionId;
     _iqToRecipientJid[iqId] = toJid;
     final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
@@ -946,8 +984,12 @@ class JingleSignalingService {
     if (credentials != null) {
       final sessionUfrag = credentials['ufrag'];
       final sessionPwd = credentials['pwd'];
-      if (sessionUfrag != null) transport.addAttribute(XmppAttribute('ufrag', sessionUfrag));
-      if (sessionPwd != null) transport.addAttribute(XmppAttribute('pwd', sessionPwd));
+      if (sessionUfrag != null) {
+        transport.addAttribute(XmppAttribute('ufrag', sessionUfrag));
+      }
+      if (sessionPwd != null) {
+        transport.addAttribute(XmppAttribute('pwd', sessionPwd));
+      }
     }
 
     final candidate = candidateMap['candidate'];
@@ -957,9 +999,11 @@ class JingleSignalingService {
       if (parts.length >= 3) {
         final component = parts[1]; // component 1=RTP, 2=RTCP
         final protocol = parts[2].toLowerCase();
-        
+
         if (component != '1' || protocol != 'udp') {
-          debugPrint('Jingle: Skipping non-RTP/non-UDP candidate in transport-info: $candidate');
+          debugPrint(
+            'Jingle: Skipping non-RTP/non-UDP candidate in transport-info: $candidate',
+          );
           return;
         }
       }
@@ -967,10 +1011,12 @@ class JingleSignalingService {
 
     final candidateEl = xmpp.XmppElement();
     candidateEl.name = 'candidate';
-    
+
     // XEP-0176: Attempt to add attributes. Discard if invalid/loopback.
     if (!_addCandidateAttributes(candidateEl, candidateMap['candidate'])) {
-      debugPrint('Jingle: Discarding invalid/loopback candidate in transport-info: ${candidateMap['candidate']}');
+      debugPrint(
+        'Jingle: Discarding invalid/loopback candidate in transport-info: ${candidateMap['candidate']}',
+      );
       return;
     }
 
@@ -982,14 +1028,16 @@ class JingleSignalingService {
     debugPrint(
       'Jingle: Sending transport-info to $toJid for content $contentName',
     );
-    connection.writeStanza(iq);
+    _writeStanza(iq);
   }
 
   void _flushPendingCandidates(String sessionId, String toJid) {
     final pending = _pendingOutgoingCandidates.remove(sessionId);
     if (pending == null || pending.isEmpty) return;
 
-    debugPrint('Jingle: Flushing ${pending.length} pending candidates for session $sessionId');
+    debugPrint(
+      'Jingle: Flushing ${pending.length} pending candidates for session $sessionId',
+    );
     for (var cand in pending) {
       // Re-call sendIceCandidate now that session is acknowledged
       sendIceCandidate(toJid, sessionId, cand);
@@ -1019,7 +1067,7 @@ class JingleSignalingService {
 
     iq.addChild(jingle);
     debugPrint('Jingle: Sending session-terminate to $toJid (reason: $reason)');
-    connection.writeStanza(iq);
+    _writeStanza(iq);
 
     // CLEANUP: Stop tracking this session immediately
     _cleanupSession(sessionId);
@@ -1033,7 +1081,7 @@ class JingleSignalingService {
     _pendingOutgoingCandidates.remove(sessionId);
     _messageInitiatedSessions.remove(sessionId);
     _pendingProposeSessions.remove(sessionId);
-    _proposeFallbackTimers.remove(sessionId)?.cancel();
+
     _iqToSessionId.removeWhere((key, value) => value == sessionId);
     _sessionSetupRoles.remove(sessionId);
     _sessionIsIceLite.remove(sessionId);
@@ -1042,17 +1090,43 @@ class JingleSignalingService {
 
   void handleIncomingIq(xmpp.IqStanza stanza) {
     // Handle RESULT acknowledgement for our outgoing IQs (session-initiate, session-accept, etc.)
-    if (stanza.type == xmpp.IqStanzaType.RESULT || stanza.type == xmpp.IqStanzaType.ERROR) {
+    if (stanza.type == xmpp.IqStanzaType.RESULT ||
+        stanza.type == xmpp.IqStanzaType.ERROR) {
       final iqId = stanza.id;
       final sidForIq = _iqToSessionId.remove(iqId);
       final recipientJid = _iqToRecipientJid.remove(iqId);
       if (sidForIq != null) {
         debugPrint('Jingle: IQ $iqId acknowledged for SID: $sidForIq');
         _acknowledgedSessions.add(sidForIq);
-        _flushPendingCandidates(sidForIq, stanza.fromJid?.fullJid ?? recipientJid ?? '');
-        
+        _flushPendingCandidates(
+          sidForIq,
+          stanza.fromJid?.fullJid ?? recipientJid ?? '',
+        );
+
         if (stanza.type == xmpp.IqStanzaType.RESULT) return;
-        // If it's an ERROR, we fall through to process the error details below
+        
+        // Handle IQ Error for a known session directly here!
+        if (stanza.type == xmpp.IqStanzaType.ERROR) {
+          final error = stanza.getChild('error');
+          String reason = 'iq-error';
+          if (error != null && error.children.isNotEmpty) {
+            reason = error.children.first.name ?? 'unknown';
+            final text = error.getChild('text')?.textValue;
+            if (text != null && text.isNotEmpty) {
+              reason = '$reason: $text';
+            }
+          }
+          _cleanupSession(sidForIq);
+          _eventController.add(
+            JingleEvent(
+              action: JingleAction.sessionTerminate,
+              sessionId: sidForIq,
+              fromJid: stanza.fromJid?.fullJid ?? recipientJid ?? '',
+              reason: reason,
+            ),
+          );
+          return;
+        }
       }
     }
 
@@ -1061,7 +1135,9 @@ class JingleSignalingService {
     final actionStr = jingle?.getAttribute('action')?.value;
     final fromJid = stanza.fromJid?.fullJid ?? '';
 
-    debugPrint('Jingle: handleIncomingIq - id: ${stanza.id}, type: ${stanza.type}, from: $fromJid, action: $actionStr, sid: $sid');
+    debugPrint(
+      'Jingle: handleIncomingIq - id: ${stanza.id}, type: ${stanza.type}, from: $fromJid, action: $actionStr, sid: $sid',
+    );
 
     if (jingle == null || sid == null || actionStr == null) return;
 
@@ -1075,10 +1151,8 @@ class JingleSignalingService {
       if (stanza.fromJid != null) {
         result.addAttribute(XmppAttribute('to', stanza.fromJid!.fullJid));
       }
-      connection.writeStanza(result);
+      _writeStanza(result);
     }
-
-    if (sid == null || actionStr == null) return;
 
     JingleAction? action;
     String? sdp;
@@ -1159,17 +1233,29 @@ class JingleSignalingService {
       action = JingleAction.transportInfo;
       final contentNames = _sessionContentMap[sid] ?? [];
       _extractAndFireCandidates(jingle, sid, stanza.fromJid, contentNames);
-      
+
       // XEP-0167 Early Media: Reconstruct remote SDP if transport-info contains dtls fingerprint and ufrag
       // CRITICAL: Only synthesize early media if WE are the initiator. If we are the responder, we already received their full SDP.
       if (_sessionIsWeInitiator[sid] == true) {
-        final contents = jingle.children.where((e) => e.name == 'content').toList();
+        final contents = jingle.children
+            .where((e) => e.name == 'content')
+            .toList();
         if (contents.isNotEmpty) {
           final trans = contents.first.getChild('transport');
-          if (trans != null && trans.getAttribute('ufrag') != null && trans.getChild('fingerprint') != null) {
-            final earlySdp = _reconstructMinimalSdp(contents, false, sid, false, expectedOrder: contentNames);
+          if (trans != null &&
+              trans.getAttribute('ufrag') != null &&
+              trans.getChild('fingerprint') != null) {
+            final earlySdp = _reconstructMinimalSdp(
+              contents,
+              false,
+              sid,
+              false,
+              expectedOrder: contentNames,
+            );
             if (earlySdp != null) {
-              debugPrint('Jingle: Synthesizing early-media SDP from transport-info');
+              debugPrint(
+                'Jingle: Synthesizing early-media SDP from transport-info',
+              );
               _eventController.add(
                 JingleEvent(
                   action: JingleAction.sessionAccept,
@@ -1239,7 +1325,9 @@ class JingleSignalingService {
     }
 
     // Standard o line: <username> <sess-id> <sess-version> <nettype> <addrtype> <unicast-address>
-    writeSdpLine('o=- ${DateTime.now().millisecondsSinceEpoch} 2 IN IP4 $placeholderIp');
+    writeSdpLine(
+      'o=- ${DateTime.now().millisecondsSinceEpoch} 2 IN IP4 $placeholderIp',
+    );
     writeSdpLine('s=-');
     writeSdpLine('t=0 0');
     // msid-semantic: WMS should use a consistent ID with the m-line section msid
@@ -1298,25 +1386,31 @@ class JingleSignalingService {
 
       final description = content.getChild('description');
       final transport = content.getChild('transport');
-      
+
       // XEP-0167: transport-info does not include <description>, but we need it for Early Media SDP.
       // Default to 'audio' and standard payload types if missing.
       final mediaType = description?.getAttribute('media')?.value ?? 'audio';
-      final payloadTypes = description?.children
-          .where((c) => c.name == 'payload-type')
-          .toList() ?? [];
+      final payloadTypes =
+          description?.children
+              .where((c) => c.name == 'payload-type')
+              .toList() ??
+          [];
       final List<String> ptIds = payloadTypes
           .map((pt) => pt.getAttribute('id')?.value)
           .whereType<String>()
           .toList();
 
       if (ptIds.isEmpty) {
-        ptIds.addAll(mediaType == 'video' ? ['96', '102'] : ['111', '0', '8', '9', '101']); // Match exact rtpmap defaults below
+        ptIds.addAll(
+          mediaType == 'video' ? ['96', '102'] : ['111', '0', '8', '9', '101'],
+        ); // Match exact rtpmap defaults below
       }
 
       // Extract the port from the first candidate if available
       String port = '49152';
-      final candidates = transport?.children.where((c) => c.name == 'candidate').toList() ?? [];
+      final candidates =
+          transport?.children.where((c) => c.name == 'candidate').toList() ??
+          [];
       if (candidates.isNotEmpty) {
         port = candidates.first.getAttribute('port')?.value ?? '49152';
       }
@@ -1342,7 +1436,7 @@ class JingleSignalingService {
 
       if (transport != null) {
         // STRIP INITIAL CANDIDATES: Force "Pure Trickle" ICE mode.
-        // Candidates will be supplied to WebRTC exclusively via addIceCandidate 
+        // Candidates will be supplied to WebRTC exclusively via addIceCandidate
         // to prevent premature nomination deadlocks.
 
         final ufrag = transport.getAttribute('ufrag')?.value;
@@ -1357,7 +1451,8 @@ class JingleSignalingService {
         // XEP-0320: Check both <setup/> and fingerprint-level setup (legacy)
         setupRole = transport.getChild('setup')?.textValue;
         for (var f in fingerprints) {
-          final hash = f.getAttribute('hash')?.value?.toUpperCase() ?? 'SHA-256';
+          final hash =
+              f.getAttribute('hash')?.value?.toUpperCase() ?? 'SHA-256';
           setupRole ??= f.getAttribute('setup')?.value;
           writeSdpLine('a=fingerprint:$hash ${f.textValue?.trim() ?? ""}');
         }
@@ -1408,7 +1503,9 @@ class JingleSignalingService {
         if (mediaType == 'video') {
           writeSdpLine('a=rtpmap:96 VP8/90000');
           writeSdpLine('a=rtpmap:102 H264/90000');
-          writeSdpLine('a=fmtp:102 profile-level-id=42e01f;packetization-mode=1');
+          writeSdpLine(
+            'a=fmtp:102 profile-level-id=42e01f;packetization-mode=1',
+          );
         } else {
           writeSdpLine('a=rtpmap:111 opus/48000/2');
           writeSdpLine(
@@ -1473,12 +1570,12 @@ class JingleSignalingService {
       }
     }
 
-      for (int i = 0; i < mediaSections.length; i++) {
+    for (int i = 0; i < mediaSections.length; i++) {
       final section = mediaSections[i];
       final mLine = section[0];
       final parts = mLine.split(' ');
       if (parts.length < 4) continue;
-      
+
       final mediaType = parts[0].substring(2); // audio, video
       final payloads = parts.sublist(3);
 
@@ -1508,7 +1605,7 @@ class JingleSignalingService {
         XmppAttribute('xmlns', 'urn:xmpp:jingle:apps:rtp:1'),
       );
       description.addAttribute(XmppAttribute('media', mediaType));
-      
+
       final transport = xmpp.XmppElement();
       transport.name = 'transport';
       transport.addAttribute(
@@ -1521,7 +1618,7 @@ class JingleSignalingService {
         if (l.startsWith('a=rtpmap:')) {
           final ptParts = l.substring(9).split(' ');
           final ptId = ptParts[0];
-          
+
           // Only include if mentioned in m= line
           if (!payloads.contains(ptId)) continue;
 
@@ -1593,7 +1690,7 @@ class JingleSignalingService {
           final fmtpParts = l.substring(7).split(' ');
           final ptId = fmtpParts[0];
           final pt = ptMap[ptId];
-          
+
           if (pt != null) {
             final params = fmtpParts[1].split(';');
             for (var p in params) {
@@ -1640,7 +1737,9 @@ class JingleSignalingService {
       final ufrag = mediaUfrag ?? sessionUfrag;
       final pwd = mediaPwd ?? sessionPwd;
       final setup = mediaSetup ?? sessionSetup;
-      final fingerprints = mediaFingerprints.isNotEmpty ? mediaFingerprints : sessionFingerprints;
+      final fingerprints = mediaFingerprints.isNotEmpty
+          ? mediaFingerprints
+          : sessionFingerprints;
 
       // Store credentials for transport-info redundancy
       if (ufrag != null && pwd != null) {
@@ -1649,19 +1748,19 @@ class JingleSignalingService {
 
       if (ufrag != null) transport.addAttribute(XmppAttribute('ufrag', ufrag));
       if (pwd != null) transport.addAttribute(XmppAttribute('pwd', pwd));
-      
+
       for (var fp in fingerprints) {
         final f = xmpp.XmppElement();
         f.name = 'fingerprint';
         f.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:apps:dtls:0'));
         f.addAttribute(XmppAttribute('hash', fp['hash']!.toLowerCase()));
-        
+
         // XEP-0320: The 'setup' attribute MUST be included on the <fingerprint/> element.
         if (setup != null) {
           f.addAttribute(XmppAttribute('setup', setup));
           debugPrint('Jingle: Reporting setup on fingerprint: $setup');
         }
-        
+
         // RFC 4572: Use uppercase hex string with colons
         f.textValue = fp['value']!.toUpperCase();
         transport.addChild(f);
@@ -1671,7 +1770,9 @@ class JingleSignalingService {
       if (setup != null) {
         final setupEl = xmpp.XmppElement();
         setupEl.name = 'setup';
-        setupEl.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:jingle:apps:dtls:0'));
+        setupEl.addAttribute(
+          xmpp.XmppAttribute('xmlns', 'urn:xmpp:jingle:apps:dtls:0'),
+        );
         setupEl.textValue = setup;
         transport.addChild(setupEl);
       }
@@ -1702,7 +1803,7 @@ class JingleSignalingService {
         final rtcpMux = xmpp.XmppElement();
         rtcpMux.name = 'rtcp-mux';
         description.addChild(rtcpMux);
-        
+
         // Add rtcp-rsize for optimized feedback
         final rtcpRsize = xmpp.XmppElement();
         rtcpRsize.name = 'rtcp-rsize';
@@ -1719,7 +1820,6 @@ class JingleSignalingService {
     return contents;
   }
 
-
   void _extractAndFireCandidates(
     xmpp.XmppElement jingle,
     String sid,
@@ -1730,7 +1830,8 @@ class JingleSignalingService {
     debugPrint('Jingle: Expected content names: $contentNames');
 
     final iceLiteEl = jingle.getChild('ice-lite');
-    final isIceLite = iceLiteEl != null || jingle.getAttribute('ice-lite')?.value == 'true';
+    final isIceLite =
+        iceLiteEl != null || jingle.getAttribute('ice-lite')?.value == 'true';
     if (isIceLite) {
       _sessionIsIceLite[sid] = true;
     }
@@ -1764,8 +1865,9 @@ class JingleSignalingService {
         }
 
         // Extract setup role if present
-        final setup = transport.getChild('setup')?.textValue ?? 
-                      transport.getChild('fingerprint')?.getAttribute('setup')?.value;
+        final setup =
+            transport.getChild('setup')?.textValue ??
+            transport.getChild('fingerprint')?.getAttribute('setup')?.value;
         if (setup != null) {
           _sessionSetupRoles[sid] = setup;
           debugPrint('Jingle: Discovered setup role: $setup for session $sid');
@@ -1806,9 +1908,9 @@ class JingleSignalingService {
               }
             }
             debugPrint('Jingle: Extracted candidate: $rawCandidate');
-            
+
             // CRITICAL: Filter remote candidates. Only Component 1 (RTP) UDP.
-            // This prevents the local engine from creating redundant pairs that 
+            // This prevents the local engine from creating redundant pairs that
             // cause 'Checking' stalls with legacy PSTN gateways.
             final parts = rawCandidate.split(' ');
             bool shouldAdd = true;
@@ -1834,7 +1936,9 @@ class JingleSignalingService {
                 ),
               );
             } else {
-              debugPrint('Jingle: Skipping remote redundant/TCP candidate: $rawCandidate');
+              debugPrint(
+                'Jingle: Skipping remote redundant/TCP candidate: $rawCandidate',
+              );
             }
           }
         }
@@ -1856,7 +1960,7 @@ class JingleSignalingService {
         final componentAttr = parts[1];
         String priority = parts[3];
         // type was unused, removed.
-        
+
         // CONSISTENCY: We no longer artificially munge the srflx priority.
         // Doing so causes a mismatch with the authoritative WebRTC engine
         // state, causing strict PSTN gateways to drop our STUN binding requests.
@@ -1873,7 +1977,7 @@ class JingleSignalingService {
         element.addAttribute(XmppAttribute('generation', '0'));
         // Optional but recommended for some gateways
         element.addAttribute(XmppAttribute('network', '1'));
-        
+
         if (parts.length > 7) {
           element.addAttribute(XmppAttribute('type', parts[7]));
         }
@@ -1894,8 +1998,10 @@ class JingleSignalingService {
         }
 
         // Mandatory XEP-0176 attributes
-        // Hardening: Include part of IP/Port hash in ID to ensure uniqueness 
-        final candHash = (ip.hashCode ^ parts[5].hashCode).toUnsigned(16).toRadixString(16);
+        // Hardening: Include part of IP/Port hash in ID to ensure uniqueness
+        final candHash = (ip.hashCode ^ parts[5].hashCode)
+            .toUnsigned(16)
+            .toRadixString(16);
         final candId = 'cand_${priority}_${componentAttr}_$candHash';
         element.addAttribute(XmppAttribute('id', candId));
         return true;

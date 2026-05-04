@@ -99,21 +99,17 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             Positioned.fill(
               child: Container(
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      theme.scaffoldBackgroundColor,
-                      theme.colorScheme.primary.withValues(alpha: 0.2),
-                      theme.colorScheme.surface,
-                    ],
-                  ),
+                  color: theme.colorScheme.surface,
                 ),
               ),
             ),
 
           // CRITICAL: RTCVideoView - ALWAYS on top when stream exists
-          if (call.remoteRenderer.srcObject != null) ...[
+          if (call.isGroupCall) ...[
+            Positioned.fill(
+              child: _buildGroupVideoGrid(call),
+            ),
+          ] else if (call.remoteRenderer.srcObject != null) ...[
             Positioned.fill(
               child: IgnorePointer(
                 child: Opacity(
@@ -138,21 +134,30 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
 
           // Main Content (controls, header, visualizer)
           SafeArea(
-            child: Column(
-              children: [
-                const SizedBox(height: 40),
-                _buildHeader(call),
-                const Spacer(),
-                if (!call.isVideo || !isCallActive) _buildVisualizer(call),
-                const Spacer(),
-                _buildControls(call),
-                const SizedBox(height: 40),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: IntrinsicHeight(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 20),
+                        _buildHeader(call),
+                        const Spacer(),
+                        if (!call.isVideo || !isCallActive) _buildVisualizer(call),
+                        const Spacer(),
+                        _buildControls(call),
+                        const SizedBox(height: 20),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
 
-          // Local Video PiP
-          if (call.isVideo && isCallActive && !call.isCameraOff)
+          // Local Video PiP (Only for 1-on-1 calls)
+          if (!call.isGroupCall && call.isVideo && isCallActive && !call.isCameraOff)
             Positioned(
               top: 40,
               right: 20,
@@ -195,6 +200,105 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildGroupVideoGrid(CallProvider call) {
+    final renderers = call.groupRenderers;
+    // We also want to show our local video in the grid if camera is on
+    final showLocal = call.isVideo && !call.isCameraOff;
+    final totalCount = renderers.length + (showLocal ? 1 : 0);
+
+    if (totalCount == 0) {
+      return Container(color: Theme.of(context).colorScheme.surface);
+    }
+
+    // Determine grid columns
+    int crossAxisCount = 1;
+    if (totalCount > 4) {
+      crossAxisCount = 3;
+    } else if (totalCount >= 2) {
+      crossAxisCount = 2;
+    }
+
+    final children = <Widget>[];
+
+    // Local Video Tile
+    if (showLocal) {
+      children.add(_buildGridTile(
+        renderer: call.localRenderer,
+        name: 'You',
+        mirror: true,
+      ));
+    }
+
+    // Remote Video Tiles
+    for (final entry in renderers.entries) {
+      final peerId = entry.key;
+      final renderer = entry.value;
+      children.add(_buildGridTile(
+        renderer: renderer,
+        name: peerId.split('/').last,
+        mirror: false,
+      ));
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 80, bottom: 200, left: 16, right: 16),
+      child: GridView.count(
+        crossAxisCount: crossAxisCount,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+        childAspectRatio: 0.75,
+        children: children,
+      ),
+    );
+  }
+
+  Widget _buildGridTile({
+    required RTCVideoRenderer renderer,
+    required String name,
+    required bool mirror,
+  }) {
+    final theme = Theme.of(context);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: RTCVideoView(
+                renderer,
+                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                mirror: mirror,
+              ),
+            ),
+            Positioned(
+              bottom: 8,
+              left: 8,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    color: theme.colorScheme.surface.withValues(alpha: 0.5),
+                    child: Text(
+                      name,
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -509,6 +613,17 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                 ),
               if (call.state == CallState.active)
                 _enhancedCircleButton(
+                  icon: Icons.person_add_rounded,
+                  label: 'Add',
+                  isActive: true,
+                  activeColor: theme.colorScheme.primary,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    _showAddParticipantDialog(call);
+                  },
+                ),
+              if (call.state == CallState.active)
+                _enhancedCircleButton(
                   icon: Icons.fiber_manual_record_rounded,
                   label: call.isRecording ? 'Stop Rec' : 'Record',
                   isActive: call.isRecording,
@@ -542,7 +657,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                 ),
             ],
           ),
-          const SizedBox(height: 56),
+          const SizedBox(height: 32),
           // End call button
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -570,6 +685,54 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                 },
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddParticipantDialog(CallProvider call) {
+    final jidController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Participant', style: TextStyle(fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Enter the JID of the person you want to invite to this call:'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: jidController,
+              decoration: const InputDecoration(
+                labelText: 'Contact JID',
+                hintText: 'user@example.com',
+                prefixIcon: Icon(Icons.person_rounded),
+              ),
+              autofocus: true,
+              keyboardType: TextInputType.emailAddress,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCEL'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final jid = jidController.text.trim();
+              if (jid.isNotEmpty) {
+                call.inviteParticipant(jid);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Invited $jid to the call')),
+                );
+              }
+            },
+            child: const Text('INVITE'),
           ),
         ],
       ),

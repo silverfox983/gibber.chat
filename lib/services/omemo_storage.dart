@@ -52,12 +52,26 @@ class SQLiteSignalStore implements IdentityKeyStore, SessionStore, PreKeyStore, 
   Future<bool> saveIdentity(SignalProtocolAddress address, IdentityKey? identityKey) async {
     final db = await _db.database;
     if (identityKey == null) return false;
+    
+    // Preserve existing trust level if the identity already exists
+    final List<Map<String, dynamic>> maps = await db.query(
+      'signal_identities',
+      columns: ['trust_level'],
+      where: 'address_name = ? AND device_id = ?',
+      whereArgs: [address.getName().toLowerCase(), address.getDeviceId()],
+    );
+    int existingTrust = 0;
+    if (maps.isNotEmpty) {
+      existingTrust = maps.first['trust_level'] as int? ?? 0;
+    }
+
     await db.insert(
       'signal_identities',
       {
         'address_name': address.getName().toLowerCase(),
         'device_id': address.getDeviceId(),
         'identity_key_data': identityKey.serialize(),
+        'trust_level': existingTrust,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );

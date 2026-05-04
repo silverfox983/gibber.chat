@@ -27,7 +27,8 @@ class _LinkPreviewState extends State<LinkPreview> {
       final response = await http.get(uri).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         final htmlStr = response.body;
-        final title = _extractMeta(htmlStr, 'og:title') ?? _extractTitle(htmlStr);
+        final title =
+            _extractMeta(htmlStr, 'og:title') ?? _extractTitle(htmlStr);
         final desc = _extractMeta(htmlStr, 'og:description');
         final image = _extractMeta(htmlStr, 'og:image');
 
@@ -35,11 +36,12 @@ class _LinkPreviewState extends State<LinkPreview> {
           if (mounted) {
             setState(() {
               _metadata = {
-                if (title != null) 'title': title,
-                if (desc != null) 'description': desc,
-                if (image != null) 'image': image.startsWith('/') 
-                    ? '${uri.scheme}://${uri.host}$image' 
-                    : image,
+                'title': ?title,
+                'description': ?desc,
+                if (image != null)
+                  'image': image.startsWith('/')
+                      ? '${uri.scheme}://${uri.host}$image'
+                      : image,
               };
               _isLoading = false;
             });
@@ -48,7 +50,7 @@ class _LinkPreviewState extends State<LinkPreview> {
         }
       }
     } catch (_) {}
-    
+
     if (mounted) {
       setState(() {
         _hasError = true;
@@ -58,12 +60,18 @@ class _LinkPreviewState extends State<LinkPreview> {
   }
 
   String? _extractMeta(String html, String property) {
-    final regex = RegExp('<meta[^>]+property=["\']$property["\'][^>]+content=["\'](.*?)["\']', caseSensitive: false);
+    final regex = RegExp(
+      '<meta[^>]+property=["\']$property["\'][^>]+content=["\'](.*?)["\']',
+      caseSensitive: false,
+    );
     final match = regex.firstMatch(html);
     if (match != null) return match.group(1);
-    
+
     // Reverse order (content before property)
-    final regexRev = RegExp('<meta[^>]+content=["\'](.*?)["\'][^>]+property=["\']$property["\']', caseSensitive: false);
+    final regexRev = RegExp(
+      '<meta[^>]+content=["\'](.*?)["\'][^>]+property=["\']$property["\']',
+      caseSensitive: false,
+    );
     final matchRev = regexRev.firstMatch(html);
     return matchRev?.group(1);
   }
@@ -82,7 +90,8 @@ class _LinkPreviewState extends State<LinkPreview> {
         height: 60,
         alignment: Alignment.center,
         child: const SizedBox(
-          width: 20, height: 20,
+          width: 20,
+          height: 20,
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
       );
@@ -98,7 +107,9 @@ class _LinkPreviewState extends State<LinkPreview> {
         width: 280,
         margin: const EdgeInsets.only(top: 8),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          color: Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
@@ -115,7 +126,7 @@ class _LinkPreviewState extends State<LinkPreview> {
                 width: double.infinity,
                 height: 120,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
               ),
             Padding(
               padding: const EdgeInsets.all(10),

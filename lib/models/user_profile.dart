@@ -5,6 +5,13 @@ class UserProfile {
   String? nickName;
   String? bio;
   String? avatarPath;
+  String? email;
+  String? phone;
+  String? url;
+  String? organization;
+  String? title;
+  String? role;
+  String? birthday;
   final List<String> accountIds;
 
   UserProfile({
@@ -13,6 +20,13 @@ class UserProfile {
     this.nickName,
     this.bio,
     this.avatarPath,
+    this.email,
+    this.phone,
+    this.url,
+    this.organization,
+    this.title,
+    this.role,
+    this.birthday,
     required this.accountIds,
   });
 
@@ -22,6 +36,13 @@ class UserProfile {
     'nickName': nickName,
     'bio': bio,
     'avatarPath': avatarPath,
+    'email': email,
+    'phone': phone,
+    'url': url,
+    'organization': organization,
+    'title': title,
+    'role': role,
+    'birthday': birthday,
     'accountIds': accountIds,
   };
 
@@ -31,6 +52,13 @@ class UserProfile {
     nickName: json['nickName'] as String?,
     bio: json['bio'] as String?,
     avatarPath: json['avatarPath'],
+    email: json['email'] as String?,
+    phone: json['phone'] as String?,
+    url: json['url'] as String?,
+    organization: json['organization'] as String?,
+    title: json['title'] as String?,
+    role: json['role'] as String?,
+    birthday: json['birthday'] as String?,
     accountIds: List<String>.from(json['accountIds']),
   );
 }

@@ -5,6 +5,7 @@ import '../services/call_history_service.dart';
 import '../providers/call_provider.dart';
 import '../models/call_log.dart';
 import 'dart:ui';
+import 'package:flutter/services.dart';
 
 class DialerWidget extends StatefulWidget {
   final AuthService authService;
@@ -58,14 +59,7 @@ class _DialerWidgetState extends State<DialerWidget> {
 
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            theme.colorScheme.surface,
-            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-          ],
-        ),
+        color: theme.colorScheme.surface,
       ),
       child: Column(
         children: [
@@ -438,14 +432,7 @@ class _DialerWidgetState extends State<DialerWidget> {
     return Container(
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.green.shade400,
-            Colors.green.shade600,
-          ],
-        ),
+        color: Colors.green.shade500,
         boxShadow: [
           BoxShadow(
             color: Colors.green.withValues(alpha: 0.3),

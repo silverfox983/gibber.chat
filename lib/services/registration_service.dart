@@ -9,8 +9,24 @@ class RegistrationService {
   final xmpp.Connection? _connection;
   final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
 
+  late StreamSubscription<xmpp.AbstractStanza?> _subscription;
+
+  xmpp.Connection? get connection => _connection;
+
   RegistrationService([this._connection]) {
-    _connection?.inStanzasStream.listen(_handleStanza);
+    if (_connection != null) {
+      _subscription = _connection.inStanzasStream.listen(_handleStanza);
+    }
+  }
+
+  void dispose() {
+    if (_connection != null) {
+      _subscription.cancel();
+    }
+    for (final completer in _pendingIqs.values) {
+      if (!completer.isCompleted) completer.completeError('Service disposed');
+    }
+    _pendingIqs.clear();
   }
 
   void _handleStanza(xmpp.AbstractStanza? stanza) {
@@ -28,15 +44,17 @@ class RegistrationService {
       throw Exception('Not connected');
     }
 
-    final id = iq.id ?? 'reg_${DateTime.now().microsecondsSinceEpoch}';
+    final id = iq.id ?? 'reg_${xmpp.AbstractStanza.getRandomId()}';
     iq.id = id;
     final completer = Completer<xmpp.IqStanza>();
     _pendingIqs[id] = completer;
-    _connection!.writeStanza(iq);
+    _connection.writeStanza(iq);
 
     Future.delayed(const Duration(seconds: 15), () {
       if (_pendingIqs.containsKey(id)) {
-        _pendingIqs[id]!.completeError(TimeoutException('IQ request timed out'));
+        _pendingIqs[id]!.completeError(
+          TimeoutException('IQ request timed out'),
+        );
         _pendingIqs.remove(id);
       }
     });
@@ -45,12 +63,17 @@ class RegistrationService {
   }
 
   Future<InviteResult?> generateUserInvitation(String domain) async {
-    final iq = xmpp.IqStanza('invite_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
+    final iq = xmpp.IqStanza(
+      'invite_${xmpp.AbstractStanza.getRandomId()}',
+      xmpp.IqStanzaType.SET,
+    );
     iq.toJid = xmpp.Jid.fromFullJid(domain);
 
     final command = xmpp.XmppElement();
     command.name = 'command';
-    command.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/commands'));
+    command.addAttribute(
+      xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/commands'),
+    );
     command.addAttribute(xmpp.XmppAttribute('node', 'urn:xmpp:invite#invite'));
     command.addAttribute(xmpp.XmppAttribute('action', 'execute'));
     iq.addChild(command);
@@ -68,12 +91,17 @@ class RegistrationService {
       // XEP-0050 Multi-stage command handling
       if (status == 'executing' && sessionId != null) {
         // Submit the default form to complete generation
-        final iq2 = xmpp.IqStanza('invite_submit_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
+        final iq2 = xmpp.IqStanza(
+          'invite_submit_${xmpp.AbstractStanza.getRandomId()}',
+          xmpp.IqStanzaType.SET,
+        );
         iq2.toJid = xmpp.Jid.fromFullJid(domain);
 
         final cmd2 = xmpp.XmppElement();
         cmd2.name = 'command';
-        cmd2.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/commands'));
+        cmd2.addAttribute(
+          xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/commands'),
+        );
         cmd2.addAttribute(xmpp.XmppAttribute('node', 'urn:xmpp:invite#invite'));
         cmd2.addAttribute(xmpp.XmppAttribute('sessionid', sessionId));
         cmd2.addAttribute(xmpp.XmppAttribute('action', 'complete'));
@@ -92,21 +120,24 @@ class RegistrationService {
         valType.name = 'value';
         valType.textValue = 'urn:xmpp:invite#invite';
         fieldType.addChild(valType);
-        
+
         xSubmit.addChild(fieldType);
         cmd2.addChild(xSubmit);
         iq2.addChild(cmd2);
 
         final response2 = await _sendIq(iq2);
         if (response2.type == xmpp.IqStanzaType.ERROR) return null;
-        
+
         cmdRes = response2.getChild('command');
-        if (cmdRes == null || cmdRes.getAttribute('status')?.value != 'completed') return null;
+        if (cmdRes == null ||
+            cmdRes.getAttribute('status')?.value != 'completed') {
+          return null;
+        }
       } else if (status != 'completed') {
         return null;
       }
 
-      final xData = cmdRes?.getChild('x');
+      final xData = cmdRes.getChild('x');
       if (xData == null) return null;
 
       String? uri;
@@ -135,62 +166,90 @@ class RegistrationService {
     }
   }
 
-  static Future<bool> registerAccountInBand(String domain, String username, String password, String token) async {
+  static Future<bool> registerAccountInBand(
+    String domain,
+    String username,
+    String password, [
+    String? token,
+  ]) async {
     Socket? socket;
     try {
       // Connect to standard XMPP client port
-      socket = await Socket.connect(domain, 5222, timeout: const Duration(seconds: 10));
-      
+      socket = await Socket.connect(
+        domain,
+        5222,
+        timeout: const Duration(seconds: 10),
+      );
+
       final completer = Completer<bool>();
       bool isSecure = false;
       bool tlsRequested = false;
       bool streamRestarted = false;
-      
+
       String buffer = '';
-      
+
       void sendXml(String xml) {
         socket?.write(xml);
       }
-      
+
       void handleData(String data) async {
         buffer += data;
-        
+
         // 1. Check for STARTTLS feature
-        if (!isSecure && !tlsRequested && buffer.contains('<starttls xmlns="urn:ietf:params:xml:ns:xmpp-tls"')) {
+        if (!isSecure &&
+            !tlsRequested &&
+            buffer.contains(
+              '<starttls xmlns="urn:ietf:params:xml:ns:xmpp-tls"',
+            )) {
           tlsRequested = true;
           buffer = '';
           sendXml('<starttls xmlns="urn:ietf:params:xml:ns:xmpp-tls"/>');
         }
-        
         // 2. Check for PROCEED to upgrade to TLS
-        else if (tlsRequested && !isSecure && buffer.contains('<proceed xmlns="urn:ietf:params:xml:ns:xmpp-tls"')) {
+        else if (tlsRequested &&
+            !isSecure &&
+            buffer.contains(
+              '<proceed xmlns="urn:ietf:params:xml:ns:xmpp-tls"',
+            )) {
           isSecure = true;
           buffer = '';
-          socket = await SecureSocket.secure(socket!, onBadCertificate: (_) => true);
+          socket = await SecureSocket.secure(
+            socket!,
+            onBadCertificate: (_) => true,
+          );
           socket!.listen((data) => handleData(utf8.decode(data)));
-          
+
           // Restart stream
-          sendXml('<stream:stream to="$domain" xmlns="jabber:client" xmlns:stream="http://etherx.jabber.org/streams" version="1.0">');
+          sendXml(
+            '<stream:stream to="$domain" xmlns="jabber:client" xmlns:stream="http://etherx.jabber.org/streams" version="1.0">',
+          );
           streamRestarted = true;
         }
-        
         // 3. Check for register feature after TLS upgrade
-        else if (isSecure && streamRestarted && buffer.contains('<register xmlns="http://jabber.org/features/iq-register"')) {
+        else if (isSecure &&
+            streamRestarted &&
+            buffer.contains(
+              '<register xmlns="http://jabber.org/features/iq-register"',
+            )) {
           streamRestarted = false;
           buffer = '';
-          
-          final regIq = '''
+
+          final preauthBlock = (token != null && token.isNotEmpty)
+              ? '<preauth xmlns="urn:xmpp:ibr-token:0">$token</preauth>'
+              : '';
+
+          final regIq =
+              '''
           <iq type="set" id="reg1">
             <query xmlns="jabber:iq:register">
               <username>$username</username>
               <password>$password</password>
-              <preauth xmlns="urn:xmpp:ibr-token:0">$token</preauth>
+              $preauthBlock
             </query>
           </iq>
           ''';
           sendXml(regIq);
         }
-        
         // 4. Check registration result
         else if (isSecure && buffer.contains('id="reg1"')) {
           if (buffer.contains('type="result"')) {
@@ -200,17 +259,25 @@ class RegistrationService {
           }
         }
       }
-      
-      socket?.listen((data) => handleData(utf8.decode(data)), onError: (e) {
-        if (!completer.isCompleted) completer.completeError(e);
-      }, onDone: () {
-        if (!completer.isCompleted) completer.complete(false);
-      });
-      
+
+      socket?.listen(
+        (data) => handleData(utf8.decode(data)),
+        onError: (e) {
+          if (!completer.isCompleted) completer.completeError(e);
+        },
+        onDone: () {
+          if (!completer.isCompleted) completer.complete(false);
+        },
+      );
+
       // Start handshake
-      sendXml('<?xml version="1.0"?><stream:stream to="$domain" xmlns="jabber:client" xmlns:stream="http://etherx.jabber.org/streams" version="1.0">');
-      
-      final result = await completer.future.timeout(const Duration(seconds: 15));
+      sendXml(
+        '<?xml version="1.0"?><stream:stream to="$domain" xmlns="jabber:client" xmlns:stream="http://etherx.jabber.org/streams" version="1.0">',
+      );
+
+      final result = await completer.future.timeout(
+        const Duration(seconds: 15),
+      );
       socket?.destroy();
       return result;
     } catch (e) {

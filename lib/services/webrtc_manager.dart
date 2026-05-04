@@ -1036,6 +1036,9 @@ class WebRTCManager {
       videoTrack: _recordingStream!.getVideoTracks().isNotEmpty
           ? _recordingStream!.getVideoTracks().first
           : null,
+      audioChannel: _recordingStream!.getAudioTracks().isNotEmpty
+          ? RecorderAudioChannel.INPUT
+          : null,
     );
   }
 

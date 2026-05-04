@@ -15,12 +15,16 @@ class HttpUploadService {
   HttpUploadService(this.connection, {this.uploadServiceJid});
 
   /// Requests an upload slot from the XMPP server (XEP-0363)
-  Future<Map<String, String>?> requestUploadSlot(String fileName, int size, {String contentType = 'application/octet-stream'}) async {
+  Future<Map<String, String>?> requestUploadSlot(String fileName, int size, {
+    String contentType = 'application/octet-stream',
+    bool isRetry = false,
+    String? manualJid,
+  }) async {
     final completer = Completer<Map<String, String>?>();
     final iqId = 'upload_${DateTime.now().millisecondsSinceEpoch}';
 
-    // XEP-0363: Use discovered JID or fallback to assumption
-    final targetJid = uploadServiceJid ?? 'upload.${connection.fullJid.domain}';
+    // XEP-0363: Use manual JID (from fallback), discovered JID, or fallback to assumption
+    final targetJid = manualJid ?? uploadServiceJid ?? 'upload.${connection.fullJid.domain}';
 
     final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.GET);
     iq.toJid = xmpp.Jid.fromFullJid(targetJid);
@@ -63,10 +67,17 @@ class HttpUploadService {
 
     final result = await completer.future;
     sub.cancel();
+
+    // Fallback logic: If it failed and we haven't tried the 'upload.domain' yet
+    if (result == null && !isRetry && targetJid == connection.fullJid.domain) {
+      final fallbackJid = 'upload.${connection.fullJid.domain}';
+      debugPrint('XEP-0363: Request to main domain failed, attempting fallback to: $fallbackJid');
+      return await requestUploadSlot(fileName, size, contentType: contentType, isRetry: true, manualJid: fallbackJid);
+    }
+    
     return result;
   }
 
-  /// Performs the actual HTTP PUT upload
   /// Performs the actual HTTP PUT upload with progress tracking
   Future<bool> uploadFile(String putUrl, File file, String contentType) async {
     try {

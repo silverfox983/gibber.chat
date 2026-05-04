@@ -5,6 +5,9 @@ import '../services/auth_service.dart';
 import '../services/avatar_cache_service.dart';
 import '../providers/chat_provider.dart';
 import '../models/chat_models.dart';
+import './add_contact_screen.dart';
+import './contact_profile_screen.dart';
+import 'dart:ui';
 
 class ContactsScreen extends StatefulWidget {
   const ContactsScreen({super.key});
@@ -37,168 +40,359 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(
-        title: Text('Social Hub', style: TextStyle(fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onPrimary)),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.person_add_rounded, color: Theme.of(context).colorScheme.onPrimary),
-            onPressed: () => _showAddContactDialog(context),
-          ),
-        ],
-        bottom: TabBar(
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            SliverAppBar(
+              expandedHeight: 180.0,
+              floating: false,
+              pinned: true,
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              flexibleSpace: FlexibleSpaceBar(
+                titlePadding: const EdgeInsets.only(left: 24, bottom: 64),
+                title: Text(
+                  'Social Spaces',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: Theme.of(context).colorScheme.onPrimary,
+                    shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 10)],
+                  ),
+                ),
+                background: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Theme.of(context).colorScheme.primary,
+                            Theme.of(context).colorScheme.secondary,
+                          ],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: -50,
+                      top: -50,
+                      child: Icon(Icons.hub_rounded, size: 200, color: Colors.white.withValues(alpha: 0.1)),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                Container(
+                  margin: const EdgeInsets.only(right: 16, top: 8, bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    icon: Icon(Icons.person_add_alt_1_rounded, color: Theme.of(context).colorScheme.onPrimary),
+                    onPressed: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AddContactScreen()));
+                    },
+                  ),
+                ),
+              ],
+              bottom: PreferredSize(
+                preferredSize: const Size.fromHeight(100),
+                child: Column(
+                  children: [
+                    // Glassmorphic Search Bar
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                            ),
+                            child: TextField(
+                              controller: _searchController,
+                              style: TextStyle(color: Theme.of(context).colorScheme.onPrimary),
+                              decoration: InputDecoration(
+                                hintText: 'Search connections...',
+                                hintStyle: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7)),
+                                prefixIcon: Icon(Icons.search_rounded, color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7)),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                                suffixIcon: _searchQuery.isNotEmpty 
+                                  ? IconButton(
+                                      icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7)),
+                                      onPressed: () {
+                                        _searchController.clear();
+                                        setState(() => _searchQuery = '');
+                                      },
+                                    )
+                                  : null,
+                              ),
+                              onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    TabBar(
+                      controller: _tabController,
+                      labelColor: Theme.of(context).colorScheme.onPrimary,
+                      unselectedLabelColor: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7),
+                      indicatorColor: Theme.of(context).colorScheme.onPrimary,
+                      indicatorWeight: 4,
+                      tabs: const [
+                        Tab(text: 'CONTACTS'),
+                        Tab(text: 'GROUPS'),
+                        Tab(text: 'BLOCKED'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ];
+        },
+        body: TabBarView(
           controller: _tabController,
-          labelColor: Theme.of(context).colorScheme.onPrimary,
-          unselectedLabelColor: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7),
-          indicatorColor: Theme.of(context).colorScheme.secondary,
-          indicatorWeight: 4,
-          tabs: const [
-            Tab(text: 'CONTACTS'),
-            Tab(text: 'PENDING'),
-            Tab(text: 'BLOCKED'),
+          children: [
+            _buildContactList(context, authService),
+            _buildGroupsList(context),
+            _buildBlockedList(context, authService),
           ],
         ),
-      ),
-      body: Column(
-        children: [
-          // Premium Search Bar (GPU Hardened)
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Theme.of(context).colorScheme.primary,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: TextField(
-                controller: _searchController,
-                style: TextStyle(color: Theme.of(context).colorScheme.onPrimary),
-                decoration: InputDecoration(
-                  hintText: 'Search contacts...',
-                  hintStyle: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7)),
-                  prefixIcon: Icon(Icons.search_rounded, color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7)),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                  suffixIcon: _searchQuery.isNotEmpty 
-                    ? IconButton(
-                        icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7)),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => _searchQuery = '');
-                        },
-                      )
-                    : null,
-                ),
-                onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
-              ),
-            ),
-          ),
-          
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildContactList(context, authService),
-                _buildPendingRequests(context, authService),
-                _buildBlockedList(context, authService),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
 
   Widget _buildContactList(BuildContext context, AuthService authService) {
-    return StreamBuilder<List<Contact>>(
-      stream: authService.contacts,
-      initialData: authService.currentContacts,
-      builder: (context, snapshot) {
-        final contacts = snapshot.data ?? [];
-        final filtered = contacts.where((c) => 
-          c.name.toLowerCase().contains(_searchQuery) || 
-          c.id.toLowerCase().contains(_searchQuery)
-        ).toList();
+    return StreamBuilder<List<Map<String, String>>>(
+      stream: authService.subscriptionRequests,
+      initialData: authService.currentSubscriptionRequests,
+      builder: (context, reqSnapshot) {
+        final requests = reqSnapshot.data ?? [];
+        
+        return StreamBuilder<List<Contact>>(
+          stream: authService.contacts,
+          initialData: authService.currentContacts,
+          builder: (context, contactSnapshot) {
+            final contacts = contactSnapshot.data ?? [];
+            final filtered = contacts.where((c) => 
+              c.name.toLowerCase().contains(_searchQuery) || 
+              c.id.toLowerCase().contains(_searchQuery)
+            ).toList();
 
-        if (filtered.isEmpty) {
-          return _buildEmptyState(Icons.people_outline_rounded, 'No contacts found');
-        }
+            if (requests.isEmpty && filtered.isEmpty) {
+              return _buildEmptyState(Icons.people_outline_rounded, 'No contacts found');
+            }
 
-        // Sort by status then name
-        filtered.sort((a, b) {
-          if (a.status != b.status) {
-            if (a.status == ContactStatus.online) return -1;
-            if (b.status == ContactStatus.online) return 1;
+            return ListView(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              children: [
+                if (requests.isNotEmpty) _buildRequestsSection(context, authService, requests),
+                if (filtered.isNotEmpty) ..._buildGroupedContactsSection(context, filtered),
+              ],
+            );
           }
-          return a.name.compareTo(b.name);
-        });
-
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: filtered.length,
-          itemBuilder: (context, index) => _ContactTile(contact: filtered[index]),
         );
       }
     );
   }
 
-  Widget _buildPendingRequests(BuildContext context, AuthService authService) {
+  Widget _buildRequestsSection(BuildContext context, AuthService authService, List<Map<String, String>> requests) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
+          child: Text('FRIEND REQUESTS', style: TextStyle(fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.primary, fontSize: 12, letterSpacing: 1.2)),
+        ),
+        SizedBox(
+          height: 160,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: requests.length,
+            itemBuilder: (context, index) {
+              final jid = requests[index]['jid'] ?? '';
+              return Container(
+                width: 240,
+                margin: const EdgeInsets.only(right: 12),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+                  boxShadow: [
+                    BoxShadow(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 4)),
+                  ],
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _AvatarView(jid: jid),
+                    const SizedBox(height: 8),
+                    Text(jid.split('@').first, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        FilledButton.tonal(
+                          onPressed: () => authService.declineSubscription(jid),
+                          style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.errorContainer, foregroundColor: Theme.of(context).colorScheme.onErrorContainer, padding: const EdgeInsets.symmetric(horizontal: 16)),
+                          child: const Text('IGNORE'),
+                        ),
+                        FilledButton(
+                          onPressed: () => authService.acceptSubscription(jid),
+                          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16)),
+                          child: const Text('ACCEPT'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  List<Widget> _buildGroupedContactsSection(BuildContext context, List<Contact> contacts) {
+    // Group contacts
+    final Map<String, List<Contact>> grouped = {};
+    for (var c in contacts) {
+      if (c.groups.isEmpty) {
+        grouped.putIfAbsent('General', () => []).add(c);
+      } else {
+        for (var g in c.groups) {
+          grouped.putIfAbsent(g, () => []).add(c);
+        }
+      }
+    }
+
+    // Sort keys: 'General' last, otherwise alphabetical
+    final keys = grouped.keys.toList();
+    keys.sort((a, b) {
+      if (a == 'General') return 1;
+      if (b == 'General') return -1;
+      return a.compareTo(b);
+    });
+
+    final widgets = <Widget>[];
+    for (var key in keys) {
+      final groupContacts = grouped[key]!;
+      groupContacts.sort((a, b) {
+        if (a.status != b.status) {
+          if (a.status == ContactStatus.online) return -1;
+          if (b.status == ContactStatus.online) return 1;
+        }
+        return a.name.compareTo(b.name);
+      });
+
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
+          child: Text(key.toUpperCase(), style: TextStyle(fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12, letterSpacing: 1.2)),
+        ),
+      );
+      widgets.addAll(groupContacts.map((c) => _ContactTile(contact: c)));
+    }
+    return widgets;
+  }
+
+
+
+  Widget _buildGroupsList(BuildContext context) {
     return Consumer<ChatProvider>(
       builder: (context, chatProvider, _) {
-        final requests = chatProvider.pendingSubscriptions;
-
-        if (requests.isEmpty) {
-          return _buildEmptyState(Icons.mail_outline_rounded, 'No pending friend requests');
+        final groupConvs = chatProvider.conversations.where((c) => c.isGroup).toList();
+        
+        if (groupConvs.isEmpty) {
+          return _buildEmptyState(Icons.group_rounded, 'No groups found');
         }
 
         return ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-          itemCount: requests.length,
+          itemCount: groupConvs.length,
+          padding: const EdgeInsets.all(16),
           itemBuilder: (context, index) {
-            final req = requests[index];
-            final jid = req['jid'] ?? 'Unknown';
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.03), blurRadius: 10),
-                ],
-              ),
-              child: Row(
-                children: [
-                  _AvatarView(jid: jid),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(jid, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        Text('wants to be your friend', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                      ],
-                    ),
-                  ),
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: Icon(Icons.check_circle, color: Theme.of(context).colorScheme.secondary), 
-                        onPressed: () => chatProvider.respondToSubscription(jid, true, authService)
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.cancel, color: Colors.redAccent), 
-                        onPressed: () => chatProvider.respondToSubscription(jid, false, authService)
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
+            final conv = groupConvs[index];
+            return _buildGroupTile(Theme.of(context), conv, chatProvider);
           },
         );
       },
+    );
+  }
+
+  Widget _buildGroupTile(ThemeData theme, Conversation conv, ChatProvider cp) {
+    final isIrc = conv.protocol == 'IRC';
+    final isDiscord = conv.protocol == 'Discord';
+    final themeColor = isDiscord
+        ? const Color(0xFF5865F2)
+        : (isIrc ? theme.colorScheme.secondary : theme.colorScheme.primary);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.8), width: 1.5),
+      ),
+      child: InkWell(
+        onTap: () {
+          cp.setActiveConversation(conv.id);
+          Navigator.popUntil(context, (route) => route.isFirst);
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: themeColor.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: isDiscord
+                    ? Icon(Icons.discord, color: themeColor, size: 28)
+                    : (isIrc ? Icon(Icons.alternate_email, color: themeColor, size: 28)
+                             : Text(conv.name.isNotEmpty ? conv.name[0].toUpperCase() : '?', style: TextStyle(color: themeColor, fontWeight: FontWeight.bold, fontSize: 24))),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(conv.name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                    const SizedBox(height: 4),
+                    Text('${conv.protocol} Group', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              if (conv.unreadCount > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.error,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    conv.unreadCount.toString(),
+                    style: TextStyle(color: theme.colorScheme.onError, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              const SizedBox(width: 16),
+              Icon(Icons.chevron_right_rounded, color: theme.colorScheme.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -253,58 +447,7 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
     );
   }
 
-  void _showAddContactDialog(BuildContext context) {
-    final jidController = TextEditingController();
-    final nameController = TextEditingController();
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Contact', style: TextStyle(fontWeight: FontWeight.w900)),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: jidController,
-              decoration: const InputDecoration(
-                labelText: 'JID (e.g. user@domain.com)',
-                hintText: 'Required',
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(
-                labelText: 'Nickname',
-                hintText: 'Optional',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.secondary,
-              foregroundColor: Theme.of(context).colorScheme.onSecondary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            onPressed: () {
-               if (jidController.text.isNotEmpty) {
-                  Provider.of<AuthService>(context, listen: false).addContact(
-                    jidController.text, 
-                    nickname: nameController.text.isNotEmpty ? nameController.text : null
-                  );
-                  Navigator.pop(context);
-               }
-            },
-            child: const Text('ADD CONTACT'),
-          ),
-        ],
-      ),
-    );
-  }
+  // Removing _showAddContactDialog since we have AddContactScreen
 }
 
 class _ContactTile extends StatelessWidget {
@@ -394,62 +537,9 @@ class _ContactTile extends StatelessWidget {
   }
 
   void _showContactDetails(BuildContext context, Contact contact, AuthService auth) {
-     showModalBottomSheet(
-       context: context,
-       backgroundColor: Colors.transparent,
-        builder: (context) => Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-             color: Theme.of(context).colorScheme.surface,
-             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          ),
-         child: Column(
-           mainAxisSize: MainAxisSize.min,
-           children: [
-             _AvatarView(jid: contact.id),
-              const SizedBox(height: 16),
-              Text(contact.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-              Text(contact.id, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-             const SizedBox(height: 24),
-             if (contact.presenceMessage != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(16)),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline, color: Theme.of(context).colorScheme.secondary),
-                      const SizedBox(width: 12),
-                      Expanded(child: Text(contact.presenceMessage!, style: const TextStyle(fontStyle: FontStyle.italic))),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-             ],
-             Row(
-               children: [
-                 Expanded(
-                   child: ElevatedButton.icon(
-                     style: ElevatedButton.styleFrom(
-                       backgroundColor: Theme.of(context).colorScheme.secondary,
-                       foregroundColor: Theme.of(context).colorScheme.onSecondary,
-                       padding: const EdgeInsets.symmetric(vertical: 16),
-                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                     ),
-                     icon: const Icon(Icons.chat_bubble_rounded),
-                     label: const Text('MESSAGE', style: TextStyle(fontWeight: FontWeight.bold)),
-                     onPressed: () {
-                        final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-                        chatProvider.setActiveConversation(contact.id);
-                        Navigator.pop(context);
-                     },
-                   ),
-                 ),
-               ],
-             ),
-             const SizedBox(height: 12),
-           ],
-         ),
-       ),
+     Navigator.push(
+       context,
+       MaterialPageRoute(builder: (context) => ContactProfileScreen(contact: contact)),
      );
   }
 }

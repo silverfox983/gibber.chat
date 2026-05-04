@@ -9,6 +9,7 @@ import './account_preferences_screen.dart';
 import '../providers/theme_provider.dart';
 import '../models/chat_models.dart';
 import './security_settings_screen.dart';
+import './recordings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final bool isSidebar;
@@ -179,20 +180,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Stack(
                       alignment: Alignment.bottomRight,
                       children: [
-                        Container(
-                          width: 120,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.24),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Theme.of(context).colorScheme.onPrimary, width: 4),
-                            image: _avatarBytes != null 
-                              ? DecorationImage(image: MemoryImage(_avatarBytes!), fit: BoxFit.cover)
-                              : null,
-                          ),
-                          child: _avatarBytes == null 
-                            ? Icon(Icons.person_rounded, size: 80, color: Theme.of(context).colorScheme.onPrimary)
-                            : null,
+                        FutureBuilder<Uint8List?>(
+                          future: _avatarBytes != null 
+                              ? Future.value(_avatarBytes) 
+                              : AvatarCacheService().getAvatar(selectedXmppAccountId?.split('/').first ?? ''),
+                          builder: (context, snapshot) {
+                            final displayBytes = snapshot.data;
+                            return Container(
+                              width: 120,
+                              height: 120,
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.24),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Theme.of(context).colorScheme.onPrimary, width: 4),
+                                image: displayBytes != null 
+                                  ? DecorationImage(image: MemoryImage(displayBytes), fit: BoxFit.cover)
+                                  : null,
+                              ),
+                              child: displayBytes == null 
+                                ? Icon(Icons.person_rounded, size: 80, color: Theme.of(context).colorScheme.onPrimary)
+                                : null,
+                            );
+                          }
                         ),
                         Container(
                           padding: const EdgeInsets.all(8),
@@ -418,6 +427,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(builder: (context) => const SecuritySettingsScreen()),
+                            );
+                          },
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: Icon(Icons.video_library_rounded, color: Colors.green),
+                          title: const Text('Call Recordings', style: TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: const Text('View and play your saved calls'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => const RecordingsScreen()),
                             );
                           },
                         ),

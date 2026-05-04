@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:cryptography/cryptography.dart';
+import 'package:path_provider/path_provider.dart';
 import './auth_service.dart';
 import './database_service.dart';
 import '../models/chat_models.dart';
@@ -17,10 +18,12 @@ class BackupService {
       final Map<String, dynamic> backup = {
         'version': '1.0',
         'timestamp': DateTime.now().toIso8601String(),
+        'origin_docs_dir': (await getApplicationDocumentsDirectory()).path,
         'accounts': authService.savedAccounts.map((a) => a.toJson()).toList(),
         'secrets': await authService.exportAccountSecrets(),
         'database': await dbService.exportAllData(),
         'settings': await authService.exportSettings(),
+        'contacts': authService.exportContacts(),
       };
 
       return json.encode(backup);
@@ -39,7 +42,15 @@ class BackupService {
       
       // 2. Restore Database
       if (backup.containsKey('database')) {
-        await dbService.importAllData(backup['database']);
+        dynamic dbPayload = backup['database'];
+        if (backup.containsKey('origin_docs_dir')) {
+          final oldPath = backup['origin_docs_dir'] as String;
+          final newPath = (await getApplicationDocumentsDirectory()).path;
+          if (oldPath != newPath) {
+             dbPayload = _replacePathsRecursively(dbPayload, oldPath, newPath);
+          }
+        }
+        await dbService.importAllData(dbPayload);
       }
 
       // 3. Restore Settings (includes Profile)
@@ -59,6 +70,12 @@ class BackupService {
         final Map<String, dynamic> secretsRaw = backup['secrets'];
         final Map<String, String> secrets = secretsRaw.map((k, v) => MapEntry(k, v.toString()));
         await authService.importAccountSecrets(secrets);
+      }
+
+      // 6. Restore Contacts
+      if (backup.containsKey('contacts')) {
+        final List<dynamic> contactsList = backup['contacts'];
+        await authService.importContacts(contactsList);
       }
 
       debugPrint('Backup Restoration Complete');
@@ -166,5 +183,21 @@ class BackupService {
   Future<String> loadBackupFromFile(String filePath) async {
     final file = File(filePath);
     return await file.readAsString();
+  }
+
+  /// Recursively replaces oldPath with newPath in Maps and Lists
+  dynamic _replacePathsRecursively(dynamic data, String oldPath, String newPath) {
+    if (data is String) {
+      return data.replaceAll(oldPath, newPath);
+    } else if (data is List) {
+      return data.map((item) => _replacePathsRecursively(item, oldPath, newPath)).toList();
+    } else if (data is Map) {
+      final newMap = <String, dynamic>{};
+      data.forEach((key, value) {
+        newMap[key as String] = _replacePathsRecursively(value, oldPath, newPath);
+      });
+      return newMap;
+    }
+    return data;
   }
 }

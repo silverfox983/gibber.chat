@@ -16,7 +16,9 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _jidController = TextEditingController();
   final TextEditingController _passController = TextEditingController();
-  final TextEditingController _portController = TextEditingController(text: '5222');
+  final TextEditingController _portController = TextEditingController(
+    text: '5222',
+  );
   final TextEditingController _hostController = TextEditingController();
 
   bool _showAdvanced = false;
@@ -39,16 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Theme.of(context).colorScheme.primary,
-              Theme.of(context).colorScheme.primaryContainer,
-            ],
-          ),
-        ),
+        decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary),
         child: SafeArea(
           child: Stack(
             children: [
@@ -67,7 +60,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 24.0),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 24.0,
+                    horizontal: 24.0,
+                  ),
                   physics: const ClampingScrollPhysics(),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -108,10 +104,11 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ],
           ),
-          child: const Icon(
-            Icons.forum_rounded,
-            size: 64,
-            color: Colors.white,
+          child: Image.asset(
+            'assets/logo.png',
+            width: 84,
+            height: 84,
+            fit: BoxFit.contain,
           ),
         ),
         const SizedBox(height: 24),
@@ -139,7 +136,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildUnifiedForm(AuthService authService) {
-    final savedAccounts = authService.savedAccounts.where((a) => a.protocol == 'XMPP').toList();
+    final savedAccounts = authService.savedAccounts
+        .where((a) => a.protocol == 'XMPP')
+        .toList();
 
     return Column(
       children: [
@@ -149,9 +148,18 @@ class _LoginScreenState extends State<LoginScreen> {
             child: _buildAccountDropdown(savedAccounts),
           ),
         ],
-        _buildTextField(_jidController, 'XMPP ID (user@domain)', Icons.alternate_email),
+        _buildTextField(
+          _jidController,
+          'XMPP ID (user@domain)',
+          Icons.alternate_email,
+        ),
         const SizedBox(height: 16),
-        _buildTextField(_passController, 'Password', Icons.lock_outline, obscureText: true),
+        _buildTextField(
+          _passController,
+          'Password',
+          Icons.lock_outline,
+          obscureText: true,
+        ),
         const SizedBox(height: 16),
         Row(
           children: [
@@ -164,13 +172,19 @@ class _LoginScreenState extends State<LoginScreen> {
                 activeColor: Theme.of(context).colorScheme.secondary,
                 checkColor: Theme.of(context).colorScheme.onSecondary,
                 side: BorderSide(color: Colors.white.withValues(alpha: 0.5)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
               ),
             ),
             const SizedBox(width: 12),
             Text(
               'Keep me logged in',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 14, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),
@@ -197,17 +211,27 @@ class _LoginScreenState extends State<LoginScreen> {
           value: _selectedAccount,
           hint: Text(
             'Switch Account',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 14, fontWeight: FontWeight.w500),
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.8),
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           isExpanded: true,
           dropdownColor: Theme.of(context).colorScheme.surface,
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70),
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: Colors.white70,
+          ),
           items: [
             DropdownMenuItem<String>(
               value: null,
               child: Text(
                 'Select Account',
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 14,
+                ),
               ),
             ),
             ...savedAccounts.map<DropdownMenuItem<String>>(
@@ -267,7 +291,11 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       child: Row(
         children: [
-          Icon(Icons.error_outline_rounded, color: Theme.of(context).colorScheme.error, size: 20),
+          Icon(
+            Icons.error_outline_rounded,
+            color: Theme.of(context).colorScheme.error,
+            size: 20,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -308,13 +336,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.1),
+                    ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        _showAdvanced ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                        _showAdvanced
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
                         color: Colors.white.withValues(alpha: 0.9),
                         size: 20,
                       ),
@@ -322,7 +354,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       Text(
                         _showAdvanced ? 'Hide Advanced' : 'Advanced',
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.9), 
+                          color: Colors.white.withValues(alpha: 0.9),
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
                         ),
@@ -383,8 +415,15 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 14),
-        prefixIcon: Icon(icon, color: Colors.white.withValues(alpha: 0.7), size: 22),
+        labelStyle: TextStyle(
+          color: Colors.white.withValues(alpha: 0.6),
+          fontSize: 14,
+        ),
+        prefixIcon: Icon(
+          icon,
+          color: Colors.white.withValues(alpha: 0.7),
+          size: 22,
+        ),
         filled: true,
         fillColor: Colors.white.withValues(alpha: 0.1),
         border: OutlineInputBorder(
@@ -393,9 +432,15 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.5), width: 1.5),
+          borderSide: BorderSide(
+            color: Colors.white.withValues(alpha: 0.5),
+            width: 1.5,
+          ),
         ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        contentPadding: const EdgeInsets.symmetric(
+          vertical: 20,
+          horizontal: 16,
+        ),
       ),
     );
   }
@@ -409,14 +454,18 @@ class _LoginScreenState extends State<LoginScreen> {
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.3),
+                color: Theme.of(
+                  context,
+                ).colorScheme.secondary.withValues(alpha: 0.3),
                 blurRadius: 20,
                 offset: const Offset(0, 10),
               ),
             ],
           ),
           child: ElevatedButton(
-            onPressed: authService.isConnecting ? null : () => _handleLogin(authService),
+            onPressed: authService.isConnecting
+                ? null
+                : () => _handleLogin(authService),
             style: ElevatedButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.secondary,
               foregroundColor: Theme.of(context).colorScheme.onSecondary,
@@ -448,33 +497,466 @@ class _LoginScreenState extends State<LoginScreen> {
         const SizedBox(height: 24),
         if (_selectedAccount == 'new' || _selectedAccount == null)
           TextButton.icon(
-            onPressed: () async {
-              final domain = _jidController.text.split('@').last;
-              if (domain.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a valid JID domain first.')));
-                return;
-              }
-              try {
-                final regService = RegistrationService();
-                final result = await regService.generateUserInvitation(domain);
-                if (mounted) {
-                  if (result != null && result.uri != null) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Registration URI: \${result.uri}')));
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Registration is not supported by this server.')));
-                  }
-                }
-              } catch (e) {
-                 if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Registration error: \$e')));
-              }
-            },
-            icon: Icon(Icons.person_add_alt_1_rounded, color: Colors.white.withValues(alpha: 0.8), size: 20),
+            onPressed: _showRegistrationDialog,
+            icon: Icon(
+              Icons.person_add_alt_1_rounded,
+              color: Colors.white.withValues(alpha: 0.8),
+              size: 20,
+            ),
             label: Text(
-              'Register on Server (XEP-0401)', 
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 14, fontWeight: FontWeight.w600)
+              'Register on Server (XEP-0401)',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.8),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
       ],
+    );
+  }
+
+  void _showRegistrationDialog() {
+    final publicDomainController = TextEditingController(text: 'movim.eu');
+    final publicUserController = TextEditingController();
+    final publicPassController = TextEditingController();
+
+    final inviteTokenController = TextEditingController();
+    final inviteUserController = TextEditingController();
+    final invitePassController = TextEditingController();
+    final inviteDomainController = TextEditingController();
+
+    final publicServers = [
+      'movim.eu',
+      'conversations.im',
+      'xmpp.jp',
+      'jabb.im',
+      'Custom...',
+    ];
+    String selectedServer = 'movim.eu';
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        bool isRegistering = false;
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return DefaultTabController(
+              length: 2,
+              child: AlertDialog(
+                backgroundColor: Theme.of(context).colorScheme.surface,
+                contentPadding: EdgeInsets.zero,
+                titlePadding: const EdgeInsets.only(
+                  top: 24,
+                  left: 24,
+                  right: 24,
+                  bottom: 8,
+                ),
+                title: const Text(
+                  'Register XMPP Account',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const TabBar(
+                        tabs: [
+                          Tab(text: 'Public Server'),
+                          Tab(text: 'Invite Token'),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Flexible(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                          child: SingleChildScrollView(
+                            child: SizedBox(
+                              height: 340,
+                              child: TabBarView(
+                                children: [
+                                  // Tab 1: Public Server
+                                  Column(
+                                    children: [
+                                      DropdownButtonFormField<String>(
+                                        initialValue: selectedServer,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Select Public Server',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                        items: publicServers
+                                            .map(
+                                              (s) => DropdownMenuItem(
+                                                value: s,
+                                                child: Text(s),
+                                              ),
+                                            )
+                                            .toList(),
+                                        onChanged: (val) {
+                                          if (val != null) {
+                                            setStateDialog(() {
+                                              selectedServer = val;
+                                              if (val != 'Custom...') {
+                                                publicDomainController.text =
+                                                    val;
+                                              } else {
+                                                publicDomainController.text =
+                                                    '';
+                                              }
+                                            });
+                                          }
+                                        },
+                                      ),
+                                      if (selectedServer == 'Custom...') ...[
+                                        const SizedBox(height: 12),
+                                        TextField(
+                                          controller: publicDomainController,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Custom Domain',
+                                            border: OutlineInputBorder(),
+                                          ),
+                                        ),
+                                      ],
+                                      const SizedBox(height: 12),
+                                      TextField(
+                                        controller: publicUserController,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Username',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextField(
+                                        controller: publicPassController,
+                                        obscureText: true,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Password',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton(
+                                          onPressed: isRegistering
+                                              ? null
+                                              : () async {
+                                                  final domain =
+                                                      publicDomainController
+                                                          .text
+                                                          .trim();
+                                                  final username =
+                                                      publicUserController.text
+                                                          .trim();
+                                                  final password =
+                                                      publicPassController.text;
+
+                                                  if (domain.isEmpty ||
+                                                      username.isEmpty ||
+                                                      password.isEmpty) {
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    ).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text(
+                                                          'All fields are required.',
+                                                        ),
+                                                      ),
+                                                    );
+                                                    return;
+                                                  }
+
+                                                  setStateDialog(
+                                                    () => isRegistering = true,
+                                                  );
+                                                  try {
+                                                    final success =
+                                                        await RegistrationService.registerAccountInBand(
+                                                          domain,
+                                                          username,
+                                                          password,
+                                                        );
+                                                    if (context.mounted) {
+                                                      if (success) {
+                                                        ScaffoldMessenger.of(
+                                                          context,
+                                                        ).showSnackBar(
+                                                          const SnackBar(
+                                                            content: Text(
+                                                              'Registration successful!',
+                                                            ),
+                                                            backgroundColor:
+                                                                Colors.green,
+                                                          ),
+                                                        );
+                                                        Navigator.pop(context);
+                                                      } else {
+                                                        ScaffoldMessenger.of(
+                                                          context,
+                                                        ).showSnackBar(
+                                                          SnackBar(
+                                                            content: Text(
+                                                              'Registration failed. Server may not support public registration.',
+                                                            ),
+                                                            backgroundColor:
+                                                                Theme.of(
+                                                                      context,
+                                                                    )
+                                                                    .colorScheme
+                                                                    .error,
+                                                          ),
+                                                        );
+                                                      }
+                                                    }
+                                                  } catch (e) {
+                                                    if (context.mounted)
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      ).showSnackBar(
+                                                        SnackBar(
+                                                          content: Text(
+                                                            'Error: $e',
+                                                          ),
+                                                          backgroundColor:
+                                                              Theme.of(context)
+                                                                  .colorScheme
+                                                                  .error,
+                                                        ),
+                                                      );
+                                                  } finally {
+                                                    if (context.mounted)
+                                                      setStateDialog(
+                                                        () => isRegistering =
+                                                            false,
+                                                      );
+                                                  }
+                                                },
+                                          child: isRegistering
+                                              ? const SizedBox(
+                                                  width: 16,
+                                                  height: 16,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                      ),
+                                                )
+                                              : const Text(
+                                                  'REGISTER ON PUBLIC SERVER',
+                                                ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                    ],
+                                  ),
+
+                                  // Tab 2: Invite Token
+                                  Column(
+                                    children: [
+                                      TextField(
+                                        controller: inviteTokenController,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Invite Token or URI',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: TextField(
+                                              controller: inviteUserController,
+                                              decoration: const InputDecoration(
+                                                labelText: 'Username',
+                                                border: OutlineInputBorder(),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          const Text(
+                                            '@',
+                                            style: TextStyle(fontSize: 16),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: TextField(
+                                              controller:
+                                                  inviteDomainController,
+                                              decoration: const InputDecoration(
+                                                labelText: 'Domain',
+                                                border: OutlineInputBorder(),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextField(
+                                        controller: invitePassController,
+                                        obscureText: true,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Password',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton(
+                                          onPressed: isRegistering
+                                              ? null
+                                              : () async {
+                                                  final domain =
+                                                      inviteDomainController
+                                                          .text
+                                                          .trim();
+                                                  final username =
+                                                      inviteUserController.text
+                                                          .trim();
+                                                  final password =
+                                                      invitePassController.text;
+                                                  final tokenInput =
+                                                      inviteTokenController.text
+                                                          .trim();
+
+                                                  if (domain.isEmpty ||
+                                                      username.isEmpty ||
+                                                      password.isEmpty ||
+                                                      tokenInput.isEmpty) {
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    ).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text(
+                                                          'All fields are required.',
+                                                        ),
+                                                      ),
+                                                    );
+                                                    return;
+                                                  }
+
+                                                  String token = tokenInput;
+                                                  if (tokenInput.contains(
+                                                    'preauth=',
+                                                  )) {
+                                                    final tokenParts =
+                                                        tokenInput.split(
+                                                          'preauth=',
+                                                        );
+                                                    if (tokenParts.length > 1) {
+                                                      token = tokenParts[1]
+                                                          .split(';')
+                                                          .first
+                                                          .split('&')
+                                                          .first;
+                                                    }
+                                                  }
+
+                                                  setStateDialog(
+                                                    () => isRegistering = true,
+                                                  );
+                                                  try {
+                                                    final success =
+                                                        await RegistrationService.registerAccountInBand(
+                                                          domain,
+                                                          username,
+                                                          password,
+                                                          token,
+                                                        );
+                                                    if (context.mounted) {
+                                                      if (success) {
+                                                        ScaffoldMessenger.of(
+                                                          context,
+                                                        ).showSnackBar(
+                                                          const SnackBar(
+                                                            content: Text(
+                                                              'Registration successful!',
+                                                            ),
+                                                            backgroundColor:
+                                                                Colors.green,
+                                                          ),
+                                                        );
+                                                        Navigator.pop(context);
+                                                      } else {
+                                                        ScaffoldMessenger.of(
+                                                          context,
+                                                        ).showSnackBar(
+                                                          SnackBar(
+                                                            content: Text(
+                                                              'Registration failed. Token may be invalid.',
+                                                            ),
+                                                            backgroundColor:
+                                                                Theme.of(
+                                                                      context,
+                                                                    )
+                                                                    .colorScheme
+                                                                    .error,
+                                                          ),
+                                                        );
+                                                      }
+                                                    }
+                                                  } catch (e) {
+                                                    if (context.mounted)
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      ).showSnackBar(
+                                                        SnackBar(
+                                                          content: Text(
+                                                            'Error: $e',
+                                                          ),
+                                                          backgroundColor:
+                                                              Theme.of(context)
+                                                                  .colorScheme
+                                                                  .error,
+                                                        ),
+                                                      );
+                                                  } finally {
+                                                    if (context.mounted)
+                                                      setStateDialog(
+                                                        () => isRegistering =
+                                                            false,
+                                                      );
+                                                  }
+                                                },
+                                          child: isRegistering
+                                              ? const SizedBox(
+                                                  width: 16,
+                                                  height: 16,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                      ),
+                                                )
+                                              : const Text(
+                                                  'REGISTER WITH INVITE',
+                                                ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: isRegistering
+                        ? null
+                        : () => Navigator.pop(context),
+                    child: const Text('CANCEL'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -507,7 +989,9 @@ class _LoginScreenState extends State<LoginScreen> {
               minHeight: 6,
               value: authService.isConnecting ? null : 1,
               backgroundColor: Colors.white.withValues(alpha: 0.2),
-              valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.secondary),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                Theme.of(context).colorScheme.secondary,
+              ),
             ),
           ),
         ],
@@ -523,16 +1007,18 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    if (!input.contains('@') || input.split('@').length != 2 || input.split('@')[1].isEmpty) {
+    if (!input.contains('@') ||
+        input.split('@').length != 2 ||
+        input.split('@')[1].isEmpty) {
       _showLoginError('Invalid XMPP address. Use the format user@domain.com');
       return;
     }
-    
+
     if (_passController.text.isEmpty) {
       _showLoginError('Please enter your password.');
       return;
     }
-    
+
     final port = int.tryParse(_portController.text);
     if (port == null || port <= 0 || port > 65535) {
       _showLoginError('Invalid port number. Use a value between 1 and 65535.');
@@ -544,7 +1030,6 @@ class _LoginScreenState extends State<LoginScreen> {
     final domain = parts.length > 1 ? parts[1] : '';
 
     try {
-
       await authService.connectXmpp(
         user: user,
         domain: domain,
@@ -587,9 +1072,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
         String errorMessage = errorStr.replaceAll('Exception: ', '');
         if (isSocketError) {
-          errorMessage = 'Could not reach the server. Check the hostname and your network.';
+          errorMessage =
+              'Could not reach the server. Check the hostname and your network.';
         } else if (isTlsError) {
-          errorMessage = 'Secure connection failed. Server certificate could not be verified.';
+          errorMessage =
+              'Secure connection failed. Server certificate could not be verified.';
         } else if (errorStr.contains('Null check')) {
           errorMessage = 'Connection failed unexpectedly.';
         }
@@ -598,7 +1085,11 @@ class _LoginScreenState extends State<LoginScreen> {
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -615,7 +1106,9 @@ class _LoginScreenState extends State<LoginScreen> {
               label: 'PROBE',
               textColor: Colors.white,
               onPressed: () {
-                final host = _hostController.text.isNotEmpty ? _hostController.text : domain;
+                final host = _hostController.text.isNotEmpty
+                    ? _hostController.text
+                    : domain;
                 authService.testSocketConnection(host, port);
               },
             ),
@@ -630,7 +1123,11 @@ class _LoginScreenState extends State<LoginScreen> {
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+            const Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(

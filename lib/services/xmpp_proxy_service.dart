@@ -67,32 +67,46 @@ class XmppProxyService {
 
         remoteSocket.listen((data) {
           Uint8List finalData = data;
+          String content = String.fromCharCodes(data);
+          bool modified = false;
+
+          // 0. Strip Stream Management to prevent xmpp_stone counting bug
+          if (content.contains('urn:xmpp:sm:')) {
+            content = content.replaceAll(RegExp(r'<sm xmlns=.urn:xmpp:sm:[23].[^>]*/>'), '');
+            content = content.replaceAll(RegExp(r'<sm xmlns=.urn:xmpp:sm:[23].[^>]*>.*?</sm>', dotAll: true), '');
+            modified = true;
+          }
+
           // FEATURE TRANSFORMER: Handle STARTTLS and SASL PLAIN-Injection
           if (!firstServerPacketTransformed) {
-            String content = String.fromCharCodes(data);
             if (content.contains('<stream:features')) {
                debugPrint('Proxy: Intercepted server features. Performing PLAIN-Injection for universal compatibility...');
                
                // 1. Strip STARTTLS (Offloaded to Proxy)
-               String transformed = content.replaceFirst(RegExp(r'<starttls[^>]*>.*?</starttls>', dotAll: true), '');
-               transformed = transformed.replaceFirst(RegExp(r'<starttls[^>]*/>'), '');
+               content = content.replaceFirst(RegExp(r'<starttls[^>]*>.*?</starttls>', dotAll: true), '');
+               content = content.replaceFirst(RegExp(r'<starttls[^>]*/>'), '');
 
                // 2. SASL PLAIN-Injection (The "Ultimate Overload")
                // We replace ALL authentication/mechanisms blocks with a single clean SASL 1 block
                final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><mechanism>PLAIN</mechanism><mechanism>SCRAM-SHA-1</mechanism></mechanisms>";
                
                 // Wipe SASL 2 (urn:xmpp:sasl:2) and legacy mechanisms
-                transformed = transformed.replaceFirst(RegExp(r'<authentication xmlns=.urn:xmpp:sasl:2.>(.*?)</authentication>', dotAll: true), '');
-                transformed = transformed.replaceFirst(RegExp(r'<mechanisms[^>]*>.*?</mechanisms>', dotAll: true), '');
+                content = content.replaceFirst(RegExp(r'<authentication xmlns=.urn:xmpp:sasl:2.>(.*?)</authentication>', dotAll: true), '');
+                content = content.replaceFirst(RegExp(r'<mechanisms[^>]*>.*?</mechanisms>', dotAll: true), '');
                 
                 // Inject clean mechanisms
-                transformed = transformed.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
+                content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
                 
-                finalData = Uint8List.fromList(utf8.encode(transformed));
+                modified = true;
                 firstServerPacketTransformed = true;
                 debugPrint('Proxy: Transformation successful. FORCE-INJECTED SASL mechanisms.');
             }
           }
+
+          if (modified) {
+            finalData = Uint8List.fromList(utf8.encode(content));
+          }
+
           final preview = String.fromCharCodes(finalData.take(500)).replaceAll('\n', ' ').replaceAll('\r', ' ');
           debugPrint('Proxy: [S->C] Pumping ${finalData.length} bytes: $preview...');
           clientSocket.add(finalData);

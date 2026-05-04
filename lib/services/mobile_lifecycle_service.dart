@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:isolate';
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
@@ -26,7 +25,8 @@ class BackgroundKeepAliveTaskHandler extends TaskHandler {
 }
 
 class MobileLifecycleService extends WidgetsBindingObserver {
-  static final MobileLifecycleService instance = MobileLifecycleService._internal();
+  static final MobileLifecycleService instance =
+      MobileLifecycleService._internal();
   MobileLifecycleService._internal();
 
   bool _isInitialized = false;
@@ -38,7 +38,8 @@ class MobileLifecycleService extends WidgetsBindingObserver {
       androidNotificationOptions: AndroidNotificationOptions(
         channelId: 'gibber_background_service',
         channelName: 'Background Service',
-        channelDescription: 'Keeps Gibber connected to receive messages and calls.',
+        channelDescription:
+            'Keeps Gibber connected to receive messages and calls.',
         channelImportance: NotificationChannelImportance.LOW,
         priority: NotificationPriority.LOW,
       ),
@@ -48,9 +49,9 @@ class MobileLifecycleService extends WidgetsBindingObserver {
       ),
       foregroundTaskOptions: ForegroundTaskOptions(
         eventAction: ForegroundTaskEventAction.repeat(10000),
-        autoRunOnBoot: false,
-        allowWakeLock: true,
-        allowWifiLock: true,
+        autoRunOnBoot: true, // App starts on device boot
+        allowWakeLock: true, // Keep CPU active for XMPP
+        allowWifiLock: true, // Keep WiFi active for XMPP
       ),
     );
 
@@ -58,31 +59,45 @@ class MobileLifecycleService extends WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
 
     // Request permissions required for foreground service
-    if (await FlutterForegroundTask.isIgnoringBatteryOptimizations == false) {
-      // Optional: Suggest user to disable battery optimizations
-    }
-    
-    // Android 13+ requires notification permissions
     await FlutterForegroundTask.requestNotificationPermission();
+
+    if (await FlutterForegroundTask.isIgnoringBatteryOptimizations == false) {
+      // Suggest user to disable battery optimizations for background reliability
+      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // We keep the service running even when resumed to ensure connection stability
+    // but we can adjust priorities here if needed.
     if (!_isInitialized || !Platform.isAndroid) return;
 
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      // Ensure it's definitely running when we leave foreground
       _startBackgroundService();
-    } else if (state == AppLifecycleState.resumed) {
-      _stopBackgroundService();
+    }
+  }
+
+  /// Syncs the foreground service state based on whether the user is logged in
+  Future<void> syncServiceState(bool isAuthenticated) async {
+    if (!Platform.isAndroid || !_isInitialized) return;
+
+    if (isAuthenticated) {
+      await _startBackgroundService();
+    } else {
+      await _stopBackgroundService();
     }
   }
 
   Future<void> _startBackgroundService() async {
     if (await FlutterForegroundTask.isRunningService) return;
-    
+
     // Ensure we have permissions before starting
-    final isIgnoringBattery = await FlutterForegroundTask.isIgnoringBatteryOptimizations;
-    
+    final isIgnoringBattery =
+        await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+
     await FlutterForegroundTask.startService(
       notificationTitle: 'Gibber Connected',
       notificationText: 'Running in background to receive messages',

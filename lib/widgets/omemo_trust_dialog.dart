@@ -5,11 +5,13 @@ import '../services/auth_service.dart';
 class OmemoTrustDialog extends StatefulWidget {
   final String chatId;
   final String chatName;
+  final String? accountId;
 
   const OmemoTrustDialog({
     super.key,
     required this.chatId,
     required this.chatName,
+    this.accountId,
   });
 
   @override
@@ -28,7 +30,14 @@ class _OmemoTrustDialogState extends State<OmemoTrustDialog> {
 
   Future<void> _loadFingerprints() async {
     final authService = Provider.of<AuthService>(context, listen: false);
-    final data = await authService.getOmemoFingerprintsDetailed(widget.chatId);
+    var data = await authService.getOmemoFingerprintsDetailed(widget.chatId);
+    
+    // If we only see our own device (or nothing), try to discover the contact's devices
+    if (data.isEmpty || (data.length == 1 && data.values.first['isOwn'] == true)) {
+      await authService.refreshOmemoDevices(widget.chatId, accountId: widget.accountId);
+      data = await authService.getOmemoFingerprintsDetailed(widget.chatId);
+    }
+
     if (mounted) {
       setState(() {
         _fingerprints = data;

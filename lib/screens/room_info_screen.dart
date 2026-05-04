@@ -75,14 +75,7 @@ class RoomInfoScreen extends StatelessWidget {
           // Background Gradient matching Cyberpunk aesthetic
           Container(
             decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment.topCenter,
-                radius: 1.5,
-                colors: [
-                  theme.colorScheme.primary.withValues(alpha: 0.15),
-                  theme.scaffoldBackgroundColor,
-                ],
-              ),
+              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
             ),
           ),
           SafeArea(

@@ -26,6 +26,16 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
     if (xmppAccounts.isNotEmpty) {
       _selectedAccountId = xmppAccounts.first.fullJid;
     }
+
+    _nameController.addListener(() {
+      if (_selectedAccountId != null && _nameController.text.isNotEmpty) {
+        final domain = _selectedAccountId!.split('@').last;
+        final formattedName = _nameController.text.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '-');
+        if (formattedName.isNotEmpty && !_jidController.text.contains('@')) {
+           _jidController.text = '$formattedName@conference.$domain';
+        }
+      }
+    });
   }
 
   @override

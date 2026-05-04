@@ -159,14 +159,7 @@ class _RoomDiscoveryScreenState extends State<RoomDiscoveryScreen> {
           // Header / Search area
           Container(
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  theme.colorScheme.primary,
-                  theme.colorScheme.primaryContainer.withValues(alpha: 0.8),
-                ],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
+              color: theme.colorScheme.primary,
               boxShadow: [
                 BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 4)),
               ],
@@ -338,14 +331,7 @@ class _RoomDiscoveryScreenState extends State<RoomDiscoveryScreen> {
                               width: 50,
                               height: 50,
                               decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    theme.colorScheme.primaryContainer,
-                                    theme.colorScheme.secondaryContainer,
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
+                                color: theme.colorScheme.primaryContainer,
                                 shape: BoxShape.circle,
                                 boxShadow: [
                                   BoxShadow(
@@ -440,6 +426,7 @@ class _RoomDiscoveryScreenState extends State<RoomDiscoveryScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: null,
         onPressed: () {
           Navigator.push(
             context,

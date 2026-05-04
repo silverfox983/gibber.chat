@@ -37,7 +37,7 @@ class OtrService {
     return text; // Return plaintext if OTR is not active
   }
 
-  String processIncomingMessage(String bareJid, String text) {
+  String? processIncomingMessage(String bareJid, String text) {
     final engine = _getEngine(bareJid);
 
     // Check for OTR Whitespace Tag (indicating OTR support)
@@ -53,7 +53,7 @@ class OtrService {
       if (reply != null && injectMessage != null) {
         injectMessage!(bareJid, reply);
       }
-      return '[OTR: Session Initiation Requested]';
+      return null; // Do not show in UI
     }
 
     if (text.startsWith('?OTR:')) {
@@ -63,7 +63,7 @@ class OtrService {
         if (reply != null && injectMessage != null) {
           injectMessage!(bareJid, reply);
         }
-        return '[OTR: Negotiating Session...]';
+        return null; // Do not show AKE negotiation in UI
       } else {
         return engine.decryptMessage(text);
       }

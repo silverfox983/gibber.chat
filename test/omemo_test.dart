@@ -17,7 +17,7 @@ void main() {
   group('OMEMO Service Protocol Tests', () {
     test('Initialization generates device ID and keys', () async {
       final omemo = OmemoService();
-      await omemo.initialize();
+      await omemo.initialize('test@domain.com');
       expect(omemo.localDeviceId, isNonZero);
       // Since device ID is random, we just check it's not null via internal state if we could,
       // but we'll check it doesn't throw.

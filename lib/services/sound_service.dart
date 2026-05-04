@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum SoundType { ringtone, ringback, message, notification }
 
@@ -13,6 +15,18 @@ class SoundService {
 
   Future<void> playRingtone() async {
     debugPrint('SoundService: Playing ringtone');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final customPath = prefs.getString('custom_ringtone_path');
+      
+      if (customPath != null && await File(customPath).exists()) {
+        await _play(customPath, loop: true, isLocal: true);
+        return;
+      }
+    } catch (e) {
+      debugPrint('SoundService: Error checking custom ringtone: $e');
+    }
+    
     await _play('sounds/ringtone.mp3', loop: true);
   }
 
@@ -33,7 +47,7 @@ class SoundService {
     }
   }
 
-  Future<void> _play(String assetPath, {bool loop = false}) async {
+  Future<void> _play(String path, {bool loop = false, bool isLocal = false}) async {
     try {
       await _player.stop();
 
@@ -43,9 +57,10 @@ class SoundService {
         await _player.setReleaseMode(ReleaseMode.release);
       }
 
-      await _player.play(AssetSource(assetPath), mode: PlayerMode.lowLatency);
+      final source = isLocal ? DeviceFileSource(path) : AssetSource(path);
+      await _player.play(source, mode: PlayerMode.lowLatency);
     } catch (e) {
-      debugPrint('SoundService: Failed to play $assetPath: $e');
+      debugPrint('SoundService: Failed to play $path: $e');
     }
   }
 
@@ -64,7 +79,13 @@ class SoundService {
   /// Called when call ends to restore normal audio behavior
   Future<void> resetAudioContext() async {
     debugPrint('SoundService: resetAudioContext called');
-    // Cleanup is handled by WebRTCManager when stream is disposed
+    try {
+      // Force release the AudioPlayer to free up the MediaCodec buffer pool
+      // This prevents AIBinder_linkToDeath aborts when the audio session is torn down.
+      await _player.release();
+    } catch (e) {
+      debugPrint('SoundService: Error releasing audio player: $e');
+    }
   }
 
   void dispose() {

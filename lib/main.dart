@@ -117,6 +117,13 @@ class _ChatAppState extends State<ChatApp> {
       _callProvider!.initialize(_authService!, _callHistoryService!);
       _accountStatusNotifications.start(_authService!);
       
+      // Keep app running in background if authenticated (Mobile only)
+      _authService!.addListener(() {
+        MobileLifecycleService.instance.syncServiceState(_authService!.isAuthenticated);
+      });
+      // Initial sync
+      MobileLifecycleService.instance.syncServiceState(_authService!.isAuthenticated);
+      
       setState(() {});
     } catch (e, stack) {
       debugPrint('STARTUP CRASH IN $_errorSource: $e\n$stack');

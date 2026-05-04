@@ -16,7 +16,17 @@ class Contact {
   final String protocol;
   ContactStatus status;
   String? presenceMessage;
+  String? bio;
+  String? fullName;
   Uint8List? avatarBytes;
+  final List<String> groups;
+  String? email;
+  String? phone;
+  String? url;
+  String? organization;
+  String? title;
+  String? role;
+  String? birthday;
 
   Contact({
     required this.id,
@@ -24,8 +34,50 @@ class Contact {
     required this.protocol,
     this.status = ContactStatus.offline,
     this.presenceMessage,
+    this.bio,
+    this.fullName,
     this.avatarBytes,
+    this.groups = const [],
+    this.email,
+    this.phone,
+    this.url,
+    this.organization,
+    this.title,
+    this.role,
+    this.birthday,
   });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'protocol': protocol,
+    'bio': bio,
+    'fullName': fullName,
+    'groups': groups,
+    'email': email,
+    'phone': phone,
+    'url': url,
+    'organization': organization,
+    'title': title,
+    'role': role,
+    'birthday': birthday,
+  };
+
+  factory Contact.fromJson(Map<String, dynamic> json) => Contact(
+    id: json['id'],
+    name: json['name'],
+    protocol: json['protocol'] ?? 'XMPP',
+    bio: json['bio'] as String?,
+    fullName: json['fullName'] as String?,
+    groups: List<String>.from(json['groups'] ?? []),
+    email: json['email'] as String?,
+    phone: json['phone'] as String?,
+    url: json['url'] as String?,
+    organization: json['organization'] as String?,
+    title: json['title'] as String?,
+    role: json['role'] as String?,
+    birthday: json['birthday'] as String?,
+  );
 }
 
 class ChatMessage {
@@ -51,6 +103,8 @@ class ChatMessage {
   final Map<String, List<String>> reactions;
   bool isEdited;
   DateTime? editTimestamp;
+  final String? forwardedFrom;
+  final String? encryptionType;
 
   ChatMessage({
     required this.id,
@@ -73,6 +127,8 @@ class ChatMessage {
     Map<String, List<String>>? reactions,
     this.isEdited = false,
     this.editTimestamp,
+    this.forwardedFrom,
+    this.encryptionType,
   }) : conversationId = conversationId?.split('/').first.toLowerCase(),
        reactions = _dedupeReactionMap(reactions ?? const {});
 
@@ -99,6 +155,8 @@ class ChatMessage {
       'is_edited': isEdited ? 1 : 0,
       'edit_timestamp': editTimestamp?.toIso8601String(),
       'reactions': reactions.isNotEmpty ? jsonEncode(reactions) : null,
+      'forwarded_from': forwardedFrom,
+      'encryption_type': encryptionType,
     };
   }
 
@@ -182,6 +240,8 @@ class ChatMessage {
       editTimestamp: map['edit_timestamp'] != null
           ? DateTime.tryParse(map['edit_timestamp'])
           : null,
+      forwardedFrom: map['forwarded_from'],
+      encryptionType: map['encryption_type'],
     );
   }
 }
@@ -207,10 +267,14 @@ class Conversation {
   ContactStatus status;
   String? presenceMessage;
   Uint8List? avatarBytes;
-  List<String> participants;
+  List<RoomParticipant> participants;
   String? wallpaperPath;
   int? wallpaperColor;
   String? topic;
+  String? draft;
+  String? encryptionType;
+  String? pinnedMessageId;
+  String? pinnedMessageText;
 
   Conversation({
     required this.id,
@@ -230,6 +294,10 @@ class Conversation {
     this.wallpaperPath,
     this.wallpaperColor,
     this.topic,
+    this.draft,
+    this.encryptionType,
+    this.pinnedMessageId,
+    this.pinnedMessageText,
   });
 
   bool isGroup;
@@ -238,11 +306,35 @@ class Conversation {
   ChatMessage? get lastMessage => messages.isNotEmpty ? messages.last : null;
 }
 
+class RoomParticipant {
+  final String nickname;
+  final String? realJid;
+  final String? affiliation;
+  final String? role;
+
+  RoomParticipant({
+    required this.nickname,
+    this.realJid,
+    this.affiliation,
+    this.role,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RoomParticipant &&
+          runtimeType == other.runtimeType &&
+          nickname == other.nickname;
+
+  @override
+  int get hashCode => nickname.hashCode;
+}
+
 class Room {
   final String id;
   final String name;
   final String? topic;
-  final List<String> participants;
+  final List<RoomParticipant> participants;
   final String protocol;
   final bool isGroup;
   final String? accountId;

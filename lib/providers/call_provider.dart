@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -11,7 +12,9 @@ import '../services/sip_service.dart';
 import '../services/auth_service.dart';
 import '../services/call_history_service.dart';
 import '../services/sound_service.dart';
+import '../services/multi_peer_webrtc_manager.dart';
 import '../models/call_log.dart';
+import '../models/chat_models.dart' as chat;
 
 bool isPhoneNumber(String input) {
   final cleaned = input.replaceAll(RegExp(r'[\s\-\(\)]'), '');
@@ -52,6 +55,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   StreamSubscription? _statsSub;
   StreamSubscription? _proximitySub;
   StreamSubscription? _sipCallStateSub;
+  StreamSubscription? _roomParticipantSub;
   Timer? _callTimeoutTimer;
   Timer? _iceDebugTimer;
   int _candidateSendCount = 0;
@@ -61,6 +65,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   double _localVolume = 0.0;
   double _remoteVolume = 0.0;
   bool _isTalkingWhileMuted = false;
+  
+  bool _isGroupCall = false;
+  final Map<String, RTCVideoRenderer> _groupRenderers = {};
+  final Map<String, double> _groupAudioLevels = {};
+  MultiPeerWebRTCManager? _multiPeerManager;
 
   CallState get state => _state;
   String? get remoteJid => _remoteJid;
@@ -84,6 +93,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   bool get isSipCall => _isSipCall;
   bool get isSipRegistered => _sipService?.isRegistered ?? false;
   SipService? get sipService => _sipService;
+  
+  bool get isGroupCall => _isGroupCall;
+  Map<String, RTCVideoRenderer> get groupRenderers => _groupRenderers;
+  Map<String, double> get groupAudioLevels => _groupAudioLevels;
 
   void _applyDefaultSpeakerRoute({required bool isVideo, String? source}) {
     // Voice calls should default to speakerphone so users can immediately hear audio.
@@ -141,7 +154,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       if (_state == CallState.outgoing) {
         debugPrint('CallProvider: Call timeout - no response received');
         _lastError = 'Call timeout - no response from gateway';
-        _cleanup(reason: 'timeout');
+        endCall();
       }
     });
   }
@@ -201,6 +214,140 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       accountId: accountId,
       isVideo: isVideo,
     );
+  }
+
+  Future<void> _startMucCall(
+    String roomJid, {
+    String? accountId,
+    bool isVideo = true,
+  }) async {
+    debugPrint('CallProvider: === STARTING MULTI-PEER MUC CALL ===');
+    
+    // For architectural placeholder, we notify the user that MUC calling requires SFU
+    // But we dispatch the actual Jingle propose to test signaling to real participants!
+    final occupants = _authService?.getRoomParticipants(roomJid) ?? [];
+    // We no longer abort if occupants.isEmpty because we are building a dynamic mesh.
+    // Late joiners will be handled by the roomParticipantsStream.
+
+    _state = CallState.outgoing;
+    _remoteJid = roomJid;
+    _isVideo = isVideo;
+    _callAccountId = accountId;
+    _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
+    _isGroupCall = true;
+    _log('Outgoing group ${_isVideo ? "video" : "voice"} call started (Full-Mesh)', isSent: true);
+    _playRingback();
+    notifyListeners();
+
+    // Clean up existing renderers
+    for (var r in _groupRenderers.values) {
+      r.srcObject = null;
+      r.dispose();
+    }
+    _groupRenderers.clear();
+    _groupAudioLevels.clear();
+
+    // Initialize MultiPeer WebRTC Manager
+    _multiPeerManager?.dispose();
+    _multiPeerManager = MultiPeerWebRTCManager();
+    _multiPeerManager!.onRemoteStreamAdded = (peerId, stream) async {
+      debugPrint('CallProvider: Remote stream added for $peerId in group call');
+      final renderer = RTCVideoRenderer();
+      await renderer.initialize();
+      renderer.srcObject = stream;
+      _groupRenderers[peerId] = renderer;
+      notifyListeners();
+    };
+    
+    _multiPeerManager!.onRemoteStreamRemoved = (peerId) {
+      debugPrint('CallProvider: Remote stream removed for $peerId in group call');
+      final renderer = _groupRenderers.remove(peerId);
+      if (renderer != null) {
+        renderer.srcObject = null;
+        renderer.dispose();
+      }
+      _groupAudioLevels.remove(peerId);
+      notifyListeners();
+    };
+
+    await _multiPeerManager!.initLocalStream(isVideo: _isVideo);
+    _localRenderer.srcObject = _multiPeerManager!.localStream;
+
+    final signaling = _authService?.getJingleService(accountId ?? '') ?? _authService?.jingleSignaling;
+    if (signaling == null) return;
+
+    _multiPeerManager!.onIceCandidate = (peerId, candidate) {
+      if (candidate.candidate != null && candidate.candidate!.isNotEmpty) {
+        debugPrint('CallProvider: Local ICE Candidate gathered for $peerId: ${candidate.candidate}');
+        signaling.sendIceCandidate(
+          peerId,
+          _sessionId!,
+          candidate.toMap(),
+          isVideo: _isVideo,
+        );
+      }
+    };
+
+    for (var occupant in occupants) {
+      final targetFullJid = occupant.realJid ?? '$roomJid/${occupant.nickname}';
+      // Do not call ourselves
+      final myJid = _authService?.activeAccountId;
+      if (myJid != null && targetFullJid.contains(myJid.split('@').first)) continue;
+
+      debugPrint('CallProvider: Dispatching Full-Mesh propose to $targetFullJid');
+      try {
+        final offer = await _multiPeerManager!.createOffer(targetFullJid);
+        signaling.sendSessionInitiateViaMessage(
+          targetFullJid,
+          _sessionId!,
+          offer.sdp ?? '',
+          isVideo: isVideo,
+        );
+      } catch (e) {
+        debugPrint('CallProvider: Failed to create offer for $targetFullJid: $e');
+      }
+    }
+    
+    // Subscribe to dynamic presence updates to handle late-joiners
+    _roomParticipantSub?.cancel();
+    _roomParticipantSub = _authService!.roomParticipantsStream.listen((rooms) async {
+      final updatedOccupants = rooms[roomJid] ?? [];
+      for (var occupant in updatedOccupants) {
+        final targetFullJid = occupant.realJid ?? '$roomJid/${occupant.nickname}';
+        
+        // Skip ourselves
+        final myJid = _authService?.activeAccountId;
+        if (myJid != null && targetFullJid.contains(myJid.split('@').first)) continue;
+
+        // Skip existing connections
+        if (_multiPeerManager!.hasPeer(targetFullJid)) continue;
+
+        debugPrint('CallProvider: [LATE JOINER] Dispatching Full-Mesh propose to $targetFullJid');
+        try {
+          final offer = await _multiPeerManager!.createOffer(targetFullJid);
+          signaling.sendSessionInitiateViaMessage(
+            targetFullJid,
+            _sessionId!,
+            offer.sdp ?? '',
+            isVideo: _isVideo,
+          );
+        } catch (e) {
+          debugPrint('CallProvider: Failed to create offer for $targetFullJid: $e');
+        }
+      }
+
+      // Handle part/offline (clean up disconnected peers)
+      final currentJids = updatedOccupants.map((o) => o.realJid ?? '$roomJid/${o.nickname}').toSet();
+      final activePeers = _multiPeerManager!.getActivePeerIds();
+      for (var peer in activePeers) {
+        if (!currentJids.contains(peer)) {
+          debugPrint('CallProvider: [PEER LEFT] Removing disconnected peer $peer');
+          _multiPeerManager!.removePeer(peer);
+        }
+      }
+    });
+
+    _startCallTimeoutTimer();
   }
 
   Future<void> _startXmppCallInternal(
@@ -389,27 +536,56 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       case JingleAction.sessionAccept:
         if (event.sdp != null) {
           debugPrint(
-            'CallProvider: Session accept received, SDP length: ${event.sdp!.length}',
+            'CallProvider: Session accept received from ${event.fromJid}, SDP length: ${event.sdp!.length}',
           );
           _isRinging = false;
-          handleRemoteSdp(event.sdp!, 'answer');
+          if (_isGroupCall && _multiPeerManager != null) {
+            _multiPeerManager!.setRemoteDescription(
+              event.fromJid,
+              RTCSessionDescription(event.sdp!, 'answer'),
+            );
+          } else {
+            handleRemoteSdp(event.sdp!, 'answer');
+          }
         }
         break;
       case JingleAction.transportInfo:
         if (event.candidate != null) {
-          handleRemoteCandidate(event.candidate!);
+          if (_isGroupCall && _multiPeerManager != null) {
+            final candidateMap = event.candidate as Map<String, dynamic>;
+            final candidateStr = candidateMap['candidate']?.toString() ?? '';
+            if (candidateStr.isNotEmpty) {
+              _multiPeerManager!.addCandidate(
+                event.fromJid,
+                RTCIceCandidate(
+                  candidateStr,
+                  candidateMap['sdpMid']?.toString() ?? '0',
+                  int.tryParse(candidateMap['sdpMLineIndex']?.toString() ?? '0') ?? 0,
+                ),
+              );
+            }
+          } else {
+            handleRemoteCandidate(event.candidate!);
+          }
         }
         break;
       case JingleAction.sessionTerminate:
-        debugPrint('CallProvider: Remote party terminated the session');
-        endCall();
+        debugPrint('CallProvider: Remote party ${event.fromJid} terminated the session');
+        if (_isGroupCall && _multiPeerManager != null) {
+          _multiPeerManager!.removePeer(event.fromJid);
+          if (_groupRenderers.isEmpty) {
+            endCall();
+          }
+        } else {
+          endCall();
+        }
         break;
     }
   }
 
-  void _log(String text, {required bool isSent}) {
+  void _log(String text, {required bool isSent, String? filePath, chat.MessageType type = chat.MessageType.call}) {
     if (_remoteJid != null && _authService != null) {
-      _authService!.logCallEvent(_remoteJid!, text, isSent);
+      _authService!.logCallEvent(_remoteJid!, text, isSent, filePath: filePath, type: type);
     }
   }
 
@@ -435,7 +611,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         if (isGateway) {
           signaling.sendSessionTerminate(fromJid, sessionId, reason: 'busy');
         } else {
-          signaling.sendSessionTerminateViaMessage(fromJid, sessionId, reason: 'busy');
+          signaling.sendRejectViaMessage(fromJid, sessionId);
         }
       }
       return;
@@ -582,6 +758,14 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       );
       // Route through XMPP Jingle exactly like a normal chat call, let the gateway handle PSTN bridging
       await _startXmppCall(cleanNumber, accountId: accountId, isVideo: false);
+      return;
+    }
+
+    // MUC DETECTION
+    final isMuc = toJid.contains('@conference.') || toJid.contains('@muc.');
+    if (isMuc) {
+      debugPrint('CallProvider: MUC room detected. Initiating Multi-Peer Mesh Call...');
+      await _startMucCall(toJid, accountId: accountId, isVideo: isVideo);
       return;
     }
 
@@ -1228,18 +1412,29 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     if (_isRecording) {
       await _rtcManager.stopRecording();
       _isRecording = false;
+      _log(
+        'Call Recording',
+        isSent: true,
+        filePath: _lastRecordingPath,
+        type: chat.MessageType.voice,
+      );
       notifyListeners();
     } else {
       try {
         final docsDir = await getApplicationDocumentsDirectory();
+        final exportDir = Directory('${docsDir.path}/GibberExport/Calls');
+        if (!await exportDir.exists()) {
+          await exportDir.create(recursive: true);
+        }
+        
         final timestamp = DateTime.now().millisecondsSinceEpoch;
         _lastRecordingPath =
-            '${docsDir.path}/call_${_remoteJid?.split("@").first}_$timestamp.mp4';
+            '${exportDir.path}/call_${_remoteJid?.split("@").first}_$timestamp.mp4';
 
         await _rtcManager.startRecording(_lastRecordingPath!);
         _isRecording = true;
         _log(
-          'Recording started: ${_lastRecordingPath?.split("/").last}',
+          'Recording started',
           isSent: true,
         );
         notifyListeners();
@@ -1249,52 +1444,106 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
   }
 
-  void endCall() {
+  Future<void> inviteParticipant(String targetJid) async {
+    if (_state != CallState.active) {
+      debugPrint('CallProvider: Cannot invite participant, call is not active.');
+      return;
+    }
+
+    debugPrint('CallProvider: Inviting $targetJid to the active call...');
+    
+    // Architecturally, since Gibber is currently strictly P2P via WebRTC,
+    // true multiparty calling requires either an MCU/SFU bridge or a mesh of PeerConnections.
+    // For now, we will log the invite action. A future implementation would:
+    // 1. Create a MUC room.
+    // 2. Send XEP-0249 (Direct MUC Invitations) to the new participant and the current remote party.
+    
+    _log('Invited $targetJid to join the call', isSent: true);
+    
+    // We could potentially send a standard chat message containing a conference URI if we wanted to mock it.
+    if (_authService != null && _callAccountId != null) {
+      // final jingleService = _authService!.getJingleService(_callAccountId!);
+      // For now, we just simulate sending an invite.
+      // jingleService.sendConferenceInvite(targetJid, _sessionId!);
+    }
+  }
+
+  Future<void> endCall() async {
     if (_isSipCall) {
       _sipService?.hangup();
       _isSipCall = false;
       _log('SIP Call ended', isSent: true);
-      _cleanup(reason: 'terminated');
+      await _cleanup(reason: 'terminated');
       return;
     }
 
     final signaling =
         _authService?.getJingleService(_callAccountId ?? '') ??
         _authService?.jingleSignaling;
-    if (_remoteJid != null && _sessionId != null) {
-      final isGateway = _remoteJid!.toLowerCase().contains('cheogram') || _remoteJid!.contains('+');
-      debugPrint('CallProvider: [TEARDOWN] isGateway=$isGateway for $_remoteJid');
+    
+    // Capture state before cleanup
+    final targetJid = _remoteJid;
+    final sid = _sessionId;
+    final wasActive = _state == CallState.active;
+    final wasIncoming = _state == CallState.incoming;
+    
+    // 1. Force cleanup of WebRTC and Audio focus first
+    await _cleanup(reason: 'terminated');
 
-      if (isGateway) {
-        debugPrint('CallProvider: [PSTN] Direct IQ Terminate');
-        signaling?.sendSessionTerminate(_remoteJid!, _sessionId!);
+    // 2. Send termination signaling
+    if (targetJid != null && sid != null) {
+      final isGateway = targetJid.toLowerCase().contains('cheogram') || targetJid.contains('+');
+      debugPrint('CallProvider: [TEARDOWN] isGateway=$isGateway for $targetJid');
+
+      if (wasActive || isGateway) {
+        debugPrint('CallProvider: Direct IQ Terminate');
+        signaling?.sendSessionTerminate(targetJid, sid);
       } else {
-        debugPrint('CallProvider: [CHAT] XEP-0353 Message Terminate');
-        signaling?.sendSessionTerminateViaMessage(_remoteJid!, _sessionId!);
+        if (wasIncoming) {
+          debugPrint('CallProvider: [CHAT] XEP-0353 Message Reject');
+          signaling?.sendRejectViaMessage(targetJid, sid);
+        } else {
+          debugPrint('CallProvider: [CHAT] XEP-0353 Message Retract');
+          signaling?.sendRetractViaMessage(targetJid, sid);
+        }
       }
       _log('Call ended', isSent: true);
     }
-    _cleanup(reason: 'terminated');
   }
 
-  void declineCall() {
+  Future<void> declineCall() async {
     final signaling =
         _authService?.getJingleService(_callAccountId ?? '') ??
         _authService?.jingleSignaling;
-    if (_remoteJid != null && _sessionId != null) {
-      final isGateway = _remoteJid!.toLowerCase().contains('cheogram') || _remoteJid!.contains('+');
-      debugPrint('CallProvider: [DECLINE] isGateway=$isGateway for $_remoteJid');
+        
+    // Capture state before cleanup
+    final targetJid = _remoteJid;
+    final sid = _sessionId;
+    final wasActive = _state == CallState.active;
+    final wasIncoming = _state == CallState.incoming;
+    
+    // 1. Force cleanup of WebRTC and Audio focus first
+    await _cleanup(reason: 'declined');
 
-      if (isGateway) {
-        debugPrint('CallProvider: [PSTN] Direct IQ Decline');
-        signaling?.sendSessionTerminate(_remoteJid!, _sessionId!);
+    // 2. Send termination signaling
+    if (targetJid != null && sid != null) {
+      final isGateway = targetJid.toLowerCase().contains('cheogram') || targetJid.contains('+');
+      debugPrint('CallProvider: [DECLINE] isGateway=$isGateway for $targetJid');
+
+      if (wasActive || isGateway) {
+        debugPrint('CallProvider: Direct IQ Decline');
+        signaling?.sendSessionTerminate(targetJid, sid);
       } else {
-        debugPrint('CallProvider: [CHAT] XEP-0353 Message Decline');
-        signaling?.sendSessionTerminateViaMessage(_remoteJid!, _sessionId!);
+        if (wasIncoming) {
+          debugPrint('CallProvider: [CHAT] XEP-0353 Message Reject');
+          signaling?.sendRejectViaMessage(targetJid, sid);
+        } else {
+          debugPrint('CallProvider: [CHAT] XEP-0353 Message Retract');
+          signaling?.sendRetractViaMessage(targetJid, sid);
+        }
       }
       _log('Call declined', isSent: true);
     }
-    _cleanup(reason: 'declined');
   }
 
   Future<void> _cleanup({String? reason}) async {
@@ -1302,6 +1551,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     debugPrint('CallProvider: Cleanup reason: $reason');
 
     _statsSub?.cancel();
+    _roomParticipantSub?.cancel();
+    _roomParticipantSub = null;
     _callTimeoutTimer?.cancel();
     _callTimeoutTimer = null;
     _iceDebugTimer?.cancel();
@@ -1334,6 +1585,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _localRenderer.srcObject = null;
     _remoteRenderer.srcObject = null;
     debugPrint('CallProvider: Renderers cleared');
+
+    for (var r in _groupRenderers.values) {
+      r.srcObject = null;
+    }
+    _groupRenderers.clear();
+    _groupAudioLevels.clear();
+    await _multiPeerManager?.dispose();
+    _multiPeerManager = null;
+    _isGroupCall = false;
 
     _state = CallState.idle;
     notifyListeners(); // Immediate UI update to prevent race conditions during async dispose
@@ -1399,10 +1659,14 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _sipCallStateSub?.cancel();
     _sipService?.dispose();
     _sipService = null;
-    _localRenderer.srcObject = null;
-    _remoteRenderer.srcObject = null;
+    _cleanup(reason: 'provider disposed');
     _localRenderer.dispose();
     _remoteRenderer.dispose();
+    for (var r in _groupRenderers.values) {
+      r.dispose();
+    }
+    _groupRenderers.clear();
+    _multiPeerManager?.dispose();
     super.dispose();
   }
 }

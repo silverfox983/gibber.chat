@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/chat_models.dart';
 import '../services/auth_service.dart';
+import './room_affiliation_screen.dart';
 
 class RoomSettingsScreen extends StatefulWidget {
   final Conversation room;
-  
-  const RoomSettingsScreen({Key? key, required this.room}) : super(key: key);
+
+  const RoomSettingsScreen({super.key, required this.room});
 
   @override
   State<RoomSettingsScreen> createState() => _RoomSettingsScreenState();
@@ -18,14 +19,38 @@ class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
   final _passwordController = TextEditingController();
   bool _isPersistent = true;
   bool _isPublic = true;
+  bool _isMembersOnly = false;
+  bool _isModerated = false;
   bool _isLoading = false;
+  bool _isFetching = true;
 
   @override
   void initState() {
     super.initState();
     _nameController.text = widget.room.name;
-    // We don't have the current description/password easily accessible without full dataform parsing.
-    // We'll allow the owner to blindly update these.
+    _fetchCurrentConfig();
+  }
+
+  Future<void> _fetchCurrentConfig() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final accountId = widget.room.accountId ?? authService.activeAccountId;
+    if (accountId == null) {
+      if (mounted) setState(() => _isFetching = false);
+      return;
+    }
+
+    final config = await authService.fetchRoomConfig(accountId, widget.room.id);
+    if (mounted) {
+      if (config != null) {
+        _nameController.text = config['muc#roomconfig_roomname'] ?? widget.room.name;
+        _descController.text = config['muc#roomconfig_roomdesc'] ?? '';
+        _isPersistent = config['muc#roomconfig_persistentroom'] == '1';
+        _isPublic = config['muc#roomconfig_publicroom'] == '1';
+        _isMembersOnly = config['muc#roomconfig_membersonly'] == '1';
+        _isModerated = config['muc#roomconfig_moderatedroom'] == '1';
+      }
+      setState(() => _isFetching = false);
+    }
   }
 
   @override
@@ -41,7 +66,7 @@ class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
 
     final authService = Provider.of<AuthService>(context, listen: false);
     final accountId = widget.room.accountId ?? authService.activeAccountId;
-    
+
     if (accountId == null) {
       setState(() => _isLoading = false);
       return;
@@ -54,6 +79,8 @@ class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
       'muc#roomconfig_roomdesc': _descController.text.trim(),
       'muc#roomconfig_persistentroom': _isPersistent ? '1' : '0',
       'muc#roomconfig_publicroom': _isPublic ? '1' : '0',
+      'muc#roomconfig_membersonly': _isMembersOnly ? '1' : '0',
+      'muc#roomconfig_moderatedroom': _isModerated ? '1' : '0',
     };
 
     if (_passwordController.text.isNotEmpty) {
@@ -69,12 +96,18 @@ class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
     // Also update the room subject via message stanza to update the topic immediately
     final subject = _descController.text.trim();
     if (subject.isNotEmpty) {
-       authService.sendXmppSubject(widget.room.id, subject, accountId: accountId);
+      authService.sendXmppSubject(
+        widget.room.id,
+        subject,
+        accountId: accountId,
+      );
     }
 
     if (mounted) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Room settings updated.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Room settings updated.')));
       Navigator.pop(context);
     }
   }
@@ -82,24 +115,42 @@ class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Room Settings'),
         actions: [
           if (_isLoading)
-            const Center(child: Padding(padding: EdgeInsets.only(right: 16), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))))
-          else
-            IconButton(
-              icon: const Icon(Icons.check),
-              onPressed: _saveSettings,
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.only(right: 16),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
+                ),
+              ),
             )
+          else
+            IconButton(icon: const Icon(Icons.check), onPressed: _saveSettings),
         ],
       ),
-      body: ListView(
+      body: _isFetching 
+        ? const Center(child: CircularProgressIndicator())
+        : ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          const Text('Configuration is only applied if you are a Room Owner.', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+          const Text(
+            'Configuration is only applied if you are a Room Owner.',
+            style: TextStyle(
+              color: Colors.redAccent,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+          ),
           const SizedBox(height: 24),
           TextField(
             controller: _nameController,
@@ -139,6 +190,30 @@ class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
             value: _isPublic,
             onChanged: (val) => setState(() => _isPublic = val),
           ),
+          SwitchListTile(
+            title: const Text('Members Only'),
+            subtitle: const Text('Only approved members can join'),
+            value: _isMembersOnly,
+            onChanged: (val) => setState(() => _isMembersOnly = val),
+          ),
+          SwitchListTile(
+            title: const Text('Moderated Room'),
+            subtitle: const Text('Only participants with voice can speak'),
+            value: _isModerated,
+            onChanged: (val) => setState(() => _isModerated = val),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.people_alt_rounded),
+            label: const Text('MANAGE BANS & MEMBERS'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              side: BorderSide(color: theme.colorScheme.primary),
+            ),
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => RoomAffiliationScreen(room: widget.room)));
+            },
+          ),
           const SizedBox(height: 32),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -147,7 +222,10 @@ class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
               foregroundColor: theme.colorScheme.onPrimary,
             ),
             onPressed: _isLoading ? null : _saveSettings,
-            child: const Text('SAVE SETTINGS', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text(
+              'SAVE SETTINGS',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),

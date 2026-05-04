@@ -16,15 +16,17 @@ import 'package:path_provider/path_provider.dart';
 import 'room_settings_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:markdown/markdown.dart' as md;
 import 'package:giphy_get/giphy_get.dart';
 import './room_discovery_screen.dart';
 import '../widgets/link_preview.dart';
 import '../widgets/audio_waveform.dart';
+import '../widgets/typing_indicator.dart';
 import '../models/chat_models.dart';
 import '../services/auth_service.dart';
+import '../services/avatar_cache_service.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/group_invite_dialog.dart';
-import '../services/avatar_cache_service.dart';
 import '../providers/call_provider.dart';
 import '../services/database_service.dart';
 import './profile_screen.dart';
@@ -35,10 +37,14 @@ import '../widgets/omemo_trust_dialog.dart';
 import '../widgets/room_participants_dialog.dart';
 import '../providers/theme_provider.dart';
 import './contacts_screen.dart';
+import './feed_screen.dart';
 import './nexus_search_screen.dart';
 import './security_settings_screen.dart';
+import './invite_screen.dart';
+import './create_room_screen.dart';
 import '../services/xep_0392_service.dart';
 import './spaces_screen.dart';
+import './transports_screen.dart';
 
 class HighlightedText extends StatelessWidget {
   final String text;
@@ -186,8 +192,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
         }
 
         // MAM Infinite Scroll: Trigger history load when reaching top
-        if (_scrollController.position.pixels ==
-            _scrollController.position.minScrollExtent) {
+        if (_scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200) {
           if (!mounted) return;
           final cp = Provider.of<ChatProvider>(context, listen: false);
           final activeChat = cp.activeConversation;
@@ -228,7 +234,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
       // Hook up Typing Indicators (XEP-0085) & Drafts
       _messageController.addListener(() {
         if (!mounted) return;
-        
+
         final hasText = _messageController.text.isNotEmpty;
         if (_isTypingMsg != hasText) {
           setState(() => _isTypingMsg = hasText);
@@ -236,12 +242,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
         final cp = Provider.of<ChatProvider>(context, listen: false);
         final activeChat = cp.activeConversation;
-        
+
         if (activeChat != null) {
           cp.setDraft(activeChat.id, _messageController.text);
-          
-          if (!_authService.isOmemoEnabled(activeChat.id)) {
-            final newState = hasText ? 'composing' : 'active';
+
+          final newState = hasText ? 'composing' : 'active';
 
           if (newState != _lastSentChatState) {
             _authService.sendChatState(
@@ -264,10 +269,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 _lastSentChatState = 'paused';
               }
             });
-          } else {
-            _typingDebouncer?.cancel();
           }
-        }
+        } else {
+          _typingDebouncer?.cancel();
         }
       });
 
@@ -405,7 +409,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
     Future.delayed(const Duration(milliseconds: 300), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
+          0.0,
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOut,
         );
@@ -609,9 +613,14 @@ class _MainChatScreenState extends State<MainChatScreen> {
       }
     } else {
       if (await _audioRecorder.hasPermission()) {
-        final directory = await getTemporaryDirectory();
+        final docsDir = await getApplicationDocumentsDirectory();
+        final exportDir = Directory('${docsDir.path}/GibberExport/VoiceNotes');
+        if (!await exportDir.exists()) {
+          await exportDir.create(recursive: true);
+        }
+
         final path =
-            '${directory.path}/rec_${DateTime.now().millisecondsSinceEpoch}.m4a';
+            '${exportDir.path}/VoiceNote_${activeChat.id.split("@").first}_${DateTime.now().millisecondsSinceEpoch}.m4a';
         await _audioRecorder.start(const RecordConfig(), path: path);
         setState(() => _isRecording = true);
 
@@ -689,19 +698,74 @@ class _MainChatScreenState extends State<MainChatScreen> {
       appBar: activeChat != null
           ? null
           : AppBar(
-              title: Text(
-                'GIBBER',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  color: Theme.of(context).appBarTheme.foregroundColor,
-                ),
+              title: Row(
+                children: [
+                  Image.asset(
+                    'assets/logo.png',
+                    height: 28,
+                    width: 28,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'GIBBER',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.2,
+                      color: Theme.of(context).appBarTheme.foregroundColor,
+                    ),
+                  ),
+                ],
               ),
               backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
               elevation: 0,
+              actions: [
+                Consumer<ThemeProvider>(
+                  builder: (context, tp, _) => IconButton(
+                    icon: Icon(
+                      tp.isDarkMode
+                          ? Icons.light_mode_rounded
+                          : Icons.dark_mode_rounded,
+                      color: Theme.of(context).appBarTheme.foregroundColor,
+                      size: 20,
+                    ),
+                    onPressed: () => tp.toggleTheme(),
+                    tooltip: 'Toggle Theme',
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    Icons.travel_explore_rounded,
+                    color: Theme.of(context).appBarTheme.foregroundColor,
+                    size: 20,
+                  ),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const NexusSearchScreen(),
+                    ),
+                  ),
+                  tooltip: 'Nexus Global Search',
+                ),
+                IconButton(
+                  icon: Container(
+                    width: 14,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: _getStatusColor(authService.myStatus),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.surface,
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                  onPressed: () => _showStatusPicker(authService),
+                  tooltip: 'Set Status',
+                ),
+                _buildAddAction(chatProvider, authService),
+                const SizedBox(width: 8),
+              ],
             ),
-      drawer: Drawer(
-        child: _buildSidebarLayout(chatProvider, authService, true),
-      ),
       body: Column(
         children: [
           if (chatProvider.pendingSubscriptions.isNotEmpty)
@@ -712,7 +776,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 padding: const EdgeInsets.all(12),
                 color: Theme.of(context).colorScheme.secondaryContainer,
                 child: Text(
-                  '${chatProvider.pendingSubscriptions.length} Pending Friend Requests',
+                  '\${chatProvider.pendingSubscriptions.length} Pending Friend Requests',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Theme.of(context).colorScheme.onSecondaryContainer,
@@ -748,12 +812,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   label: 'Contacts',
                 ),
                 BottomNavigationBarItem(
-                  icon: Icon(Icons.group_outlined),
-                  label: 'Groups',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.dialpad_outlined),
-                  label: 'Dialer',
+                  icon: Icon(Icons.dynamic_feed_rounded),
+                  label: 'Feed',
                 ),
                 BottomNavigationBarItem(
                   icon: Icon(Icons.workspaces_outline),
@@ -942,22 +1002,35 @@ class _MainChatScreenState extends State<MainChatScreen> {
                             ],
                           ),
                           if (activeChat.isTyping)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  activeChat.typingUser != null
-                                      ? '${activeChat.typingUser} is typing'
-                                      : 'Typing...',
-                                  style: const TextStyle(
-                                    color: Colors.green,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w900,
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4.0),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  TypingIndicator(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
                                   ),
-                                ),
-                                const SizedBox(width: 4),
-                                _TypingIndicator(),
-                              ],
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      activeChat.typingUser != null
+                                          ? '${activeChat.typingUser} is typing'
+                                          : 'Typing...',
+                                      style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.8),
+                                        fontSize: 12,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             )
                           else
                             Column(
@@ -983,7 +1056,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
-                                    if (_authService.otrService.isOtrSessionActive(activeChat.id.split('/').first)) ...[
+                                    if (_authService.otrService
+                                        .isOtrSessionActive(
+                                          activeChat.id.split('/').first,
+                                        )) ...[
                                       const SizedBox(width: 4),
                                       Flexible(
                                         child: Row(
@@ -1065,7 +1141,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
                                                     style: TextStyle(
                                                       color: statusColor,
                                                       fontSize: 8,
-                                                      fontWeight: FontWeight.w900,
+                                                      fontWeight:
+                                                          FontWeight.w900,
                                                       letterSpacing: 0.5,
                                                     ),
                                                     overflow:
@@ -1119,57 +1196,59 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   );
                 },
               ),
-            FutureBuilder<int>(
-              future: _authService.getChatSecurityStatus(activeChat.id),
-              builder: (context, snapshot) {
-                final status = snapshot.data ?? 0;
-                final isEnabled = _authService.isOmemoEnabled(activeChat.id);
+            if (!activeChat.isGroup)
+              FutureBuilder<int>(
+                future: _authService.getChatSecurityStatus(activeChat.id),
+                builder: (context, snapshot) {
+                  final status = snapshot.data ?? 0;
+                  final isEnabled = _authService.isOmemoEnabled(activeChat.id);
 
-                IconData icon;
-                Color color;
+                  IconData icon;
+                  Color color;
 
-                if (!isEnabled) {
-                  icon = Icons.lock_open_rounded;
-                  color = Theme.of(context).disabledColor;
-                } else {
-                  switch (status) {
-                    case 1:
-                      icon = Icons.verified_user_rounded;
-                      color = Colors.green;
-                      break;
-                    case 2:
-                      icon = Icons.gpp_bad_rounded;
-                      color = Colors.red;
-                      break;
-                    case 0:
-                    default:
-                      icon = Icons.gpp_maybe_rounded;
-                      color = Colors.orange;
-                      break;
-                  }
-                }
-
-                return IconButton(
-                  icon: Icon(icon, color: color),
-                  tooltip: isEnabled
-                      ? 'Identity Trust & Encryption'
-                      : 'Enable OMEMO',
-                  onPressed: () {
-                    if (isEnabled) {
-                      showDialog(
-                        context: context,
-                        builder: (context) => OmemoTrustDialog(
-                          chatId: activeChat.id,
-                          chatName: activeChat.name,
-                        ),
-                      );
-                    } else {
-                      _authService.toggleOmemo(activeChat.id);
+                  if (!isEnabled) {
+                    icon = Icons.lock_open_rounded;
+                    color = Theme.of(context).disabledColor;
+                  } else {
+                    switch (status) {
+                      case 1:
+                        icon = Icons.verified_user_rounded;
+                        color = Colors.green;
+                        break;
+                      case 2:
+                        icon = Icons.gpp_bad_rounded;
+                        color = Colors.red;
+                        break;
+                      case 0:
+                      default:
+                        icon = Icons.gpp_maybe_rounded;
+                        color = Colors.orange;
+                        break;
                     }
-                  },
-                );
-              },
-            ),
+                  }
+
+                  return IconButton(
+                    icon: Icon(icon, color: color),
+                    tooltip: isEnabled
+                        ? 'Identity Trust & Encryption'
+                        : 'Enable OMEMO',
+                    onPressed: () {
+                      if (isEnabled) {
+                        showDialog(
+                          context: context,
+                          builder: (context) => OmemoTrustDialog(
+                            chatId: activeChat.id,
+                            chatName: activeChat.name,
+                            accountId: activeChat.accountId,
+                          ),
+                        );
+                      } else {
+                        _authService.toggleOmemo(activeChat.id);
+                      }
+                    },
+                  );
+                },
+              ),
             PopupMenuButton<String>(
               icon: Icon(
                 Icons.more_vert_rounded,
@@ -1206,7 +1285,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => RoomSettingsScreen(room: activeChat),
+                      builder: (context) =>
+                          RoomSettingsScreen(room: activeChat),
                     ),
                   );
                 } else if (val == 'call') {
@@ -1240,7 +1320,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   } else {
                     _authService.otrService.startSession(bareJid);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Starting OTR Negotiation...')),
+                      const SnackBar(
+                        content: Text('Starting OTR Negotiation...'),
+                      ),
                     );
                     // Also send a query message to peer
                     if (activeChat.accountId != null) {
@@ -1252,141 +1334,180 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     }
                   }
                   setState(() {});
+                } else if (val == 'add_contact') {
+                  _authService.addContact(
+                    activeChat.id,
+                    accountId: activeChat.accountId,
+                  );
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Contact request sent!')),
+                  );
                 }
               },
-              itemBuilder: (context) => [
-                if (activeChat.isGroup) ...[
-                  const PopupMenuItem(
-                    value: 'info',
-                    child: ListTile(
-                      leading: Icon(Icons.info_outline),
-                      title: Text('Room Info'),
+              itemBuilder: (context) {
+                final isContact = _authService.currentContacts.any(
+                  (c) =>
+                      c.id.split('/').first == activeChat.id.split('/').first,
+                );
+                return [
+                  if (!activeChat.isGroup && !isContact)
+                    const PopupMenuItem(
+                      value: 'add_contact',
+                      child: ListTile(
+                        leading: Icon(Icons.person_add_rounded),
+                        title: Text('Add to Contacts'),
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'invite',
-                    child: ListTile(
-                      leading: Icon(Icons.person_add_alt_1_rounded),
-                      title: Text('Invite Participant'),
+                  if (activeChat.isGroup) ...[
+                    const PopupMenuItem(
+                      value: 'info',
+                      child: ListTile(
+                        leading: Icon(Icons.info_outline),
+                        title: Text('Room Info'),
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'participants',
-                    child: ListTile(
-                      leading: Icon(Icons.people_outline),
-                      title: Text('Participants'),
+                    const PopupMenuItem(
+                      value: 'invite',
+                      child: ListTile(
+                        leading: Icon(Icons.person_add_alt_1_rounded),
+                        title: Text('Invite Participant'),
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'settings',
-                    child: ListTile(
-                      leading: Icon(Icons.settings_rounded),
-                      title: Text('Room Settings'),
+                    const PopupMenuItem(
+                      value: 'participants',
+                      child: ListTile(
+                        leading: Icon(Icons.people_outline),
+                        title: Text('Participants'),
+                      ),
                     ),
-                  ),
+                    const PopupMenuItem(
+                      value: 'settings',
+                      child: ListTile(
+                        leading: Icon(Icons.settings_rounded),
+                        title: Text('Room Settings'),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'leave',
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.exit_to_app_rounded,
+                          color: Colors.redAccent,
+                        ),
+                        title: Text(
+                          'Leave Group',
+                          style: TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                  ],
+                  if (_canStartVoiceCall(activeChat))
+                    PopupMenuItem(
+                      value: 'call',
+                      child: ListTile(
+                        leading: const Icon(Icons.call_outlined),
+                        title: const Text('Voice Call'),
+                      ),
+                    ),
+                  if (_canStartVideoCall(activeChat))
+                    const PopupMenuItem(
+                      value: 'video',
+                      child: ListTile(
+                        leading: Icon(Icons.videocam_outlined),
+                        title: Text('Video Call'),
+                      ),
+                    ),
+                  if (!activeChat.isGroup)
+                    PopupMenuItem(
+                      value: 'otr',
+                      child: ListTile(
+                        leading: Icon(
+                          _authService.otrService.isOtrSessionActive(
+                                activeChat.id.split('/').first,
+                              )
+                              ? Icons.lock_rounded
+                              : Icons.lock_open_rounded,
+                          color: Colors.greenAccent,
+                        ),
+                        title: Text(
+                          _authService.otrService.isOtrSessionActive(
+                                activeChat.id.split('/').first,
+                              )
+                              ? 'End OTR Session'
+                              : 'Encrypt with OTR',
+                        ),
+                      ),
+                    ),
+
                   const PopupMenuItem(
-                    value: 'leave',
+                    value: 'security',
                     child: ListTile(
-                      leading: Icon(Icons.exit_to_app_rounded, color: Colors.redAccent),
-                      title: Text('Leave Group', style: TextStyle(color: Colors.redAccent)),
+                      leading: Icon(
+                        Icons.security_rounded,
+                        color: Colors.blueAccent,
+                      ),
+                      title: Text('Security Details'),
                     ),
                   ),
                   const PopupMenuDivider(),
-                ],
-                if (_canStartVoiceCall(activeChat))
-                  PopupMenuItem(
-                    value: 'call',
-                    child: ListTile(
-                      leading: const Icon(Icons.call_outlined),
-                      title: const Text('Voice Call'),
-                    ),
-                  ),
-                if (_canStartVideoCall(activeChat))
                   const PopupMenuItem(
-                    value: 'video',
+                    value: 'sync',
                     child: ListTile(
-                      leading: Icon(Icons.videocam_outlined),
-                      title: Text('Video Call'),
+                      leading: Icon(Icons.sync),
+                      title: Text('Sync History'),
                     ),
                   ),
-                 PopupMenuItem(
-                  value: 'otr',
-                  child: ListTile(
-                    leading: Icon(
-                      _authService.otrService.isOtrSessionActive(activeChat.id.split('/').first)
-                        ? Icons.lock_rounded
-                        : Icons.lock_open_rounded,
-                      color: Colors.greenAccent,
-                    ),
-                    title: Text(
-                      _authService.otrService.isOtrSessionActive(activeChat.id.split('/').first)
-                        ? 'End OTR Session'
-                        : 'Encrypt with OTR',
+                  const PopupMenuItem(
+                    value: 'clear',
+                    child: ListTile(
+                      leading: Icon(
+                        Icons.cleaning_services_outlined,
+                        color: Colors.orange,
+                      ),
+                      title: Text(
+                        'Clear Messages',
+                        style: TextStyle(color: Colors.orange),
+                      ),
                     ),
                   ),
-                ),
-                const PopupMenuItem(
-                  value: 'security',
-                  child: ListTile(
-                    leading: Icon(
-                      Icons.security_rounded,
-                      color: Colors.blueAccent,
-                    ),
-                    title: Text('Security Details'),
-                  ),
-                ),
-                const PopupMenuDivider(),
-                const PopupMenuItem(
-                  value: 'sync',
-                  child: ListTile(
-                    leading: Icon(Icons.sync),
-                    title: Text('Sync History'),
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'clear',
-                  child: ListTile(
-                    leading: Icon(Icons.cleaning_services_outlined, color: Colors.orange),
-                    title: Text(
-                      'Clear Messages',
-                      style: TextStyle(color: Colors.orange),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: ListTile(
+                      leading: Icon(Icons.delete_outline, color: Colors.red),
+                      title: Text(
+                        'Delete Conversation',
+                        style: TextStyle(color: Colors.red),
+                      ),
                     ),
                   ),
-                ),
-                const PopupMenuItem(
-                  value: 'delete',
-                  child: ListTile(
-                    leading: Icon(Icons.delete_outline, color: Colors.red),
-                    title: Text(
-                      'Delete Conversation',
-                      style: TextStyle(color: Colors.red),
+                  if (!activeChat.isGroup) ...[
+                    const PopupMenuItem(
+                      value: 'block',
+                      child: ListTile(
+                        leading: Icon(Icons.block, color: Colors.orange),
+                        title: Text(
+                          'Block Contact',
+                          style: TextStyle(color: Colors.orange),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'block',
-                  child: ListTile(
-                    leading: Icon(Icons.block, color: Colors.orange),
-                    title: Text(
-                      'Block Contact',
-                      style: TextStyle(color: Colors.orange),
+                    const PopupMenuItem(
+                      value: 'remove',
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.person_remove_outlined,
+                          color: Colors.redAccent,
+                        ),
+                        title: Text(
+                          'Remove Contact',
+                          style: TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'remove',
-                  child: ListTile(
-                    leading: Icon(
-                      Icons.person_remove_outlined,
-                      color: Colors.redAccent,
-                    ),
-                    title: Text(
-                      'Remove Contact',
-                      style: TextStyle(color: Colors.redAccent),
-                    ),
-                  ),
-                ),
-              ],
+                  ],
+                ];
+              },
             ),
             IconButton(
               icon: Icon(
@@ -1453,6 +1574,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
               : null,
         ),
         _buildConnectionBanner(activeChat),
+        _buildPinnedMessageBanner(activeChat),
         Expanded(child: _buildSafeList(activeChat)),
         _buildSafeInput(activeChat),
       ],
@@ -1461,17 +1583,19 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
   Widget _buildConnectionBanner(Conversation activeChat) {
     if (activeChat.accountId == null) return const SizedBox.shrink();
-    
+
     // We use a Consumer or context.watch equivalent if AuthService notifies listeners on connection change
     // For now we just get the state directly, but assuming the parent build triggered on notifyListeners
     final status = _authService.getAccountStatus(activeChat.accountId!);
     if (status == ConnectionStatus.online) return const SizedBox.shrink();
 
     final isConnecting = status == ConnectionStatus.connecting;
-    
+
     return Container(
       width: double.infinity,
-      color: isConnecting ? Colors.orange.withValues(alpha: 0.9) : Colors.red.withValues(alpha: 0.9),
+      color: isConnecting
+          ? Colors.orange.withValues(alpha: 0.9)
+          : Colors.red.withValues(alpha: 0.9),
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1480,7 +1604,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
             const SizedBox(
               width: 12,
               height: 12,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
             )
           else
             const Icon(Icons.cloud_off_rounded, size: 14, color: Colors.white),
@@ -1492,6 +1619,70 @@ class _MainChatScreenState extends State<MainChatScreen> {
               fontSize: 12,
               fontWeight: FontWeight.bold,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPinnedMessageBanner(Conversation activeChat) {
+    if (activeChat.pinnedMessageText == null) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        border: Border(
+          bottom: BorderSide(
+            color: Theme.of(context).dividerColor.withValues(alpha: 0.2),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.push_pin_rounded,
+            size: 16,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pinned Message',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                Text(
+                  activeChat.pinnedMessageText!,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close_rounded, size: 18),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            onPressed: () {
+              Provider.of<ChatProvider>(
+                context,
+                listen: false,
+              ).setPinnedMessage(activeChat.id, null, null);
+            },
           ),
         ],
       ),
@@ -1576,6 +1767,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
           width: 220,
           height: 160,
           fit: BoxFit.cover,
+          cacheWidth: 800,
           errorBuilder: (context, error, stackTrace) => Container(
             width: 220,
             height: 160,
@@ -1693,7 +1885,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
     // 4. Default Text Handler (Markdown & /me actions)
     final colorScheme = Theme.of(context).colorScheme;
-    final defaultTextColor = isMe ? colorScheme.onPrimary : colorScheme.onSurface;
+    final defaultTextColor = isMe
+        ? colorScheme.onPrimary
+        : colorScheme.onSurface;
     final secondaryTextColor = isMe
         ? colorScheme.onPrimary.withValues(alpha: 0.85)
         : colorScheme.onSurfaceVariant;
@@ -1730,8 +1924,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
     final urlStr = urlMatch?.group(0);
 
     final markdownWidget = MarkdownBody(
-      data: msg.text,
+      data: msg.text.replaceAllMapped(RegExp(r'(?<!  )\n'), (match) => '  \n'),
       selectable: true,
+      extensionSet: md.ExtensionSet.gitHubFlavored,
+      inlineSyntaxes: [MentionSyntax()],
+      builders: {'mention': MentionBuilder(context)},
       onTapLink: (text, href, title) async {
         if (href != null) {
           final uri = Uri.parse(href);
@@ -1777,7 +1974,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
           borderRadius: BorderRadius.circular(8),
           border: Border(
             left: BorderSide(
-              color: isMe ? colorScheme.onPrimary.withValues(alpha: 0.7) : colorScheme.primary,
+              color: isMe
+                  ? colorScheme.onPrimary.withValues(alpha: 0.7)
+                  : colorScheme.primary,
               width: 3,
             ),
           ),
@@ -1820,10 +2019,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
     if (text.isEmpty) return;
 
     try {
-      await _authService.sendXmppMessage(
+      await _authService.sendMessage(
+        activeChat.accountId ?? _authService.activeAccountId!,
         activeChat.id,
         text,
-        accountId: activeChat.accountId,
         replyToId: _replyToMessage?.id,
         isGroup: activeChat.isGroup,
       );
@@ -1863,18 +2062,30 @@ class _MainChatScreenState extends State<MainChatScreen> {
     if (selection.isValid && !selection.isCollapsed) {
       // Wrap selected text
       final selectedText = text.substring(selection.start, selection.end);
-      final newText = text.replaceRange(selection.start, selection.end, '$token$selectedText$token');
+      final newText = text.replaceRange(
+        selection.start,
+        selection.end,
+        '$token$selectedText$token',
+      );
       _messageController.value = TextEditingValue(
         text: newText,
-        selection: TextSelection.collapsed(offset: selection.start + token.length * 2 + selectedText.length),
+        selection: TextSelection.collapsed(
+          offset: selection.start + token.length * 2 + selectedText.length,
+        ),
       );
     } else {
       // Insert token at cursor
       final cursorPosition = selection.isValid ? selection.start : text.length;
-      final newText = text.replaceRange(cursorPosition, cursorPosition, '$token$token');
+      final newText = text.replaceRange(
+        cursorPosition,
+        cursorPosition,
+        '$token$token',
+      );
       _messageController.value = TextEditingValue(
         text: newText,
-        selection: TextSelection.collapsed(offset: cursorPosition + token.length),
+        selection: TextSelection.collapsed(
+          offset: cursorPosition + token.length,
+        ),
       );
     }
   }
@@ -1886,7 +2097,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         border: Border(
-          bottom: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.1)),
+          bottom: BorderSide(
+            color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
+          ),
         ),
       ),
       child: Row(
@@ -1913,7 +2126,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
         child: Icon(
           icon,
           size: 18,
-          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+          color: Theme.of(
+            context,
+          ).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
         ),
       ),
     );
@@ -2021,6 +2236,15 @@ class _MainChatScreenState extends State<MainChatScreen> {
               ),
               IconButton(
                 icon: Icon(
+                  Icons.attach_file_rounded,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                ),
+                onPressed: () => _pickFile(activeChat),
+              ),
+              IconButton(
+                icon: Icon(
                   Icons.emoji_emotions_outlined,
                   color: Theme.of(
                     context,
@@ -2106,7 +2330,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                                 : null,
                           ),
                           child: Icon(
-                            _isRecording ? Icons.stop_rounded : Icons.mic_none_rounded,
+                            _isRecording
+                                ? Icons.stop_rounded
+                                : Icons.mic_none_rounded,
                             color: Theme.of(context).colorScheme.onPrimary,
                             size: 20,
                           ),
@@ -2180,71 +2406,73 @@ class _MainChatScreenState extends State<MainChatScreen> {
             ),
           ],
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(2),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.emoji_emotions_rounded,
-                  color: Theme.of(context).colorScheme.primary,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Quick Emojis',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.emoji_emotions_rounded,
                     color: Theme.of(context).colorScheme.primary,
+                    size: 20,
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: emojis
-                  .map(
-                    (emoji) => InkWell(
-                      onTap: () {
-                        _messageController.text += emoji;
-                        Navigator.pop(context);
-                      },
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          emoji,
-                          style: const TextStyle(fontSize: 28),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Quick Emojis',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: emojis
+                    .map(
+                      (emoji) => InkWell(
+                        onTap: () {
+                          _messageController.text += emoji;
+                          Navigator.pop(context);
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            emoji,
+                            style: const TextStyle(fontSize: 28),
+                          ),
                         ),
                       ),
-                    ),
-                  )
-                  .toList(),
-            ),
-            const SizedBox(height: 16),
-          ],
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
       ),
     );
@@ -2436,12 +2664,14 @@ class _MainChatScreenState extends State<MainChatScreen> {
         child: Stack(
           children: [
             ListView.builder(
+              reverse: true,
               controller: _scrollController,
               itemCount: messages.length,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
               itemBuilder: (context, index) {
-                final msg = messages[index];
-                final prevMsg = index > 0 ? messages[index - 1] : null;
+                final msgIndex = messages.length - 1 - index;
+                final msg = messages[msgIndex];
+                final prevMsg = msgIndex > 0 ? messages[msgIndex - 1] : null;
 
                 // Check if we need a date header
                 bool showDateHeader = false;
@@ -2477,7 +2707,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   ).colorScheme.primary.withValues(alpha: 0.8),
                   onPressed: () {
                     _scrollController.animateTo(
-                      _scrollController.position.maxScrollExtent,
+                      0.0,
                       duration: const Duration(milliseconds: 300),
                       curve: Curves.easeOut,
                     );
@@ -2547,130 +2777,173 @@ class _MainChatScreenState extends State<MainChatScreen> {
       background: Container(
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.only(left: 24),
-        child: Icon(Icons.reply_rounded, color: Theme.of(context).colorScheme.primary),
+        child: Icon(
+          Icons.reply_rounded,
+          color: Theme.of(context).colorScheme.primary,
+        ),
       ),
       secondaryBackground: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 24),
-        child: Icon(Icons.reply_rounded, color: Theme.of(context).colorScheme.primary),
+        child: Icon(
+          Icons.reply_rounded,
+          color: Theme.of(context).colorScheme.primary,
+        ),
       ),
       child: Align(
         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
         child: GestureDetector(
-        onLongPress: () => _showMessageOptions(msg),
-        child: Column(
-          crossAxisAlignment: isMe
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
-          children: [
-            if (showSender && msg.senderName != null)
-              Padding(
-                padding: const EdgeInsets.only(left: 4, bottom: 4),
-                child: Text(
-                  msg.senderName!,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                    color: Xep0392Service.generateColor(
-                      msg.senderId ?? msg.senderName!,
-                      isDarkTheme: Theme.of(context).brightness == Brightness.dark,
+          onLongPress: () => _showMessageOptions(msg),
+          child: Column(
+            crossAxisAlignment: isMe
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.start,
+            children: [
+              if (showSender && msg.senderName != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 4),
+                  child: Text(
+                    msg.senderName!,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      color: Xep0392Service.generateColor(
+                        msg.senderId ?? msg.senderName!,
+                        isDarkTheme:
+                            Theme.of(context).brightness == Brightness.dark,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.7,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: isMe
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.surfaceContainerHighest,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 5,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(20),
-                  topRight: const Radius.circular(20),
-                  bottomLeft: Radius.circular(isMe ? 20 : 0),
-                  bottomRight: Radius.circular(isMe ? 0 : 20),
-                ),
-              ),
-              child: Stack(
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (msg.replyToId != null) _buildReplyQuote(msg),
-                      _buildMessageContent(msg),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            DateFormat('HH:mm').format(msg.timestamp),
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: isMe
-                                  ? Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7)
-                                  : Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant
-                                        .withValues(alpha: 0.7),
-                              fontWeight: FontWeight.w600,
+                  if (showSender)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8.0, bottom: 4.0),
+                      child: FutureBuilder<Uint8List?>(
+                        future: AvatarCacheService().getAvatar(msg.senderId ?? msg.senderName ?? ''),
+                        builder: (context, snapshot) {
+                          return CircleAvatar(
+                            radius: 14,
+                            backgroundColor: Xep0392Service.generateColor(
+                              msg.senderId ?? msg.senderName ?? '?',
+                              isDarkTheme: Theme.of(context).brightness == Brightness.dark,
                             ),
+                            backgroundImage: snapshot.data != null ? MemoryImage(snapshot.data!) : null,
+                            child: snapshot.data == null
+                                ? Text(
+                                    (msg.senderName ?? '?')[0].toUpperCase(),
+                                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                                  )
+                                : null,
+                          );
+                        },
+                      ),
+                    ),
+                  Flexible(
+                    child: Container(
+                      constraints: BoxConstraints(
+                        maxWidth: MediaQuery.of(context).size.width * (showSender ? 0.65 : 0.7),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isMe
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.surfaceContainerHighest,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 5,
+                            offset: const Offset(0, 2),
                           ),
-                          if (msg.isEdited) ...[
-                            const SizedBox(width: 4),
+                        ],
+                        borderRadius: BorderRadius.only(
+                          topLeft: const Radius.circular(20),
+                          topRight: const Radius.circular(20),
+                          bottomLeft: Radius.circular(isMe ? 20 : 0),
+                          bottomRight: Radius.circular(isMe ? 0 : 20),
+                        ),
+                      ),
+                child: Stack(
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (msg.replyToId != null) _buildReplyQuote(msg),
+                        _buildMessageContent(msg),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
                             Text(
-                              '(edited)',
+                              DateFormat('HH:mm').format(msg.timestamp),
                               style: TextStyle(
-                                fontSize: 8,
-                                fontStyle: FontStyle.italic,
+                                fontSize: 9,
                                 color: isMe
-                                    ? Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.54)
+                                    ? Theme.of(context).colorScheme.onPrimary
+                                          .withValues(alpha: 0.7)
                                     : Theme.of(context)
                                           .colorScheme
                                           .onSurfaceVariant
-                                          .withValues(alpha: 0.5),
+                                          .withValues(alpha: 0.7),
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
+                            if (msg.isEdited) ...[
+                              const SizedBox(width: 4),
+                              Text(
+                                '(edited)',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontStyle: FontStyle.italic,
+                                  color: isMe
+                                      ? Theme.of(context).colorScheme.onPrimary
+                                            .withValues(alpha: 0.54)
+                                      : Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant
+                                            .withValues(alpha: 0.5),
+                                ),
+                              ),
+                            ],
+                            if (isMe) ...[
+                              const SizedBox(width: 4),
+                              _buildStatusIcon(msg.status, isMe),
+                            ],
+                            if (msg.encryptionType == 'omemo') ...[
+                              const SizedBox(width: 6),
+                              Icon(
+                                Icons.shield_rounded,
+                                size: 10,
+                                color: isMe
+                                    ? Theme.of(context).colorScheme.onPrimary
+                                          .withValues(alpha: 0.54)
+                                    : Theme.of(context).colorScheme.primary
+                                          .withValues(alpha: 0.5),
+                              ),
+                            ],
                           ],
-                          if (isMe) ...[
-                            const SizedBox(width: 4),
-                            _buildStatusIcon(msg.status, isMe),
-                          ],
-                          if (_authService.isOmemoEnabled(
-                            msg.conversationId ?? '',
-                          )) ...[
-                            const SizedBox(width: 6),
-                            Icon(
-                              Icons.shield_rounded,
-                              size: 10,
-                              color: isMe
-                                  ? Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.54)
-                                  : Theme.of(context).colorScheme.primary
-                                        .withValues(alpha: 0.5),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-            if (msg.reactions.isNotEmpty) _buildReactionChips(msg),
-            const SizedBox(height: 4),
           ],
         ),
+        if (msg.reactions.isNotEmpty) _buildReactionChips(msg),
+        const SizedBox(height: 4),
+      ],
+          ),
+        ),
       ),
-    ),
     );
   }
 
@@ -2690,7 +2963,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
               child: CircularProgressIndicator(
                 strokeWidth: 1.5,
                 valueColor: AlwaysStoppedAnimation<Color>(
-                  Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.6),
+                  Theme.of(
+                    context,
+                  ).colorScheme.onPrimary.withValues(alpha: 0.6),
                 ),
               ),
             ),
@@ -2699,7 +2974,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
               'Sending...',
               style: TextStyle(
                 fontSize: 8,
-                color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.5),
+                color: Theme.of(
+                  context,
+                ).colorScheme.onPrimary.withValues(alpha: 0.5),
                 fontStyle: FontStyle.italic,
               ),
             ),
@@ -2712,13 +2989,17 @@ class _MainChatScreenState extends State<MainChatScreen> {
           child: Container(
             padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.1),
+              color: Theme.of(
+                context,
+              ).colorScheme.onPrimary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
               Icons.check_rounded,
               size: 12,
-              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7),
+              color: Theme.of(
+                context,
+              ).colorScheme.onPrimary.withValues(alpha: 0.7),
             ),
           ),
         );
@@ -2729,13 +3010,17 @@ class _MainChatScreenState extends State<MainChatScreen> {
           child: Container(
             padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.1),
+              color: Theme.of(
+                context,
+              ).colorScheme.onPrimary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
               Icons.done_all_rounded,
               size: 12,
-              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7),
+              color: Theme.of(
+                context,
+              ).colorScheme.onPrimary.withValues(alpha: 0.7),
             ),
           ),
         );
@@ -2877,222 +3162,342 @@ class _MainChatScreenState extends State<MainChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.primaryContainer.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                'Quick React',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: ['❤️', '👍', '😂', '😮', '😢', '🔥']
-                  .map(
-                    (emoji) => GestureDetector(
-                      onTap: () {
-                        final cp = Provider.of<ChatProvider>(
-                          context,
-                          listen: false,
-                        );
-                        cp.addReaction(
-                          msg.conversationId ?? '',
-                          msg.id,
-                          emoji,
-                          _authService,
-                        );
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Row(
-                              children: [
-                                Text(
-                                  emoji,
-                                  style: const TextStyle(fontSize: 18),
-                                ),
-                                const SizedBox(width: 8),
-                                const Text('Reaction added'),
-                              ],
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Quick React',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                alignment: WrapAlignment.spaceEvenly,
+                spacing: 8,
+                runSpacing: 8,
+                children: ['❤️', '👍', '😂', '😮', '😢', '🔥']
+                    .map(
+                      (emoji) => GestureDetector(
+                        onTap: () {
+                          final cp = Provider.of<ChatProvider>(
+                            context,
+                            listen: false,
+                          );
+                          cp.addReaction(
+                            msg.conversationId ?? '',
+                            msg.id,
+                            emoji,
+                            _authService,
+                          );
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Row(
+                                children: [
+                                  Text(
+                                    emoji,
+                                    style: const TextStyle(fontSize: 18),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Text('Reaction added'),
+                                ],
+                              ),
+                              duration: const Duration(seconds: 1),
+                              behavior: SnackBarBehavior.floating,
                             ),
-                            duration: const Duration(seconds: 1),
-                            behavior: SnackBarBehavior.floating,
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest
+                                .withValues(alpha: 0.5),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outline.withValues(alpha: 0.2),
+                            ),
                           ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest
-                              .withValues(alpha: 0.5),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.outline.withValues(alpha: 0.2),
+                          child: Text(
+                            emoji,
+                            style: const TextStyle(fontSize: 28),
                           ),
-                        ),
-                        child: Text(
-                          emoji,
-                          style: const TextStyle(fontSize: 28),
                         ),
                       ),
-                    ),
-                  )
-                  .toList(),
-            ),
-            const Divider(height: 32),
-            ListTile(
-              leading: Icon(
-                Icons.reply_rounded,
-                color: Theme.of(context).colorScheme.primary,
+                    )
+                    .toList(),
               ),
-              title: const Text(
-                'Reply',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              onTap: () {
-                setState(() => _replyToMessage = msg);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.copy_rounded,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-              title: const Text('Copy Text'),
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: msg.text));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Copied to clipboard'),
-                    duration: Duration(seconds: 1),
-                  ),
-                );
-                Navigator.pop(context);
-              },
-            ),
-            if (msg.isSent && msg.type == MessageType.text)
+              const Divider(height: 32),
               ListTile(
                 leading: Icon(
-                  Icons.edit_rounded,
-                  color: Theme.of(context).colorScheme.tertiary,
+                  Icons.reply_rounded,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
-                title: const Text('Edit Message'),
+                title: const Text(
+                  'Reply',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 onTap: () {
+                  setState(() => _replyToMessage = msg);
                   Navigator.pop(context);
-                  _showEditMessageDialog(msg);
                 },
               ),
-            ListTile(
-              leading: Icon(
-                Icons.forward_rounded,
-                color: Theme.of(context).colorScheme.secondary,
-              ),
-              title: const Text('Forward Message'),
-              onTap: () {
-                Navigator.pop(context);
-                _showForwardMessageDialog(msg);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_rounded, color: Colors.red),
-              title: const Text(
-                'Delete Message',
-                style: TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                final cp = Provider.of<ChatProvider>(context, listen: false);
-                cp.deleteMessage(
-                  msg.conversationId ?? '',
-                  msg.id,
-                  _authService,
-                );
-
-                // Show localized feedback
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Message deleted'),
-                    duration: Duration(seconds: 1),
-                  ),
-                );
-              },
-            ),
-            if (!msg.isSent && msg.protocol == 'XMPP') ...[
-              const Divider(),
               ListTile(
-                leading: const Icon(Icons.block_rounded, color: Colors.orange),
+                leading: Icon(
+                  Icons.copy_rounded,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                title: const Text('Copy Text'),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: msg.text));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Copied to clipboard'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                  Navigator.pop(context);
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.forward_rounded,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                title: const Text('Forward'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showForwardDialog(msg);
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.push_pin_rounded,
+                  color: Theme.of(context).colorScheme.tertiary,
+                ),
+                title: const Text('Pin to Top'),
+                onTap: () {
+                  final cp = Provider.of<ChatProvider>(context, listen: false);
+                  if (cp.activeConversation != null) {
+                    cp.setPinnedMessage(
+                      cp.activeConversation!.id,
+                      msg.id,
+                      msg.text,
+                    );
+                  }
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Message Pinned'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                  Navigator.pop(context);
+                },
+              ),
+              if (msg.isSent && msg.type == MessageType.text)
+                ListTile(
+                  leading: Icon(
+                    Icons.edit_rounded,
+                    color: Theme.of(context).colorScheme.tertiary,
+                  ),
+                  title: const Text('Edit Message'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showEditMessageDialog(msg);
+                  },
+                ),
+              ListTile(
+                leading: Icon(
+                  Icons.forward_rounded,
+                  color: Theme.of(context).colorScheme.secondary,
+                ),
+                title: const Text('Forward Message'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showForwardMessageDialog(msg);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_rounded, color: Colors.red),
                 title: const Text(
-                  'Block User',
+                  'Delete Message',
                   style: TextStyle(
-                    color: Colors.orange,
+                    color: Colors.red,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                subtitle: const Text('Prevent this user from messaging you'),
-                onTap: () async {
-                  await _authService.blockContact(
-                    msg.conversationId!,
-                    accountId: msg.accountId,
-                  );
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Blocked ${msg.conversationId}')),
-                    );
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(
-                  Icons.account_circle_outlined,
-                  color: Colors.blue,
-                ),
-                title: const Text('View User Profile'),
                 onTap: () {
                   Navigator.pop(context);
-                  // Navigate to profile or fetch VCard
-                  if (msg.conversationId != null && msg.accountId != null) {
-                    _authService.fetchVCard(
-                      msg.accountId!,
-                      msg.conversationId!,
-                    );
-                    // We could show a dialog here with the vcard info
-                  }
+                  final cp = Provider.of<ChatProvider>(context, listen: false);
+                  cp.deleteMessage(
+                    msg.conversationId ?? '',
+                    msg.id,
+                    _authService,
+                  );
+
+                  // Show localized feedback
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Message deleted'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
                 },
               ),
-          ],
-        ],
+              if (!msg.isSent && msg.protocol == 'XMPP') ...[
+                const Divider(),
+                ListTile(
+                  leading: const Icon(
+                    Icons.block_rounded,
+                    color: Colors.orange,
+                  ),
+                  title: const Text(
+                    'Block User',
+                    style: TextStyle(
+                      color: Colors.orange,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: const Text('Prevent this user from messaging you'),
+                  onTap: () async {
+                    await _authService.blockContact(
+                      msg.conversationId!,
+                      accountId: msg.accountId,
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Blocked ${msg.conversationId}'),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.account_circle_outlined,
+                    color: Colors.blue,
+                  ),
+                  title: const Text('View User Profile'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    // Navigate to profile or fetch VCard
+                    if (msg.conversationId != null && msg.accountId != null) {
+                      _authService.fetchVCard(
+                        msg.accountId!,
+                        msg.conversationId!,
+                      );
+                      // We could show a dialog here with the vcard info
+                    }
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
-    ),
-  ),
-);
+    );
+  }
+
+  void _showForwardDialog(ChatMessage msg) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Consumer<ChatProvider>(
+          builder: (context, cp, _) {
+            final activeConvs = cp.conversations
+                .where((c) => c.messages.isNotEmpty)
+                .toList();
+            return AlertDialog(
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              title: Text(
+                'Forward to...',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: 300,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: activeConvs.length,
+                  itemBuilder: (context, index) {
+                    final conv = activeConvs[index];
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundImage: conv.avatarBytes != null
+                            ? MemoryImage(conv.avatarBytes!)
+                            : null,
+                        child: conv.avatarBytes == null
+                            ? Text(
+                                conv.name.isNotEmpty
+                                    ? conv.name[0].toUpperCase()
+                                    : '?',
+                              )
+                            : null,
+                      ),
+                      title: Text(conv.name),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _forwardMessage(msg, conv);
+                      },
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _forwardMessage(ChatMessage msg, Conversation targetConv) {
+    _authService.sendMessage(
+      targetConv.accountId ?? _authService.activeAccountId!,
+      targetConv.id,
+      msg.text, // This works for media too, since the URL is stored in text
+      isGroup: targetConv.isGroup,
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Forwarded to ${targetConv.name}'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   void _showEditMessageDialog(ChatMessage msg) {
@@ -3128,15 +3533,14 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 final cp = Provider.of<ChatProvider>(context, listen: false);
                 cp.updateMessage(msg.conversationId ?? '', msg.id, newText);
 
-
-                  // Send XMPP message correction (XEP-0308)
-                  _authService.sendEditedMessage(
-                    msg.conversationId ?? '',
-                    msg.id,
-                    newText,
-                    accountId: msg.accountId,
-                    isGroup: msg.isGroup,
-                  );
+                // Send XMPP message correction (XEP-0308)
+                _authService.sendEditedMessage(
+                  msg.conversationId ?? '',
+                  msg.id,
+                  newText,
+                  accountId: msg.accountId,
+                  isGroup: msg.isGroup,
+                );
 
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -3255,9 +3659,14 @@ class _MainChatScreenState extends State<MainChatScreen> {
     bool isMobile,
   ) {
     final content = DecoratedBox(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(right: BorderSide(color: Colors.black12, width: 1)),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(
+          right: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant,
+            width: 1,
+          ),
+        ),
       ),
       child: Column(
         children: [
@@ -3273,131 +3682,166 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   Widget _buildNavRail(ChatProvider chatProvider, AuthService authService) {
-    return NavigationRail(
-      selectedIndex: chatProvider.selectedSidebarTab,
-      onDestinationSelected: (idx) {
-        debugPrint('ISOLATE: Selected Tab $idx');
-        chatProvider.setSidebarTab(idx);
-      },
-      indicatorColor: Theme.of(
-        context,
-      ).colorScheme.secondary.withValues(alpha: 0.2),
-      selectedIconTheme: IconThemeData(
-        color: Theme.of(context).colorScheme.secondary,
-      ),
-      unselectedIconTheme: const IconThemeData(color: Colors.black38),
-      selectedLabelTextStyle: TextStyle(
-        color: Theme.of(context).colorScheme.secondary,
-        fontWeight: FontWeight.bold,
-        fontSize: 11,
-      ),
-      unselectedLabelTextStyle: const TextStyle(
-        color: Colors.black38,
-        fontWeight: FontWeight.bold,
-        fontSize: 11,
-      ),
-      labelType: NavigationRailLabelType.all,
-      leading: Column(
-        children: [
-          const SizedBox(height: 20),
-          ...authService.savedAccounts.map((acc) {
-            final status = authService.getAccountStatus(acc.fullJid);
-            final bool isSelected = authService.activeAccountId == acc.fullJid;
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Tooltip(
-                message: '${acc.fullJid} (${status.name})',
-                child: Stack(
-                  children: [
-                    CircleAvatar(
-                      radius: 18,
-                      backgroundColor: isSelected
-                          ? Theme.of(context).colorScheme.primary
-                          : Colors.black12,
-                      child: Icon(
-                        acc.protocol == 'Discord'
-                            ? Icons.discord
-                            : (acc.protocol == 'IRC'
-                                  ? Icons.tag
-                                  : Icons.chat_bubble_outline),
-                        color: isSelected ? Colors.white : Colors.black54,
-                        size: 16,
-                      ),
-                    ),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: status == ConnectionStatus.online
-                              ? Colors.green
-                              : (status == ConnectionStatus.connecting
-                                    ? Colors.orange
-                                    : Colors.grey),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                      ),
-                    ),
-                  ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: IntrinsicHeight(
+              child: NavigationRail(
+                selectedIndex: chatProvider.selectedSidebarTab,
+                onDestinationSelected: (idx) {
+                  debugPrint('ISOLATE: Selected Tab $idx');
+                  chatProvider.setSidebarTab(idx);
+                },
+                indicatorColor: Theme.of(
+                  context,
+                ).colorScheme.secondary.withValues(alpha: 0.2),
+                selectedIconTheme: IconThemeData(
+                  color: Theme.of(context).colorScheme.secondary,
                 ),
+                unselectedIconTheme: IconThemeData(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                ),
+                selectedLabelTextStyle: TextStyle(
+                  color: Theme.of(context).colorScheme.secondary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                ),
+                unselectedLabelTextStyle: TextStyle(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                ),
+                labelType: constraints.maxHeight > 600
+                    ? NavigationRailLabelType.all
+                    : NavigationRailLabelType.selected,
+                leading: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 400),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 16),
+                        Image.asset(
+                          'assets/logo.png',
+                          width: 32,
+                          height: 32,
+                        ),
+                        const SizedBox(height: 24),
+                        ...authService.savedAccounts.map((acc) {
+                          final status = authService.getAccountStatus(
+                            acc.fullJid,
+                          );
+                          final bool isSelected =
+                              authService.activeAccountId == acc.fullJid;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Tooltip(
+                              message: '${acc.fullJid} (${status.name})',
+                              child: Stack(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: isSelected
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Colors.black12,
+                                    child: Icon(
+                                      acc.protocol == 'Discord'
+                                          ? Icons.discord
+                                          : (acc.protocol == 'IRC'
+                                                ? Icons.tag
+                                                : Icons.chat_bubble_outline),
+                                      color: isSelected
+                                          ? Colors.white
+                                          : Colors.black54,
+                                      size: 16,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    right: 0,
+                                    bottom: 0,
+                                    child: Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: status == ConnectionStatus.online
+                                            ? Colors.green
+                                            : (status ==
+                                                      ConnectionStatus
+                                                          .connecting
+                                                  ? Colors.orange
+                                                  : Colors.grey),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: 20),
+                        const Divider(indent: 16, endIndent: 16),
+                      ],
+                    ),
+                  ),
+                ),
+                destinations: [
+                  NavigationRailDestination(
+                    icon: Icon(Icons.chat_outlined),
+                    selectedIcon: Icon(Icons.chat),
+                    label: Text('Chats'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.people_outline),
+                    selectedIcon: Icon(Icons.people),
+                    label: Text('Buddies'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.dynamic_feed_rounded),
+                    selectedIcon: Icon(Icons.dynamic_feed),
+                    label: Text('Feed'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.workspaces_outline),
+                    selectedIcon: Icon(Icons.workspaces_filled),
+                    label: Text('Spaces'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.person_outline_rounded),
+                    selectedIcon: Icon(Icons.person_rounded),
+                    label: Text('Profile'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.manage_search_rounded),
+                    selectedIcon: Icon(Icons.search_rounded),
+                    label: Text('Search'),
+                  ),
+                  NavigationRailDestination(
+                    icon: const Icon(
+                      Icons.travel_explore_rounded,
+                      color: Colors.indigoAccent,
+                    ),
+                    selectedIcon: const Icon(
+                      Icons.travel_explore_rounded,
+                      color: Colors.indigo,
+                    ),
+                    label: const Text('Nexus'),
+                  ),
+                ],
               ),
-            );
-          }),
-          const SizedBox(height: 20),
-          const Divider(indent: 16, endIndent: 16),
-        ],
-      ),
-      destinations: [
-        NavigationRailDestination(
-          icon: Icon(Icons.chat_outlined),
-          selectedIcon: Icon(Icons.chat),
-          label: Text('Chats'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.people_outline),
-          selectedIcon: Icon(Icons.people),
-          label: Text('Buddies'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.group_outlined),
-          selectedIcon: Icon(Icons.group),
-          label: Text('Groups'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.dialpad_outlined),
-          selectedIcon: Icon(Icons.dialpad),
-          label: Text('Dialer'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.workspaces_outline),
-          selectedIcon: Icon(Icons.workspaces_filled),
-          label: Text('Spaces'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.person_outline_rounded),
-          selectedIcon: Icon(Icons.person_rounded),
-          label: Text('Profile'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.manage_search_rounded),
-          selectedIcon: Icon(Icons.search_rounded),
-          label: Text('Search'),
-        ),
-        NavigationRailDestination(
-          icon: const Icon(
-            Icons.travel_explore_rounded,
-            color: Colors.indigoAccent,
+            ),
           ),
-          selectedIcon: const Icon(
-            Icons.travel_explore_rounded,
-            color: Colors.indigo,
-          ),
-          label: const Text('Nexus'),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -3407,16 +3851,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
   ) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 48, 20, 24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Theme.of(context).colorScheme.primary,
-            Theme.of(context).colorScheme.secondary,
-          ],
-        ),
-      ),
+      decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3526,6 +3961,26 @@ class _MainChatScreenState extends State<MainChatScreen> {
             ],
           ),
         ),
+        const PopupMenuItem(
+          value: 'invite',
+          child: Row(
+            children: [
+              Icon(Icons.person_add_alt_1_rounded, size: 18),
+              SizedBox(width: 8),
+              Text('Invite Friends', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'transports',
+          child: Row(
+            children: [
+              Icon(Icons.compare_arrows_rounded, size: 18),
+              SizedBox(width: 8),
+              Text('Gateways / Transports', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -3538,6 +3993,18 @@ class _MainChatScreenState extends State<MainChatScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => const RoomDiscoveryScreen()),
+      );
+    }
+    if (val == 'invite') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const InviteScreen()),
+      );
+    }
+    if (val == 'transports') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const TransportsScreen()),
       );
     }
   }
@@ -3665,26 +4132,20 @@ class _MainChatScreenState extends State<MainChatScreen> {
     ChatProvider chatProvider,
     AuthService authService,
   ) {
-    switch (chatProvider.selectedSidebarTab) {
-      case 0:
-        return _buildConversationList(chatProvider);
-      case 1:
-        return const ContactsScreen();
-      case 2:
-        return _buildGroupList(authService);
-      case 3:
-        return _buildDialerSection(authService);
-      case 4:
-        return const SpacesScreen();
-      case 5:
-        return const ProfileScreen(isSidebar: true);
-      case 6:
-        return _buildGlobalSearchList(chatProvider);
-      case 7:
-        return const NexusSearchScreen();
-      default:
-        return _buildConversationList(chatProvider);
-    }
+    // We use IndexedStack to keep the state of each screen alive while switching tabs.
+    // This is critical for performance in the Feed and Spaces screens.
+    return IndexedStack(
+      index: chatProvider.selectedSidebarTab,
+      children: [
+        _buildConversationList(chatProvider), // Index 0
+        const ContactsScreen(), // Index 1
+        const FeedScreen(), // Index 2
+        const SpacesScreen(), // Index 3
+        const ProfileScreen(isSidebar: true), // Index 4
+        _buildGlobalSearchList(chatProvider), // Index 5
+        const NexusSearchScreen(), // Index 6
+      ],
+    );
   }
 
   Widget _buildGlobalSearchList(ChatProvider chatProvider) {
@@ -3760,197 +4221,198 @@ class _MainChatScreenState extends State<MainChatScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: ListView.builder(
-      itemCount: filtered.length,
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemBuilder: (context, index) {
-        final conv = filtered[index];
-        final isActive = chatProvider.activeConversation?.id == conv.id;
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-          decoration: BoxDecoration(
-            color: isActive
-                ? Theme.of(
-                    context,
-                  ).colorScheme.primaryContainer.withValues(alpha: 0.3)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 4,
-            ),
-            leading: CircleAvatar(
-              backgroundColor: isActive
-                  ? Theme.of(context).colorScheme.primary
-                  : conv.protocol == 'Discord'
-                  ? const Color(0xFF5865F2).withValues(alpha: 0.1)
-                  : conv.protocol == 'IRC'
+        itemCount: filtered.length,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemBuilder: (context, index) {
+          final conv = filtered[index];
+          final isActive = chatProvider.activeConversation?.id == conv.id;
+          return Container(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+            decoration: BoxDecoration(
+              color: isActive
                   ? Theme.of(
                       context,
-                    ).colorScheme.secondary.withValues(alpha: 0.15)
-                  : Colors.grey[100],
-              backgroundImage: conv.avatarBytes != null
-                  ? MemoryImage(conv.avatarBytes!)
-                  : null,
-              child: Stack(
-                children: [
-                  if (conv.avatarBytes == null)
-                    Center(
-                      child: conv.protocol == 'Discord'
-                          ? Icon(
-                              Icons.discord,
-                              color: isActive
-                                  ? Colors.white
-                                  : const Color(0xFF5865F2),
-                              size: 18,
-                            )
-                          : conv.protocol == 'IRC'
-                          ? Icon(
-                              Icons.alternate_email,
-                              color: isActive
-                                  ? Colors.white
-                                  : Theme.of(context).colorScheme.secondary,
-                              size: 18,
-                            )
-                          : Text(
-                              conv.name.isNotEmpty ? conv.name[0] : '?',
-                              style: TextStyle(
-                                color: isActive ? Colors.white : Colors.black54,
-                                fontWeight: FontWeight.bold,
+                    ).colorScheme.primaryContainer.withValues(alpha: 0.3)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 4,
+              ),
+              leading: CircleAvatar(
+                backgroundColor: isActive
+                    ? Theme.of(context).colorScheme.primary
+                    : conv.protocol == 'Discord'
+                    ? const Color(0xFF5865F2).withValues(alpha: 0.1)
+                    : conv.protocol == 'IRC'
+                    ? Theme.of(
+                        context,
+                      ).colorScheme.secondary.withValues(alpha: 0.15)
+                    : Colors.grey[100],
+                backgroundImage: conv.avatarBytes != null
+                    ? MemoryImage(conv.avatarBytes!)
+                    : null,
+                child: Stack(
+                  children: [
+                    if (conv.avatarBytes == null)
+                      Center(
+                        child: conv.protocol == 'Discord'
+                            ? Icon(
+                                Icons.discord,
+                                color: isActive
+                                    ? Colors.white
+                                    : const Color(0xFF5865F2),
+                                size: 18,
+                              )
+                            : conv.protocol == 'IRC'
+                            ? Icon(
+                                Icons.alternate_email,
+                                color: isActive
+                                    ? Colors.white
+                                    : Theme.of(context).colorScheme.secondary,
+                                size: 18,
+                              )
+                            : Text(
+                                conv.name.isNotEmpty ? conv.name[0] : '?',
+                                style: TextStyle(
+                                  color: isActive
+                                      ? Colors.white
+                                      : Colors.black54,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                            ),
-                    ),
-                  if (!conv.isGroup)
-                    Align(
-                      alignment: Alignment.bottomRight,
-                      child: Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: _getStatusColor(conv.status),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
+                      ),
+                    if (!conv.isGroup)
+                      Align(
+                        alignment: Alignment.bottomRight,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: _getStatusColor(conv.status),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
                         ),
+                      ),
+                  ],
+                ),
+              ),
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      conv.name,
+                      style: TextStyle(
+                        fontWeight: isActive
+                            ? FontWeight.w800
+                            : FontWeight.w600,
+                        color: isActive
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.onSurface,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                  if (!conv.isGroup && _authService.isOmemoEnabled(conv.id))
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: Icon(
+                        Icons.lock_rounded,
+                        size: 12,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.7),
                       ),
                     ),
                 ],
               ),
-            ),
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    conv.name,
-                    style: TextStyle(
-                      fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-                      color: isActive
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.onSurface,
+              subtitle: conv.isTyping
+                  ? Text(
+                      'Typing...',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green[600],
+                      ),
+                    )
+                  : Text(
+                      conv.lastMessage?.text ?? 'No messages',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isActive
+                            ? const Color(0xFFE91E63).withValues(alpha: 0.6)
+                            : Theme.of(
+                                context,
+                              ).colorScheme.onSurface.withValues(alpha: 0.5),
+                      ),
                     ),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                  ),
-                ),
-                if (_authService.isOmemoEnabled(conv.id))
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: Icon(
-                      Icons.lock_rounded,
-                      size: 12,
+              selected: isActive,
+              trailing: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    conv.lastMessage != null
+                        ? DateFormat(
+                            'HH:mm',
+                          ).format(conv.lastMessage!.timestamp)
+                        : '',
+                    style: TextStyle(
+                      fontSize: 10,
                       color: Theme.of(
                         context,
-                      ).colorScheme.primary.withValues(alpha: 0.7),
+                      ).colorScheme.onSurface.withValues(alpha: 0.35),
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-              ],
-            ),
-            subtitle: conv.isTyping
-                ? Text(
-                    'Typing...',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green[600],
-                    ),
-                  )
-                : Text(
-                    conv.lastMessage?.text ?? 'No messages',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isActive
-                          ? const Color(0xFFE91E63).withValues(alpha: 0.6)
-                          : Theme.of(
+                  if (conv.unreadCount > 0) ...[
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Theme.of(
                               context,
-                            ).colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
-                  ),
-            selected: isActive,
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  conv.lastMessage != null
-                      ? DateFormat('HH:mm').format(conv.lastMessage!.timestamp)
-                      : '',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.35),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (conv.unreadCount > 0) ...[
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Theme.of(context).colorScheme.primary,
-                          Theme.of(context).colorScheme.secondary,
+                            ).colorScheme.primary.withValues(alpha: 0.3),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
                         ],
                       ),
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.3),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
+                      child: Text(
+                        conv.unreadCount > 99
+                            ? '99+'
+                            : conv.unreadCount.toString(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
                         ),
-                      ],
-                    ),
-                    child: Text(
-                      conv.unreadCount > 99
-                          ? '99+'
-                          : conv.unreadCount.toString(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
+              onTap: () {
+                debugPrint('ISOLATE: Tapped Conversation ${conv.id}');
+                chatProvider.setActiveConversation(conv.id);
+              },
             ),
-            onTap: () {
-              debugPrint('ISOLATE: Tapped Conversation ${conv.id}');
-              chatProvider.setActiveConversation(conv.id);
-            },
-          ),
-        );
-      },
-    ),
+          );
+        },
+      ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'newMessage',
         backgroundColor: Theme.of(context).colorScheme.primary,
@@ -3974,7 +4436,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCEL'),
+          ),
           ElevatedButton(
             onPressed: () {
               if (ctrl.text.isNotEmpty) {
@@ -4146,81 +4611,17 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   void _showCreateGroupDialog(AuthService authService) {
-    final nameCtrl = TextEditingController();
-    final nickCtrl = TextEditingController(text: 'Admin');
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        title: Text(
-          'Create New Group',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
-              decoration: InputDecoration(
-                labelText: 'Room Name',
-                labelStyle: TextStyle(color: Theme.of(context).hintColor),
-                hintText: 'Project-Alley',
-                hintStyle: TextStyle(
-                  color: Theme.of(context).hintColor.withValues(alpha: 0.5),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: nickCtrl,
-              style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
-              decoration: InputDecoration(
-                labelText: 'Your Nickname',
-                labelStyle: TextStyle(color: Theme.of(context).hintColor),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final name = nameCtrl.text.trim();
-              if (name.isNotEmpty) {
-                final jid =
-                    '${name.toLowerCase()}@conference.${authService.activeAccountId?.split("@").last ?? "chat.example.com"}';
-                Navigator.pop(context);
-                final error = await authService.createXmppRoom(
-                  jid,
-                  nickCtrl.text.trim(),
-                );
-                if (error != null && context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to create: $error'),
-                      backgroundColor: Colors.redAccent,
-                    ),
-                  );
-                }
-              }
-            },
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const CreateRoomScreen()),
     );
   }
 
   void _showJoinRoomDialog(AuthService authService) {
     final roomCtrl = TextEditingController();
-    final nickCtrl = TextEditingController(text: 'GibberUser');
+    final nickCtrl = TextEditingController(
+      text: authService.getResolvedNickname(authService.activeAccountId),
+    );
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -4267,8 +4668,18 @@ class _MainChatScreenState extends State<MainChatScreen> {
             onPressed: () async {
               final String target = roomCtrl.text.trim();
               if (target.isNotEmpty) {
+                final domain =
+                    authService.activeAccountId?.split('@').last ??
+                    'chat.example.com';
+                final jid = target.contains('@')
+                    ? target.toLowerCase()
+                    : '${target.toLowerCase().replaceAll("#", "")}@conference.$domain';
+
                 Navigator.pop(context);
-                final error = await authService.joinGenericRoom(target);
+                final error = await authService.joinXmppRoom(
+                  jid,
+                  nickCtrl.text.trim(),
+                );
 
                 if (error != null && context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -4307,101 +4718,106 @@ class _MainChatScreenState extends State<MainChatScreen> {
       children: [
         // 1. Call History List (Expanded)
         Expanded(
-          child: history.logs.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.history_rounded,
-                        size: 48,
-                        color: Colors.black.withValues(alpha: 0.1),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'No Recent Calls',
-                        style: TextStyle(
-                          color: Colors.black.withValues(alpha: 0.2),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  itemCount: history.logs.length,
-                  itemBuilder: (context, index) {
-                    final log = history.logs[index];
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 4,
-                      ),
-                      leading: CircleAvatar(
-                        backgroundColor: log.status == CallStatus.missed
-                            ? Colors.red.withValues(alpha: 0.1)
-                            : Colors.black.withValues(alpha: 0.05),
-                        child: Icon(
-                          log.isVideo
-                              ? Icons.videocam_rounded
-                              : Icons.call_rounded,
-                          size: 20,
-                          color: log.status == CallStatus.missed
-                              ? Colors.red
-                              : Colors.black54,
-                        ),
-                      ),
-                      title: Text(
-                        log.jid,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                          color: log.status == CallStatus.missed
-                              ? Colors.red
-                              : Colors.black87,
-                        ),
-                      ),
-                      subtitle: Row(
-                        children: [
-                          Icon(
-                            log.direction == CallDirection.incoming
-                                ? Icons.call_received_rounded
-                                : Icons.call_made_rounded,
-                            size: 12,
-                            color: Colors.black38,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${log.timestamp.hour}:${log.timestamp.minute.toString().padLeft(2, '0')} • ${log.status.name.toUpperCase()}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Colors.black38,
+          child: Column(
+            children: [
+              Expanded(
+                child: history.logs.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.history_rounded,
+                              size: 48,
+                              color: Colors.black.withValues(alpha: 0.1),
                             ),
-                          ),
-                        ],
-                      ),
-                      trailing: log.duration != null
-                          ? Text(
-                              '${log.duration!.inMinutes}:${(log.duration!.inSeconds % 60).toString().padLeft(2, '0')}',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.black26,
+                            const SizedBox(height: 12),
+                            Text(
+                              'No Recent Calls',
+                              style: TextStyle(
+                                color: Colors.black.withValues(alpha: 0.2),
+                                fontWeight: FontWeight.w600,
                               ),
-                            )
-                          : null,
-                      onTap: () {
-                        final cleanJid = log.jid.split('@').first;
-                        setState(() => _dialedNumber = cleanJid);
-                      },
-                    );
-                  },
-                ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        itemCount: history.logs.length,
+                        itemBuilder: (context, index) {
+                          final log = history.logs[index];
+                          return ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 4,
+                            ),
+                            leading: CircleAvatar(
+                              backgroundColor: log.status == CallStatus.missed
+                                  ? Colors.red.withValues(alpha: 0.1)
+                                  : Colors.black.withValues(alpha: 0.05),
+                              child: Icon(
+                                log.isVideo
+                                    ? Icons.videocam_rounded
+                                    : Icons.call_rounded,
+                                size: 20,
+                                color: log.status == CallStatus.missed
+                                    ? Colors.red
+                                    : Colors.black54,
+                              ),
+                            ),
+                            title: Text(
+                              log.jid,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: log.status == CallStatus.missed
+                                    ? Colors.red
+                                    : Colors.black87,
+                              ),
+                            ),
+                            subtitle: Row(
+                              children: [
+                                Icon(
+                                  log.direction == CallDirection.incoming
+                                      ? Icons.call_received_rounded
+                                      : Icons.call_made_rounded,
+                                  size: 12,
+                                  color: Colors.black38,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${log.timestamp.hour}:${log.timestamp.minute.toString().padLeft(2, '0')} • ${log.status.name.toUpperCase()}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.black38,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            trailing: log.duration != null
+                                ? Text(
+                                    '${log.duration!.inMinutes}:${(log.duration!.inSeconds % 60).toString().padLeft(2, '0')}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black26,
+                                    ),
+                                  )
+                                : null,
+                            onTap: () {
+                              final cleanJid = log.jid.split('@').first;
+                              setState(() => _dialedNumber = cleanJid);
+                            },
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
-
         // Divider
         Container(height: 1, color: Colors.black.withValues(alpha: 0.05)),
 
@@ -4624,7 +5040,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   shrinkWrap: true,
                   itemCount: room.participants.length,
                   itemBuilder: (context, index) {
-                    final nick = room.participants[index];
+                    final participant = room.participants[index];
                     return ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
@@ -4634,7 +5050,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                           context,
                         ).colorScheme.primary.withValues(alpha: 0.1),
                         child: Text(
-                          nick.isNotEmpty ? nick[0].toUpperCase() : '?',
+                          participant.nickname.isNotEmpty
+                              ? participant.nickname[0].toUpperCase()
+                              : '?',
                           style: TextStyle(
                             fontSize: 10,
                             color: Theme.of(context).colorScheme.primary,
@@ -4643,10 +5061,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                         ),
                       ),
                       title: Text(
-                        nick,
+                        participant.nickname,
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
-                      onLongPress: () => _showParticipantMenu(context, room, nick, _authService),
                     );
                   },
                 ),
@@ -4665,7 +5082,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 ),
                 onPressed: () {
                   _authService.leaveRoom(room.accountId ?? '', room.id);
-                  Provider.of<ChatProvider>(context, listen: false).removeConversation(room.id);
+                  Provider.of<ChatProvider>(
+                    context,
+                    listen: false,
+                  ).removeConversation(room.id);
                   Navigator.pop(context);
                 },
                 child: const Text(
@@ -4719,11 +5139,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
               onPressed: () {
                 final jid = jidController.text.trim();
                 if (jid.isNotEmpty) {
-                  _authService.inviteToRoom(
-                    room.accountId ?? '',
-                    room.id,
-                    jid,
-                  );
+                  _authService.inviteToRoom(room.accountId ?? '', room.id, jid);
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Invited $jid to room')),
@@ -4738,61 +5154,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
     );
   }
 
-  void _showParticipantMenu(BuildContext context, Conversation room, String nick, AuthService authService) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Manage $nick', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: const Icon(Icons.remove_circle_outline, color: Colors.orange),
-                title: const Text('Kick User'),
-                subtitle: const Text('Remove from room temporarily'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  await authService.kickUser(room.accountId ?? '', room.id, nick);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Kicked $nick')));
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.block, color: Colors.red),
-                title: const Text('Ban User'),
-                subtitle: const Text('Prevent from rejoining'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  await authService.banUser(room.accountId ?? '', room.id, nick); // Might fail if server expects JID
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Banned $nick')));
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.security, color: Colors.blue),
-                title: const Text('Make Moderator'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  await authService.setMucRole(room.accountId ?? '', room.id, nick, 'moderator');
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Made $nick a moderator')));
-                  }
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   Widget _buildUploadProgressOverlay(
     AuthService authService,
@@ -4894,8 +5255,10 @@ class _TypingIndicatorState extends State<_TypingIndicator>
             final delay = index * 0.2;
             final value = ((_controller.value - delay) % 1.0);
             // 0.0 -> 0.5 is half-sine wave (up and down)
-            final double bounce = value < 0.5 ? math.sin(value * 2 * math.pi) : 0.0;
-            
+            final double bounce = value < 0.5
+                ? math.sin(value * 2 * math.pi)
+                : 0.0;
+
             return Transform.translate(
               offset: Offset(0, -bounce * 4), // Bounce up 4 pixels
               child: Container(
@@ -4903,7 +5266,9 @@ class _TypingIndicatorState extends State<_TypingIndicator>
                 width: 5,
                 height: 5,
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.8),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.primary.withValues(alpha: 0.8),
                   shape: BoxShape.circle,
                 ),
               ),
@@ -4911,6 +5276,44 @@ class _TypingIndicatorState extends State<_TypingIndicator>
           }),
         );
       },
+    );
+  }
+}
+
+class MentionSyntax extends md.InlineSyntax {
+  MentionSyntax() : super(r'@[\w\-\.]+');
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final mention = match.group(0)!;
+    final element = md.Element.text('mention', mention);
+    parser.addNode(element);
+    return true;
+  }
+}
+
+class MentionBuilder extends MarkdownElementBuilder {
+  final BuildContext context;
+  MentionBuilder(this.context);
+
+  @override
+  Widget visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.primaryContainer.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        element.textContent,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.primary,
+          fontWeight: FontWeight.bold,
+          fontSize: preferredStyle?.fontSize,
+        ),
+      ),
     );
   }
 }

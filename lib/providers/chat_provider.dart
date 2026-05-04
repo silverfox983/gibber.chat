@@ -92,6 +92,15 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
+  void setPinnedMessage(String conversationId, String? msgId, String? text) {
+    try {
+      final conv = _conversations.firstWhere((c) => c.id == conversationId);
+      conv.pinnedMessageId = msgId;
+      conv.pinnedMessageText = text;
+      notifyListeners();
+    } catch (_) {}
+  }
+
   String getDraft(String conversationId) {
     return _drafts[conversationId] ?? '';
   }
@@ -349,11 +358,10 @@ class ChatProvider with ChangeNotifier {
 
     // 2. Setup Subscription Listener (Friend Requests)
     _subscriptionSub?.cancel();
-    _subscriptionSub = authService.subscriptionRequests.listen((request) {
-      if (!_pendingSubscriptions.any((r) => r['jid'] == request['jid'])) {
-        _pendingSubscriptions.add(request);
-        notifyListeners();
-      }
+    _subscriptionSub = authService.subscriptionRequests.listen((requests) {
+      _pendingSubscriptions.clear();
+      _pendingSubscriptions.addAll(requests);
+      notifyListeners();
     });
 
     authService.addListener(() {
@@ -412,7 +420,7 @@ class ChatProvider with ChangeNotifier {
         targetId,
         message,
         protocol: message.protocol,
-        chatName: message.senderName ?? targetId,
+        chatName: message.isGroup ? targetId : (message.senderName ?? targetId),
       );
     });
 
@@ -693,7 +701,7 @@ class ChatProvider with ChangeNotifier {
 
     // Auto-Group Detection for IRC channels and XMPP MUCs
     bool detectedGroup =
-        isGroup || targetId.startsWith('#') || targetId.contains('conference.');
+        isGroup || message.isGroup || targetId.startsWith('#') || targetId.contains('conference.');
 
     // Queue the message work
     _batchQueue.add(() {
@@ -968,9 +976,15 @@ class ChatProvider with ChangeNotifier {
     AuthService authService,
   ) async {
     final bareJid = jid.toLowerCase().split('/').first;
-    final accountId =
-        _pendingSubscriptions.firstWhere((r) => r['jid'] == jid)['accountId'] ??
-        authService.activeAccountId;
+    
+    // Find accountId safely
+    String? accountId;
+    try {
+      accountId = _pendingSubscriptions.firstWhere((r) => r['jid'] == jid)['accountId'];
+    } catch (e) {
+      accountId = authService.activeAccountId;
+    }
+    
     if (accountId == null) return;
 
     if (accept) {

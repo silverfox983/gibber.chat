@@ -1,10 +1,14 @@
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:pointycastle/api.dart';
+import 'package:pointycastle/random/fortuna_random.dart';
 import 'otr_crypto.dart';
 
 enum OtrMessageState { plaintext, encrypted, finished }
+
 enum OtrAuthState { none, awaitingDhKey, awaitingRevealSig, awaitingSig }
+
 enum OtrSmpState { expect1, expect2, expect3, expect4 }
 
 class OtrEngine {
@@ -38,68 +42,94 @@ class OtrEngine {
 
   String? processIncomingAkeMessage(String message) {
     if (!message.startsWith('?OTR:')) return null;
-    
+
     if (message.startsWith('?OTR:DH-KEY:')) {
       final base64Payload = message.substring(12, message.length - 1);
       final peerPublicString = utf8.decode(base64Decode(base64Payload));
       _theirDhPublicKey = BigInt.parse(peerPublicString);
-      
-      if (_ourDhPrivateKey == null) {
-        // We are receiving initiation
-        _ourDhPrivateKey = OtrCrypto.generateRandomExponent();
-      }
-      
+
+      _ourDhPrivateKey ??= OtrCrypto.generateRandomExponent();
+
       final ourPublic = OtrCrypto.computePublicValue(_ourDhPrivateKey!);
-      
-      final sharedSecret = OtrCrypto.computeSharedSecret(_theirDhPublicKey!, _ourDhPrivateKey!);
+
+      final sharedSecret = OtrCrypto.computeSharedSecret(
+        _theirDhPublicKey!,
+        _ourDhPrivateKey!,
+      );
       final secretBytes = sharedSecret.toRadixString(16).codeUnits;
-      
-      _aesKey = OtrCrypto.sha256Hmac(Uint8List.fromList(secretBytes), utf8.encode('AES_KEY')).sublist(0, 16);
-      _macKey = OtrCrypto.sha256Hmac(Uint8List.fromList(secretBytes), utf8.encode('MAC_KEY')).sublist(0, 20);
-      
+
+      _aesKey = OtrCrypto.sha256Hmac(
+        Uint8List.fromList(secretBytes),
+        utf8.encode('AES_KEY'),
+      ).sublist(0, 16);
+      _macKey = OtrCrypto.sha256Hmac(
+        Uint8List.fromList(secretBytes),
+        utf8.encode('MAC_KEY'),
+      ).sublist(0, 20);
+
       authState = OtrAuthState.none;
       msgState = OtrMessageState.encrypted;
       debugPrint('OTR: Session is now ENCRYPTED');
-      
+
       return '?OTR:DH-REPLY:${base64Encode(utf8.encode(ourPublic.toString()))}.';
-      
     } else if (message.startsWith('?OTR:DH-REPLY:')) {
       final base64Payload = message.substring(14, message.length - 1);
       final peerPublicString = utf8.decode(base64Decode(base64Payload));
       _theirDhPublicKey = BigInt.parse(peerPublicString);
-      
-      final sharedSecret = OtrCrypto.computeSharedSecret(_theirDhPublicKey!, _ourDhPrivateKey!);
+
+      final sharedSecret = OtrCrypto.computeSharedSecret(
+        _theirDhPublicKey!,
+        _ourDhPrivateKey!,
+      );
       final secretBytes = sharedSecret.toRadixString(16).codeUnits;
-      
-      _aesKey = OtrCrypto.sha256Hmac(Uint8List.fromList(secretBytes), utf8.encode('AES_KEY')).sublist(0, 16);
-      _macKey = OtrCrypto.sha256Hmac(Uint8List.fromList(secretBytes), utf8.encode('MAC_KEY')).sublist(0, 20);
-      
+
+      _aesKey = OtrCrypto.sha256Hmac(
+        Uint8List.fromList(secretBytes),
+        utf8.encode('AES_KEY'),
+      ).sublist(0, 16);
+      _macKey = OtrCrypto.sha256Hmac(
+        Uint8List.fromList(secretBytes),
+        utf8.encode('MAC_KEY'),
+      ).sublist(0, 20);
+
       authState = OtrAuthState.none;
       msgState = OtrMessageState.encrypted;
       debugPrint('OTR: Session is now ENCRYPTED');
     }
-    
+
     return null;
   }
 
   String encryptMessage(String plaintext) {
     if (msgState != OtrMessageState.encrypted) {
-      return plaintext; 
+      return plaintext;
     }
-    
+
     debugPrint('OTR: Encrypting Data Message');
-    final iv = Uint8List(16); // In a real implementation, this is a counter
+
+    // Generate secure random 16-byte IV
+    final rand = FortunaRandom()
+      ..seed(
+        KeyParameter(
+          Uint8List.fromList(
+            List.generate(32, (_) => Random.secure().nextInt(256)),
+          ),
+        ),
+      );
+    final iv = rand.nextBytes(16);
+
     final key = _aesKey ?? Uint8List(16);
     final ciphertext = OtrCrypto.encryptAesCtr(key, iv, utf8.encode(plaintext));
     final mac = OtrCrypto.sha1Hmac(_macKey ?? Uint8List(20), ciphertext);
-    
-    final combined = Uint8List.fromList([...ciphertext, ...mac]);
+
+    // Payload structure: [IV (16 bytes)] [Ciphertext] [MAC (20 bytes)]
+    final combined = Uint8List.fromList([...iv, ...ciphertext, ...mac]);
     return '?OTR:${base64Encode(combined)}.';
   }
 
   String decryptMessage(String payload) {
     if (!payload.startsWith('?OTR:')) return payload;
-    
+
     debugPrint('OTR: Decrypting Data Message');
     try {
       final String base64Payload;
@@ -108,29 +138,37 @@ class OtrEngine {
       } else {
         base64Payload = payload.substring(5);
       }
-      
+
       final combined = base64Decode(base64Payload);
-      
-      if (combined.length < 20) throw Exception('Payload too short for MAC');
-      
-      final ciphertext = combined.sublist(0, combined.length - 20);
+
+      // Minimum length: IV (16) + MAC (20) = 36 bytes
+      if (combined.length < 36) {
+        throw Exception('Payload too short for IV and MAC');
+      }
+
+      final iv = combined.sublist(0, 16);
+      final ciphertext = combined.sublist(16, combined.length - 20);
       final receivedMac = combined.sublist(combined.length - 20);
-      
+
       // Verify MAC
-      final computedMac = OtrCrypto.sha1Hmac(_macKey ?? Uint8List(20), ciphertext);
+      final computedMac = OtrCrypto.sha1Hmac(
+        _macKey ?? Uint8List(20),
+        ciphertext,
+      );
       bool macValid = true;
       for (int i = 0; i < 20; i++) {
         if (receivedMac[i] != computedMac[i]) macValid = false;
       }
-      
+
       if (!macValid) {
         debugPrint('OTR: MAC VERIFICATION FAILED');
-        // In a real implementation, we would reject the message
+        throw Exception(
+          'MAC verification failed. Message may have been tampered with.',
+        );
       }
-      
-      final iv = Uint8List(16); 
+
       final key = _aesKey ?? Uint8List(16);
-      
+
       final decrypted = OtrCrypto.decryptAesCtr(key, iv, ciphertext);
       return utf8.decode(decrypted);
     } catch (e) {
