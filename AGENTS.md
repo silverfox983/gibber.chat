@@ -1,6 +1,6 @@
 # Agents
 
-## Cursor Cloud specific instructions
+
 
 ### Project overview
 
