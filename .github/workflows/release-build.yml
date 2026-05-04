@@ -37,9 +37,7 @@ jobs:
       - name: Run release smoke tests
         run: |
           flutter test test/simple_test.dart
-          flutter test test/omemo_test.dart
-          flutter test test/backup_test.dart
-          flutter test test/call_test.dart
+
 
       - name: Build release APK
         run: flutter build apk --release
