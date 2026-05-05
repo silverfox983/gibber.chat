@@ -9,10 +9,10 @@ class SpacesService {
   
   final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
 
-  // Caches for in-memory stability
-  final Map<String, List<SpaceNode>> _discoverCache = {};
-  final Map<String, SpaceNode> _metadataCache = {};
-  final Map<String, List<SpaceItem>> _contentCache = {};
+  // ── Bounded LRU caches with TTL ──────────────────────────────────────────
+  final _discoverCache  = _BoundedCache<String, List<SpaceNode>>(maxSize: 20, ttl: const Duration(minutes: 30));
+  final _metadataCache  = _BoundedCache<String, SpaceNode>(maxSize: 100, ttl: const Duration(minutes: 15));
+  final _contentCache   = _BoundedCache<String, List<SpaceItem>>(maxSize: 30, ttl: const Duration(minutes: 5));
 
   // XEP-0060: Real-time PubSub event stream
   final StreamController<SpaceItem> _liveItemController = StreamController<SpaceItem>.broadcast();
@@ -31,11 +31,19 @@ class SpacesService {
     }
     
     final infoIq = xmpp.IqStanza('fetch_info_${xmpp.AbstractStanza.getRandomId()}', xmpp.IqStanzaType.GET);
-    infoIq.toJid = xmpp.Jid.fromFullJid(space.domain);
+    final isServiceNode = space.node == space.domain;
+    
+    if (space.type == 'muc') {
+      infoIq.toJid = xmpp.Jid.fromFullJid('${space.node}@${space.domain}');
+    } else {
+      infoIq.toJid = xmpp.Jid.fromFullJid(space.domain);
+    }
+    
     final infoQuery = xmpp.XmppElement();
     infoQuery.name = 'query';
     infoQuery.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#info'));
-    if (space.node != space.domain) {
+    
+    if (space.type != 'muc' && !isServiceNode) {
       infoQuery.addAttribute(xmpp.XmppAttribute('node', space.node));
     }
     infoIq.addChild(infoQuery);
@@ -46,27 +54,32 @@ class SpacesService {
         final query = infoRes.getChild('query');
         String? newDescription = space.description;
         String? newName = space.name;
+        String? newAvatarUrl = space.avatarUrl;
         String? accessModel;
         String? publishModel;
         int? numSubscribers;
         String? ownerJid;
 
-        final xFields = query?.children.where((e) => e.name == 'x') ?? [];
+        // XEP-0128 / XEP-0004: parse jabber:x:data extended fields
+        final xFields = query?.children.where((e) =>
+          e.name == 'x' && e.getAttribute('xmlns')?.value == 'jabber:x:data') ?? [];
         for (var x in xFields) {
           for (var field in x.children.where((e) => e.name == 'field')) {
             final varAttr = field.getAttribute('var')?.value;
             final val = field.getChild('value')?.textValue;
 
             if (val != null && val.isNotEmpty) {
-              if (varAttr == 'pubsub#title') {
+              if (varAttr == 'pubsub#title' || varAttr == 'muc#roominfo_subject') {
                 newName = val;
-              } else if (varAttr == 'pubsub#description') {
+              } else if (varAttr == 'pubsub#description' || varAttr == 'muc#roominfo_description') {
                 newDescription = val;
+              } else if (varAttr == 'pubsub#node_avatar_url' || varAttr == 'muc#roomconfig_roomavatar' || varAttr == 'muc#roominfo_avatar') {
+                newAvatarUrl = val;
               } else if (varAttr == 'pubsub#access_model') {
                 accessModel = val;
               } else if (varAttr == 'pubsub#publish_model') {
                 publishModel = val;
-              } else if (varAttr == 'pubsub#num_subscribers') {
+              } else if (varAttr == 'pubsub#num_subscribers' || varAttr == 'muc#roominfo_occupants') {
                 numSubscribers = int.tryParse(val);
               } else if (varAttr == 'pubsub#owner') {
                 ownerJid = val;
@@ -78,6 +91,7 @@ class SpacesService {
         final updatedSpace = space.copyWith(
           name: newName,
           description: newDescription,
+          avatarUrl: newAvatarUrl,
           accessModel: accessModel,
           publishModel: publishModel,
           numSubscribers: numSubscribers,
@@ -599,15 +613,13 @@ class SpacesService {
     
     final iq = xmpp.IqStanza('fetch_meta_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
     
-    // Heuristic: If it looks like a JID (contains a dot and/or @) and there's no node from the server, 
-    // it was likely returned as a JID in disco#items.
-    final isJid = node.contains('.') && !node.contains(' ');
+    final isServiceNode = node == domain;
     
-    iq.toJid = xmpp.Jid.fromFullJid(isJid ? node : domain);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
     final query = xmpp.XmppElement();
     query.name = 'query';
     query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#info'));
-    if (!isJid) {
+    if (!isServiceNode) {
       query.addAttribute(xmpp.XmppAttribute('node', node));
     }
     iq.addChild(query);
@@ -774,8 +786,7 @@ class SpacesService {
     String? publishModel,
   }) async {
     final iq = xmpp.IqStanza('config_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
-    final isJid = node.contains('.') && !node.contains(' ');
-    iq.toJid = xmpp.Jid.fromFullJid(isJid ? node : domain);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
 
     final pubsub = xmpp.XmppElement();
     pubsub.name = 'pubsub';
@@ -827,8 +838,7 @@ class SpacesService {
 
   Future<bool> setAffiliation(String domain, String node, String jid, String affiliation) async {
     final iq = xmpp.IqStanza('set_aff_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
-    final isJid = node.contains('.') && !node.contains(' ');
-    iq.toJid = xmpp.Jid.fromFullJid(isJid ? node : domain);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
 
     final pubsub = xmpp.XmppElement();
     pubsub.name = 'pubsub';
@@ -870,9 +880,8 @@ class SpacesService {
   }
 
   Future<bool> deleteSpace(String domain, String node) async {
-    final isJid = node.contains('.') && !node.contains(' ');
     final iq = xmpp.IqStanza('del_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
-    iq.toJid = xmpp.Jid.fromFullJid(isJid ? node : domain);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
     
     final pubsub = xmpp.XmppElement();
     pubsub.name = 'pubsub';
@@ -893,9 +902,8 @@ class SpacesService {
   }
 
   Future<bool> publishItem(String domain, String node, xmpp.XmppElement payload, {String? itemId}) async {
-    final isJid = node.contains('.') && !node.contains(' ');
     final iq = xmpp.IqStanza('publish_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
-    iq.toJid = xmpp.Jid.fromFullJid(isJid ? node : domain);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
     
     final pubsub = xmpp.XmppElement();
     pubsub.name = 'pubsub';
@@ -1072,10 +1080,14 @@ class SpacesService {
     }
   }
 
-  Future<bool> subscribeToSpace(String domain, String node, String bareJid) async {
-    final isJid = node.contains('.') && !node.contains(' ');
+  Future<bool> subscribeToSpace(String domain, String node, String bareJid, {String? spaceType}) async {
+    // MUC rooms require a presence join rather than a pubsub subscribe
+    if (spaceType == 'muc') {
+      return _joinMucRoom('$node@$domain', bareJid);
+    }
+
     final iq = xmpp.IqStanza('sub_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
-    iq.toJid = xmpp.Jid.fromFullJid(isJid ? node : domain);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
     final pubsub = xmpp.XmppElement();
     pubsub.name = 'pubsub';
     pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
@@ -1096,10 +1108,45 @@ class SpacesService {
     }
   }
 
-  Future<bool> unsubscribeFromSpace(String domain, String node, String bareJid) async {
-    final isJid = node.contains('.') && !node.contains(' ');
+  /// Join a MUC room via XEP-0045 presence stanza.
+  Future<bool> _joinMucRoom(String roomJid, String bareJid) async {
+    try {
+      final nick = bareJid.split('@').first;
+      final presence = xmpp.PresenceStanza();
+      presence.toJid = xmpp.Jid.fromFullJid('$roomJid/$nick');
+      final x = xmpp.XmppElement();
+      x.name = 'x';
+      x.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc'));
+      presence.addChild(x);
+      _connection.writeStanza(presence);
+      return true;
+    } catch (e) {
+      debugPrint('MUC join error: $e');
+      return false;
+    }
+  }
+
+  /// Leave a MUC room via presence unavailable.
+  Future<bool> leaveMucRoom(String domain, String node, String bareJid) async {
+    try {
+      final nick = bareJid.split('@').first;
+      final presence = xmpp.PresenceStanza.withType(xmpp.PresenceType.UNAVAILABLE);
+      presence.toJid = xmpp.Jid.fromFullJid('$node@$domain/$nick');
+      _connection.writeStanza(presence);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> unsubscribeFromSpace(String domain, String node, String bareJid, {String? spaceType}) async {
+    // MUC rooms require presence unavailable to leave
+    if (spaceType == 'muc') {
+      return leaveMucRoom(domain, node, bareJid);
+    }
+
     final iq = xmpp.IqStanza('unsub_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
-    iq.toJid = xmpp.Jid.fromFullJid(isJid ? node : domain);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
     final pubsub = xmpp.XmppElement();
     pubsub.name = 'pubsub';
     pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
@@ -1198,16 +1245,15 @@ class SpacesService {
       return _contentCache[cacheKey]!;
     }
     
-    final isJid = node.contains('.') && !node.contains(' ');
-    final target = isJid ? node : pubsubDomain;
+    final isServiceNode = node == pubsubDomain;
     
-    if (!target.contains('.') && target != 'localhost') {
-      debugPrint('Skipping fetchSpaceContent for non-FQDN target: $target');
+    if (!pubsubDomain.contains('.') && pubsubDomain != 'localhost') {
+      debugPrint('Skipping fetchSpaceContent for non-FQDN target: $pubsubDomain');
       return [];
     }
 
     final iq = xmpp.IqStanza('fetch_content_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
-    iq.toJid = xmpp.Jid.fromFullJid(target);
+    iq.toJid = xmpp.Jid.fromFullJid(pubsubDomain);
     
     final pubsub = xmpp.XmppElement();
     pubsub.name = 'pubsub';
@@ -1215,9 +1261,9 @@ class SpacesService {
     
     final items = xmpp.XmppElement();
     items.name = 'items';
-    // When isJid=true, the "node" is actually the service JID — don't set it as the
-    // pubsub node attribute (that would be malformed). Only set it for real node names.
-    if (!isJid) {
+    // When isServiceNode=true, the "node" is actually the service JID — don't set it as the
+    // pubsub node attribute. Only set it for real node names.
+    if (!isServiceNode) {
       items.addAttribute(xmpp.XmppAttribute('node', node));
     }
     items.addAttribute(xmpp.XmppAttribute('max_items', '50')); // Limit items to prevent timeout
@@ -1228,7 +1274,7 @@ class SpacesService {
     try {
       final response = await _sendIq(iq);
       
-      debugPrint('FETCH SPACE RESPONSE: ${response.buildXmlString()}');
+      debugPrint('FETCH SPACE RESPONSE: ${response.type} for $pubsubDomain/$node');
 
       if (response.type == xmpp.IqStanzaType.ERROR) {
         final error = response.getChild('error');
@@ -1511,23 +1557,23 @@ class SpacesService {
   }
 
   Future<List<SpaceItem>> _fetchSpaceContentDiscoFallback(String domain, String node, {SpaceNode? spaceContext, bool isForbidden = false}) async {
-    final isJid = node.contains('.') && !node.contains(' ');
+    final isServiceNode = node == domain;
     String? extractedName;
     
     // Attempt 1: Query disco#info to see what this thing is
     final infoIq = xmpp.IqStanza('fetch_info_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
-    infoIq.toJid = xmpp.Jid.fromFullJid(isJid ? node : domain);
+    infoIq.toJid = xmpp.Jid.fromFullJid(domain);
     final infoQuery = xmpp.XmppElement();
     infoQuery.name = 'query';
     infoQuery.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#info'));
-    if (!isJid) {
+    if (!isServiceNode) {
       infoQuery.addAttribute(xmpp.XmppAttribute('node', node));
     }
     infoIq.addChild(infoQuery);
 
     try {
       final infoRes = await _sendIq(infoIq);
-      debugPrint('DISCO INFO RESPONSE: ${infoRes.buildXmlString()}');
+      debugPrint('DISCO INFO RESPONSE: ${infoRes.type}');
       if (infoRes.type != xmpp.IqStanzaType.ERROR) {
         final query = infoRes.getChild('query');
         xmpp.XmppElement? identity = query?.getChild('identity');
@@ -1564,19 +1610,18 @@ class SpacesService {
     }
 
     // Attempt 2: Query for items
-    final target = isJid ? node : domain;
-    if (!target.contains('.') && target != 'localhost') {
-       debugPrint('Skipping disco fallback for non-FQDN target: $target');
+    if (!domain.contains('.') && domain != 'localhost') {
+       debugPrint('Skipping disco fallback for non-FQDN target: $domain');
        return [];
     }
     
     final iq = xmpp.IqStanza('fetch_disco_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
-    iq.toJid = xmpp.Jid.fromFullJid(target);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
     
     final query = xmpp.XmppElement();
     query.name = 'query';
     query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#items'));
-    if (!isJid) {
+    if (!isServiceNode) {
       query.addAttribute(xmpp.XmppAttribute('node', node));
     }
     iq.addChild(query);
@@ -1760,4 +1805,54 @@ class SpacesService {
       imageUrl: imageUrl,
     );
   }
+}
+
+
+// -- Bounded LRU Cache with TTL ------------------------------------------------
+/// Generic in-memory cache that evicts the oldest entry (LRU) when [maxSize]
+/// is exceeded, and considers values stale after [ttl].
+class _BoundedCache<K, V> {
+  final int maxSize;
+  final Duration ttl;
+
+  final _store = <K, _CacheEntry<V>>{};
+
+  _BoundedCache({required this.maxSize, required this.ttl});
+
+  bool containsKey(K key) {
+    final entry = _store[key];
+    if (entry == null) return false;
+    if (DateTime.now().difference(entry.timestamp) > ttl) {
+      _store.remove(key);
+      return false;
+    }
+    return true;
+  }
+
+  V? operator [](K key) {
+    final entry = _store[key];
+    if (entry == null) return null;
+    if (DateTime.now().difference(entry.timestamp) > ttl) {
+      _store.remove(key);
+      return null;
+    }
+    return entry.value;
+  }
+
+  void operator []=(K key, V value) {
+    _store.remove(key);
+    if (_store.length >= maxSize) {
+      _store.remove(_store.keys.first);
+    }
+    _store[key] = _CacheEntry(value, DateTime.now());
+  }
+
+  void remove(K key) => _store.remove(key);
+  void clear() => _store.clear();
+}
+
+class _CacheEntry<V> {
+  final V value;
+  final DateTime timestamp;
+  _CacheEntry(this.value, this.timestamp);
 }

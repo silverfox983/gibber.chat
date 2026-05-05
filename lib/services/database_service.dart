@@ -4,6 +4,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:flutter/foundation.dart';
 import '../models/chat_models.dart';
+import '../models/space_models.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -23,7 +24,7 @@ class DatabaseService {
     String path = testPath ?? join(await getDatabasesPath(), 'pidgin_chat.db');
     return await openDatabase(
       path,
-      version: 12,
+      version: 13,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -66,6 +67,33 @@ class DatabaseService {
             last_message_id TEXT,
             wallpaper_path TEXT,
             wallpaper_color INTEGER
+          )
+        ''');
+
+        // --- Spaces Table ---
+        await db.execute('''
+          CREATE TABLE spaces(
+            domain TEXT,
+            node TEXT,
+            name TEXT,
+            description TEXT,
+            creator TEXT,
+            avatar_url TEXT,
+            affiliation TEXT,
+            member_count INTEGER,
+            features TEXT,
+            type TEXT,
+            access_model TEXT,
+            publish_model TEXT,
+            num_subscribers INTEGER,
+            owner_jid TEXT,
+            is_subscribed INTEGER,
+            notifications_enabled INTEGER,
+            last_activity TEXT,
+            post_count INTEGER,
+            synced_at TEXT,
+            is_joined INTEGER DEFAULT 0,
+            PRIMARY KEY(domain, node)
           )
         ''');
 
@@ -211,6 +239,33 @@ class DatabaseService {
           await db.execute(
             'ALTER TABLE messages ADD COLUMN encryption_type TEXT',
           );
+        }
+        if (oldVersion < 13) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS spaces(
+              domain TEXT,
+              node TEXT,
+              name TEXT,
+              description TEXT,
+              creator TEXT,
+              avatar_url TEXT,
+              affiliation TEXT,
+              member_count INTEGER,
+              features TEXT,
+              type TEXT,
+              access_model TEXT,
+              publish_model TEXT,
+              num_subscribers INTEGER,
+              owner_jid TEXT,
+              is_subscribed INTEGER,
+              notifications_enabled INTEGER,
+              last_activity TEXT,
+              post_count INTEGER,
+              synced_at TEXT,
+              is_joined INTEGER DEFAULT 0,
+              PRIMARY KEY(domain, node)
+            )
+          ''');
         }
       },
     );
@@ -572,5 +627,31 @@ class DatabaseService {
       }
     }
     await batch.commit(noResult: true);
+  }
+
+  // --- Spaces CRUD ---
+
+  Future<void> upsertSpace(SpaceNode space, {bool isJoined = false}) async {
+    final db = await database;
+    final map = space.toMap();
+    map['is_joined'] = isJoined ? 1 : 0;
+    await db.insert('spaces', map, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> deleteSpace(String domain, String node) async {
+    final db = await database;
+    await db.delete('spaces', where: 'domain = ? AND node = ?', whereArgs: [domain, node]);
+  }
+
+  Future<List<SpaceNode>> getJoinedSpaces() async {
+    final db = await database;
+    final maps = await db.query('spaces', where: 'is_joined = 1');
+    return maps.map((map) => SpaceNode.fromMap(map)).toList();
+  }
+
+  Future<List<SpaceNode>> getAllSpaces() async {
+    final db = await database;
+    final maps = await db.query('spaces');
+    return maps.map((map) => SpaceNode.fromMap(map)).toList();
   }
 }

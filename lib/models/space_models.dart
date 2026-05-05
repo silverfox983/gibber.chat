@@ -86,6 +86,54 @@ class SpaceNode {
       syncedAt: syncedAt ?? this.syncedAt,
     );
   }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'domain': domain,
+      'node': node,
+      'name': name,
+      'description': description,
+      'creator': creator,
+      'avatar_url': avatarUrl,
+      'affiliation': affiliation,
+      'member_count': memberCount,
+      'features': features.join(','),
+      'type': type,
+      'access_model': accessModel,
+      'publish_model': publishModel,
+      'num_subscribers': numSubscribers,
+      'owner_jid': ownerJid,
+      'is_subscribed': isSubscribed ? 1 : 0,
+      'notifications_enabled': notificationsEnabled ? 1 : 0,
+      'last_activity': lastActivity?.toIso8601String(),
+      'post_count': postCount,
+      'synced_at': syncedAt?.toIso8601String(),
+    };
+  }
+
+  factory SpaceNode.fromMap(Map<String, dynamic> map) {
+    return SpaceNode(
+      domain: map['domain'] ?? '',
+      node: map['node'] ?? '',
+      name: map['name'] ?? '',
+      description: map['description'],
+      creator: map['creator'],
+      avatarUrl: map['avatar_url'],
+      affiliation: map['affiliation'],
+      memberCount: map['member_count'],
+      features: (map['features'] as String?)?.split(',').where((s) => s.isNotEmpty).toList() ?? [],
+      type: map['type'],
+      accessModel: map['access_model'],
+      publishModel: map['publish_model'],
+      numSubscribers: map['num_subscribers'],
+      ownerJid: map['owner_jid'],
+      isSubscribed: map['is_subscribed'] == 1,
+      notificationsEnabled: map['notifications_enabled'] == 1,
+      lastActivity: map['last_activity'] != null ? DateTime.tryParse(map['last_activity']) : null,
+      postCount: map['post_count'],
+      syncedAt: map['synced_at'] != null ? DateTime.tryParse(map['synced_at']) : null,
+    );
+  }
 }
 
 class MediaAttachment {
@@ -118,11 +166,11 @@ class SpaceItem {
   final String? commentService; // XEP-0277 Replies service
   final SpaceNode? sourceSpace;
   
-  // Social extensions
-  Map<String, int> reactions;
-  bool isLikedByMe;
-  bool isBookmarked;
-  bool isExpanded; // for read-more
+  // Social extensions — immutable snapshot; UI state tracked in widget Map
+  final Map<String, int> reactions;
+  final bool isLikedByMe;
+  final bool isBookmarked;
+  final bool isExpanded; // for read-more
 
   SpaceItem({
     required this.id,
@@ -149,7 +197,61 @@ class SpaceItem {
     this.isLikedByMe = false,
     this.isBookmarked = false,
     this.isExpanded = false,
-  }) : reactions = reactions ?? {};
+  }) : reactions = reactions ?? const {};
+
+  SpaceItem copyWith({
+    String? id,
+    String? type,
+    String? name,
+    String? url,
+    String? node,
+    String? description,
+    String? jid,
+    String? imageUrl,
+    List<MediaAttachment>? mediaAttachments,
+    List<String>? categories,
+    String? replyToId,
+    bool? isPinned,
+    String? author,
+    DateTime? publishedDate,
+    DateTime? updatedDate,
+    String? rawContent,
+    String? contentType,
+    String? commentNode,
+    String? commentService,
+    SpaceNode? sourceSpace,
+    Map<String, int>? reactions,
+    bool? isLikedByMe,
+    bool? isBookmarked,
+    bool? isExpanded,
+  }) {
+    return SpaceItem(
+      id: id ?? this.id,
+      type: type ?? this.type,
+      name: name ?? this.name,
+      url: url ?? this.url,
+      node: node ?? this.node,
+      description: description ?? this.description,
+      jid: jid ?? this.jid,
+      imageUrl: imageUrl ?? this.imageUrl,
+      mediaAttachments: mediaAttachments ?? this.mediaAttachments,
+      categories: categories ?? this.categories,
+      replyToId: replyToId ?? this.replyToId,
+      isPinned: isPinned ?? this.isPinned,
+      author: author ?? this.author,
+      publishedDate: publishedDate ?? this.publishedDate,
+      updatedDate: updatedDate ?? this.updatedDate,
+      rawContent: rawContent ?? this.rawContent,
+      contentType: contentType ?? this.contentType,
+      commentNode: commentNode ?? this.commentNode,
+      commentService: commentService ?? this.commentService,
+      sourceSpace: sourceSpace ?? this.sourceSpace,
+      reactions: reactions ?? this.reactions,
+      isLikedByMe: isLikedByMe ?? this.isLikedByMe,
+      isBookmarked: isBookmarked ?? this.isBookmarked,
+      isExpanded: isExpanded ?? this.isExpanded,
+    );
+  }
 }
 
 class SpaceMember {

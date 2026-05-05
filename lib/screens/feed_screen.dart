@@ -35,6 +35,12 @@ class _FeedScreenState extends State<FeedScreen>
   String? _attachedImageUrl;
   bool _isPublishing = false;
 
+  // UI state for immutable SpaceItems
+  final Set<String> _bookmarkedItems = {};
+  final Set<String> _expandedItems = {};
+  final Set<String> _likedItems = {};
+  final Map<String, Map<String, int>> _itemReactions = {};
+
   // UI state
   late TabController _tabController;
   bool _showSearch = false;
@@ -212,7 +218,7 @@ class _FeedScreenState extends State<FeedScreen>
     final tab = _tabController.index;
     if (tab == 1) items = items.where((it) => it.type == 'entry').toList();
     if (tab == 2) items = items.where((it) => it.mediaAttachments.isNotEmpty || it.imageUrl != null).toList();
-    if (tab == 3) items = items.where((it) => it.isBookmarked).toList();
+    if (tab == 3) items = items.where((it) => _bookmarkedItems.contains(it.id) || it.isBookmarked).toList();
     return items;
   }
 
@@ -328,7 +334,7 @@ class _FeedScreenState extends State<FeedScreen>
 
   Widget _buildStatsHeader(ThemeData theme) {
     final newCount = _newLiveCount + (_cachedItems?.where((i) => i.type == 'entry').length ?? 0);
-    final savedCount = _cachedItems?.where((i) => i.isBookmarked).length ?? 0;
+    final savedCount = _cachedItems?.where((i) => _bookmarkedItems.contains(i.id) || i.isBookmarked).length ?? 0;
     final mediaCount = _cachedItems?.where((i) => i.mediaAttachments.isNotEmpty || i.imageUrl != null).length ?? 0;
 
     return SizedBox(
@@ -417,7 +423,8 @@ class _FeedScreenState extends State<FeedScreen>
     final wordCount = content.split(' ').length;
     final readMinutes = (wordCount / 200).ceil();
     final isLong = content.length > 400;
-    final displayContent = (isLong && !item.isExpanded) ? '${content.substring(0, 400)}…' : content;
+    final isExpanded = _expandedItems.contains(item.id);
+    final displayContent = (isLong && !isExpanded) ? '${content.substring(0, 400)}…' : content;
 
     return GestureDetector(
       onLongPress: () => _showReactionPicker(context, item),
@@ -458,10 +465,16 @@ class _FeedScreenState extends State<FeedScreen>
               ),
               trailing: IconButton(
                 icon: Icon(
-                  item.isBookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-                  color: item.isBookmarked ? Colors.amber.shade700 : theme.colorScheme.onSurfaceVariant,
+                  (_bookmarkedItems.contains(item.id) || item.isBookmarked) ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                  color: (_bookmarkedItems.contains(item.id) || item.isBookmarked) ? Colors.amber.shade700 : theme.colorScheme.onSurfaceVariant,
                 ),
-                onPressed: () => setState(() => item.isBookmarked = !item.isBookmarked),
+                onPressed: () => setState(() {
+                  if (_bookmarkedItems.contains(item.id) || item.isBookmarked) {
+                    _bookmarkedItems.remove(item.id);
+                  } else {
+                    _bookmarkedItems.add(item.id);
+                  }
+                }),
               ),
             ),
 
@@ -508,11 +521,17 @@ class _FeedScreenState extends State<FeedScreen>
                     ),
                     if (isLong)
                       GestureDetector(
-                        onTap: () => setState(() => item.isExpanded = !item.isExpanded),
+                        onTap: () => setState(() {
+                          if (isExpanded) {
+                            _expandedItems.remove(item.id);
+                          } else {
+                            _expandedItems.add(item.id);
+                          }
+                        }),
                         child: Padding(
                           padding: const EdgeInsets.only(top: 6),
                           child: Text(
-                            item.isExpanded ? 'Show less' : 'Read more',
+                            isExpanded ? 'Show less' : 'Read more',
                             style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 13),
                           ),
                         ),
@@ -557,12 +576,12 @@ class _FeedScreenState extends State<FeedScreen>
               ),
 
             // Reactions row
-            if (item.reactions.isNotEmpty)
+            if ((_itemReactions[item.id] ?? item.reactions).isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: Wrap(
                   spacing: 6,
-                  children: item.reactions.entries
+                  children: (_itemReactions[item.id] ?? item.reactions).entries
                       .where((e) => e.value > 0)
                       .map((e) => Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -583,9 +602,9 @@ class _FeedScreenState extends State<FeedScreen>
               child: Row(
                 children: [
                   _buildInteractionButton(
-                    icon: item.isLikedByMe ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                    label: (item.reactions['❤️'] ?? 0) > 0 ? '${item.reactions['❤️']}' : '',
-                    color: item.isLikedByMe ? Colors.red : theme.colorScheme.onSurfaceVariant,
+                    icon: (_likedItems.contains(item.id) || item.isLikedByMe) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                    label: ((_itemReactions[item.id] ?? item.reactions)['❤️'] ?? 0) > 0 ? '${(_itemReactions[item.id] ?? item.reactions)['❤️']}' : '',
+                    color: (_likedItems.contains(item.id) || item.isLikedByMe) ? Colors.red : theme.colorScheme.onSurfaceVariant,
                     onTap: () => _handleLike(item),
                   ),
                   _buildInteractionButton(
@@ -646,16 +665,19 @@ class _FeedScreenState extends State<FeedScreen>
   }
 
   void _handleLike(SpaceItem item) async {
+    final reactions = Map<String, int>.from(_itemReactions[item.id] ?? item.reactions);
+    final wasLiked = _likedItems.contains(item.id) || item.isLikedByMe;
     setState(() {
-      if (item.isLikedByMe) {
-        item.isLikedByMe = false;
-        item.reactions['❤️'] = ((item.reactions['❤️'] ?? 1) - 1).clamp(0, 9999);
+      if (wasLiked) {
+        _likedItems.remove(item.id);
+        reactions['❤️'] = ((reactions['❤️'] ?? 1) - 1).clamp(0, 9999);
       } else {
-        item.isLikedByMe = true;
-        item.reactions['❤️'] = (item.reactions['❤️'] ?? 0) + 1;
+        _likedItems.add(item.id);
+        reactions['❤️'] = (reactions['❤️'] ?? 0) + 1;
       }
+      _itemReactions[item.id] = reactions;
     });
-    if (!item.isLikedByMe) return;
+    if (wasLiked) return;
     final domain = item.sourceSpace?.domain ?? '';
     final node = item.sourceSpace?.node ?? '';
     if (domain.isEmpty || node.isEmpty) return;
@@ -688,7 +710,11 @@ class _FeedScreenState extends State<FeedScreen>
             children: emojis.map((emoji) => GestureDetector(
               onTap: () {
                 Navigator.pop(ctx2);
-                setState(() => item.reactions[emoji] = (item.reactions[emoji] ?? 0) + 1);
+                setState(() {
+                  final reactions = Map<String, int>.from(_itemReactions[item.id] ?? item.reactions);
+                  reactions[emoji] = (reactions[emoji] ?? 0) + 1;
+                  _itemReactions[item.id] = reactions;
+                });
                 final domain = item.sourceSpace?.domain ?? '';
                 final node = item.sourceSpace?.node ?? '';
                 if (domain.isNotEmpty && node.isNotEmpty) {

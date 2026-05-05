@@ -17,6 +17,7 @@ import './omemo_storage.dart';
 import './otr_service.dart';
 import './spaces_service.dart';
 import '../models/space_models.dart';
+import './database_service.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -139,7 +140,7 @@ class AuthService with ChangeNotifier {
   final Map<String, String> _xmppJids = {};
   Set<String> _persistedRooms = {};
   final Map<String, String> _roomNicknames = {}; // accountId|roomJid -> nick
-  Set<String> _persistedSpaces = {};
+  List<SpaceNode> _cachedJoinedSpaces = [];
   final Map<String, Completer<List<Map<String, String>>>> _discoveryCompleters =
       {};
   final Map<String, Completer<Map<String, dynamic>>> _roomInfoCompleters = {};
@@ -2606,6 +2607,7 @@ class AuthService with ChangeNotifier {
   }
 
   Future<void> loadSavedAccounts() async {
+    await _loadJoinedRooms();
     final prefs = await SharedPreferences.getInstance();
 
     // Load Profile
@@ -3235,18 +3237,26 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  Future<void> _saveJoinedSpaces() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('joined_spaces', _persistedSpaces.toList());
-  }
-
   Future<void> _loadJoinedRooms() async {
     final prefs = await SharedPreferences.getInstance();
     final list = prefs.getStringList('joined_rooms') ?? [];
     _persistedRooms = list.toSet();
 
-    final spacesList = prefs.getStringList('joined_spaces') ?? [];
-    _persistedSpaces = spacesList.toSet();
+    // Migrate old spaces from SharedPreferences to SQLite if needed
+    final spacesList = prefs.getStringList('joined_spaces');
+    final db = DatabaseService();
+    if (spacesList != null && spacesList.isNotEmpty) {
+      for (final s in spacesList) {
+        final parts = s.split('|');
+        if (parts.length >= 3) {
+          final space = SpaceNode(domain: parts[0], node: parts[1], name: parts[2]);
+          await db.upsertSpace(space, isJoined: true);
+        }
+      }
+      await prefs.remove('joined_spaces');
+    }
+
+    _cachedJoinedSpaces = await db.getJoinedSpaces();
     _emitJoinedSpaces();
   }
 
@@ -3759,18 +3769,7 @@ class AuthService with ChangeNotifier {
 
   // --- Space Management (Bookmarks / Persistence) ---
 
-  List<SpaceNode> get joinedSpaces {
-    return _persistedSpaces
-        .map((s) {
-          final parts = s.split('|');
-          if (parts.length >= 3) {
-            return SpaceNode(domain: parts[0], node: parts[1], name: parts[2]);
-          }
-          return SpaceNode(domain: '', node: '', name: '');
-        })
-        .where((s) => s.domain.isNotEmpty)
-        .toList();
-  }
+  List<SpaceNode> get joinedSpaces => _cachedJoinedSpaces;
 
   void _emitJoinedSpaces() {
     _joinedSpacesStreamController.add(joinedSpaces);
@@ -3781,20 +3780,31 @@ class AuthService with ChangeNotifier {
     String node,
     String name,
   ) async {
-    final str = '$domain|$node|$name';
-    if (!_persistedSpaces.contains(str)) {
-      _persistedSpaces.add(str);
-      await _saveJoinedSpaces();
+    final index = _cachedJoinedSpaces.indexWhere((s) => s.domain == domain && s.node == node);
+    if (index == -1) {
+      final space = SpaceNode(domain: domain, node: node, name: name, isSubscribed: true);
+      _cachedJoinedSpaces.add(space);
+      await DatabaseService().upsertSpace(space, isJoined: true);
       _emitJoinedSpaces();
       notifyListeners();
     }
   }
 
   Future<void> leavePersistedSpace(String domain, String node) async {
-    _persistedSpaces.removeWhere((s) => s.startsWith('$domain|$node|'));
-    await _saveJoinedSpaces();
+    _cachedJoinedSpaces.removeWhere((s) => s.domain == domain && s.node == node);
+    await DatabaseService().deleteSpace(domain, node);
     _emitJoinedSpaces();
     notifyListeners();
+  }
+
+  Future<void> updatePersistedSpace(SpaceNode space) async {
+    final index = _cachedJoinedSpaces.indexWhere((s) => s.domain == space.domain && s.node == space.node);
+    if (index != -1) {
+      _cachedJoinedSpaces[index] = space;
+      await DatabaseService().upsertSpace(space, isJoined: true);
+      _emitJoinedSpaces();
+      notifyListeners();
+    }
   }
 
   // --- Profile Management ---

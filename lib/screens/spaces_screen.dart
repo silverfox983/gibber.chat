@@ -15,11 +15,10 @@ import '../widgets/media_carousel.dart';
 
 import '../services/auth_service.dart';
 import '../services/spaces_service.dart';
-import '../services/transport_service.dart';
+
 import '../models/space_models.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/create_space_dialog.dart';
-import '../widgets/transport_registration_dialog.dart';
 import 'space_settings_screen.dart';
 import 'post_detail_screen.dart';
 import 'post_thread_screen.dart';
@@ -49,8 +48,12 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
   List<SpaceNode> _mySpaces = [];
   List<SpaceNode> _lastSeenJoinedSpaces = [];
   List<SpaceNode> _featuredSpaces = [];
+  List<SpaceNode> _filteredFeaturedSpaces = []; // Pre-computed, re-sorted cache
   bool _isLoading = false;
   
+  // O(1) membership cache — rebuilt whenever joinedSpaces changes
+  Set<String> _joinedJidSet = {};
+
   final TextEditingController _searchController = TextEditingController();
   VoidCallback? _refreshSpace;
   int _tabIndex = 0; // 0 = Featured, 1 = My Communities
@@ -76,6 +79,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     // Always show persisted/joined spaces immediately — no connection needed
     final persisted = auth.joinedSpaces;
     _lastSeenJoinedSpaces = List.from(persisted);
+    _joinedJidSet = {for (final s in persisted) '${s.domain}|${s.node}'};
 
     if (conn == null) {
       if (mounted) {
@@ -102,7 +106,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     // Load featured spaces from public hub in background — don't block UI
     _loadFeaturedSpaces(forceRefresh: forceRefresh);
     
-    // Sync metadata for local spaces in background
+    // Sync metadata for local spaces in background (parallel)
     _syncMySpacesMetadata(forceRefresh: forceRefresh);
 
     if (mounted) setState(() => _isLoading = false);
@@ -112,35 +116,57 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     if (_spacesService == null) return;
     try {
       final featured = await _spacesService!.discoverAllSpaces('movim.eu', forceRefresh: forceRefresh);
-      if (mounted) setState(() => _featuredSpaces = featured);
+      if (mounted) setState(() {
+        _featuredSpaces = featured;
+        _recomputeFilteredList();
+      });
     } catch (e) {
       debugPrint('Error loading featured spaces: $e');
     }
+  }
+
+  /// Re-sorts and filters [_featuredSpaces] into [_filteredFeaturedSpaces].
+  /// Must be called (inside setState) whenever source data or filter params change.
+  void _recomputeFilteredList() {
+    var items = List<SpaceNode>.from(_featuredSpaces);
+    if (_selectedCategory != 'All') {
+      items = items.where((s) =>
+        s.description?.toLowerCase().contains(_selectedCategory.toLowerCase()) ?? false
+      ).toList();
+    }
+    if (_sortMode == 'Trending') {
+      items.sort((a, b) => (b.numSubscribers ?? 0).compareTo(a.numSubscribers ?? 0));
+    } else if (_sortMode == 'A-Z') {
+      items.sort((a, b) => a.name.compareTo(b.name));
+    }
+    _filteredFeaturedSpaces = items;
   }
 
   Future<void> _syncMySpacesMetadata({bool forceRefresh = false}) async {
     if (_spacesService == null || _mySpaces.isEmpty) return;
     
     final spacesToSync = List<SpaceNode>.from(_mySpaces);
+    const batchSize = 4;
 
-    for (int i = 0; i < spacesToSync.length; i++) {
-      final space = spacesToSync[i];
-      try {
-        final metadata = await _spacesService!.fetchSpaceMetadata(space.domain, space.node, fallbackName: space.name, forceRefresh: forceRefresh);
-        if (metadata != null) {
-          // Update incrementally for a smoother UI experience
-          if (mounted) {
+    for (int start = 0; start < spacesToSync.length; start += batchSize) {
+      final batch = spacesToSync.skip(start).take(batchSize).toList();
+      await Future.wait(batch.map((space) async {
+        try {
+          final metadata = await _spacesService!.fetchSpaceMetadata(
+            space.domain, space.node, fallbackName: space.name, forceRefresh: forceRefresh);
+          if (metadata != null && mounted) {
             setState(() {
-              final idx = _mySpaces.indexWhere((s) => s.domain == space.domain && s.node == space.node);
-              if (idx != -1) {
-                _mySpaces[idx] = metadata;
-              }
+              final idx = _mySpaces.indexWhere(
+                  (s) => s.domain == space.domain && s.node == space.node);
+              if (idx != -1) _mySpaces[idx] = metadata;
             });
+            final auth = Provider.of<AuthService>(context, listen: false);
+            auth.updatePersistedSpace(metadata);
           }
+        } catch (e) {
+          debugPrint('Error syncing metadata for ${space.node}: $e');
         }
-      } catch (e) {
-        debugPrint('Error syncing metadata for ${space.node}: $e');
-      }
+      }));
     }
   }
 
@@ -170,6 +196,11 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     
     if (changed && !canGoBack && !_isLoading) {
        WidgetsBinding.instance.addPostFrameCallback((_) => _initializeSpaces());
+    }
+
+    // Rebuild joined-JID set whenever the list changes
+    if (changed) {
+      _joinedJidSet = {for (final s in joined) '${s.domain}|${s.node}'};
     }
 
     return Scaffold(
@@ -276,8 +307,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
       return const Center(child: CircularProgressIndicator());
     }
 
-    final auth = Provider.of<AuthService>(context, listen: false);
-    final joinedJids = auth.joinedSpaces.map((s) => '${s.domain}|${s.node}').toSet();
+
 
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -308,7 +338,11 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                   setState(() { _isLoading = true; _tabIndex = 0; });
                   try {
                     final results = await _spacesService!.discoverAllSpaces(trimmed);
-                    if (mounted) setState(() { _featuredSpaces = results; _isLoading = false; });
+                    if (mounted) setState(() {
+                      _featuredSpaces = results;
+                      _recomputeFilteredList();
+                      _isLoading = false;
+                    });
                   } catch (e) {
                     if (mounted) {
                       setState(() => _isLoading = false);
@@ -361,7 +395,10 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                         return ChoiceChip(
                           label: Text(cat, style: TextStyle(fontSize: 12, fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
                           selected: selected,
-                          onSelected: (val) => setState(() => _selectedCategory = cat),
+                          onSelected: (val) => setState(() {
+                            _selectedCategory = cat;
+                            _recomputeFilteredList();
+                          }),
                           backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
                           selectedColor: theme.colorScheme.primaryContainer,
                           labelStyle: TextStyle(color: selected ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurfaceVariant),
@@ -378,7 +415,10 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                       ..._sortOptions.map((sort) => Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: InkWell(
-                          onTap: () => setState(() => _sortMode = sort),
+                          onTap: () => setState(() {
+                                _sortMode = sort;
+                                _recomputeFilteredList();
+                              }),
                           borderRadius: BorderRadius.circular(12),
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -470,23 +510,13 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                 ),
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
-                    var items = List<SpaceNode>.from(_featuredSpaces);
-                    // Apply Category Filter
-                    if (_selectedCategory != 'All') {
-                      items = items.where((s) => s.description?.toLowerCase().contains(_selectedCategory.toLowerCase()) ?? false).toList();
-                    }
-                    // Apply Sort
-                    if (_sortMode == 'Trending') {
-                      items.sort((a, b) => (b.numSubscribers ?? 0).compareTo(a.numSubscribers ?? 0));
-                    } else if (_sortMode == 'A-Z') {
-                      items.sort((a, b) => a.name.compareTo(b.name));
-                    }
-                    if (index >= items.length) return const SizedBox.shrink();
-                    final space = items[index];
-                    final isJoined = joinedJids.contains('${space.domain}|${space.node}');
+                    if (index >= _filteredFeaturedSpaces.length) return const SizedBox.shrink();
+                    final space = _filteredFeaturedSpaces[index];
+                    // O(1) membership check via pre-built Set
+                    final isJoined = _joinedJidSet.contains('${space.domain}|${space.node}');
                     return _buildSpaceGridCard(theme, space, isJoined: isJoined);
                   },
-                  childCount: _featuredSpaces.length,
+                  childCount: _filteredFeaturedSpaces.length,
                 ),
               ),
             ),
@@ -591,7 +621,11 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
           setState(() { _isLoading = true; _tabIndex = 0; });
           try {
             final results = await _spacesService?.discoverAllSpaces(domain) ?? [];
-            if (mounted) setState(() { _featuredSpaces = results; _isLoading = false; });
+            if (mounted) setState(() {
+              _featuredSpaces = results;
+              _recomputeFilteredList();
+              _isLoading = false;
+            });
           } catch (_) {
             if (mounted) setState(() => _isLoading = false);
           }
@@ -610,7 +644,10 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
   Widget _buildSpaceGridCard(ThemeData theme, SpaceNode space, {bool isJoined = false}) {
     final auth = Provider.of<AuthService>(context, listen: false);
     final isOwner = space.ownerJid == auth.activeXmppConnection?.fullJid.userAtDomain;
-    final affiliation = auth.joinedSpaces.where((s) => s.domain == space.domain && s.node == space.node).firstOrNull?.affiliation;
+    // Use cached Set for O(1) affiliation lookup
+    final joined = auth.joinedSpaces.where(
+        (s) => s.domain == space.domain && s.node == space.node).firstOrNull;
+    final affiliation = joined?.affiliation;
     final isPrivate = space.accessModel == 'authorize';
     final hue = (space.node.hashCode.abs() % 360).toDouble();
     final accent = HSLColor.fromAHSL(1, hue, 0.45, 0.5).toColor();
@@ -907,6 +944,9 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   StreamSubscription<SpaceItem>? _liveStreamSub;
   int _newLiveCount = 0;
 
+  // Per-item UI state — stored here so SpaceItem stays immutable
+  final Map<String, Map<String, int>> _itemReactions = {};
+
   // Posts search
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -937,21 +977,22 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
-    try {
-      final d = await widget.spacesService.fetchSpaceDetails(widget.space, forceRefresh: forceRefresh);
-      if (mounted) setState(() { _details = d; _loadingDetails = false; });
-    } catch (e) {
-      debugPrint('SpaceDetailView: fetchSpaceDetails error: \$e');
-      if (mounted) setState(() => _loadingDetails = false);
-    }
-    try {
-      final items = await widget.spacesService.fetchSpaceContent(
+    // Fire both requests in parallel
+    final results = await Future.wait([
+      widget.spacesService.fetchSpaceDetails(widget.space, forceRefresh: forceRefresh)
+          .catchError((e) { debugPrint('fetchSpaceDetails error: $e'); return widget.space; }),
+      widget.spacesService.fetchSpaceContent(
           widget.space.domain, widget.space.node,
-          spaceContext: widget.space, forceRefresh: forceRefresh);
-      if (mounted) setState(() { _items = items; _loadingItems = false; });
-    } catch (e) {
-      debugPrint('SpaceDetailView: fetchSpaceContent error: \$e');
-      if (mounted) setState(() { _items = []; _loadingItems = false; });
+          spaceContext: widget.space, forceRefresh: forceRefresh)
+          .catchError((e) { debugPrint('fetchSpaceContent error: $e'); return <SpaceItem>[]; }),
+    ]);
+    if (mounted) {
+      setState(() {
+        _details = results[0] as SpaceNode;
+        _items   = results[1] as List<SpaceItem>;
+        _loadingDetails = false;
+        _loadingItems   = false;
+      });
     }
   }
 
@@ -1115,7 +1156,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
           onPressed: () async {
             final conn = auth.activeXmppConnection;
             if (conn == null) return;
-            await widget.spacesService.unsubscribeFromSpace(space.domain, space.node, conn.fullJid.userAtDomain);
+            await widget.spacesService.unsubscribeFromSpace(space.domain, space.node, conn.fullJid.userAtDomain, spaceType: space.type);
             await auth.leavePersistedSpace(space.domain, space.node);
             if (mounted) setState(() {});
           },
@@ -1127,8 +1168,11 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
           onPressed: () async {
             final conn = auth.activeXmppConnection;
             if (conn == null) return;
-            await widget.spacesService.subscribeToSpace(space.domain, space.node, conn.fullJid.userAtDomain);
+            await widget.spacesService.subscribeToSpace(space.domain, space.node, conn.fullJid.userAtDomain, spaceType: space.type);
             await auth.joinPersistedSpace(space.domain, space.node, space.name);
+            // Persist full metadata into SQLite right away
+            final enriched = space.copyWith(isSubscribed: true, syncedAt: DateTime.now());
+            await auth.updatePersistedSpace(enriched);
             if (mounted) {
               setState(() {});
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Subscribed! Posts will appear in your Feed.')));
@@ -1417,7 +1461,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               final conn = auth.activeXmppConnection;
               if (conn != null) {
                 await widget.spacesService.unsubscribeFromSpace(
-                    space.domain, space.node, conn.fullJid.userAtDomain);
+                    space.domain, space.node, conn.fullJid.userAtDomain, spaceType: space.type);
                 await auth.leavePersistedSpace(space.domain, space.node);
                 setState(() {});
                 if (mounted) {
@@ -1435,8 +1479,11 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               final conn = auth.activeXmppConnection;
               if (conn != null) {
                 await widget.spacesService.subscribeToSpace(
-                    space.domain, space.node, conn.fullJid.userAtDomain);
+                    space.domain, space.node, conn.fullJid.userAtDomain, spaceType: space.type);
                 await auth.joinPersistedSpace(space.domain, space.node, space.name);
+                // Persist full metadata into SQLite right away
+                final enriched = space.copyWith(isSubscribed: true, syncedAt: DateTime.now());
+                await auth.updatePersistedSpace(enriched);
                 setState(() {});
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -1600,94 +1647,127 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                    (p.author?.toLowerCase().contains(q) ?? false);
           }).toList();
 
+    // Split pinned vs normal for display order
+    final pinnedPosts = posts.where((p) => p.isPinned).toList();
+    final normalPosts = posts.where((p) => !p.isPinned).toList();
+    final orderedPosts = [...pinnedPosts, ...normalPosts];
+
+    // Header items count: 1 (live banner, maybe) + 1 (search bar) + channels section + posts header
+    // Use a sliver-based approach for true lazy rendering
     return RefreshIndicator(
       onRefresh: _reload,
-      child: ListView(padding: const EdgeInsets.all(12), children: [
+      child: CustomScrollView(slivers: [
         // Live banner
         if (_newLiveCount > 0)
-          GestureDetector(
-            onTap: () => setState(() => _newLiveCount = 0),
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(14),
+          SliverToBoxAdapter(
+            child: GestureDetector(
+              onTap: () => setState(() => _newLiveCount = 0),
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(children: [
+                  Icon(Icons.fiber_new_rounded, color: theme.colorScheme.primary, size: 20),
+                  const SizedBox(width: 8),
+                  Text('$_newLiveCount new post${_newLiveCount > 1 ? 's' : ''} — tap to dismiss',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13,
+                          color: theme.colorScheme.onPrimaryContainer)),
+                ]),
               ),
-              child: Row(children: [
-                Icon(Icons.fiber_new_rounded, color: theme.colorScheme.primary, size: 20),
-                const SizedBox(width: 8),
-                Text('$_newLiveCount new post${_newLiveCount > 1 ? 's' : ''} — tap to dismiss',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13,
-                        color: theme.colorScheme.onPrimaryContainer)),
-              ]),
             ),
           ),
         // Search bar
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: TextField(
-            controller: _searchController,
-            onChanged: (v) => setState(() => _searchQuery = v),
-            decoration: InputDecoration(
-              hintText: 'Search posts...',
-              prefixIcon: const Icon(Icons.search_rounded, size: 20),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(icon: const Icon(Icons.clear_rounded, size: 18),
-                      onPressed: () { _searchController.clear(); setState(() => _searchQuery = ''); })
-                  : null,
-              filled: true,
-              fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (v) => setState(() => _searchQuery = v),
+              decoration: InputDecoration(
+                hintText: 'Search posts...',
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(icon: const Icon(Icons.clear_rounded, size: 18),
+                        onPressed: () { _searchController.clear(); setState(() => _searchQuery = ''); })
+                    : null,
+                filled: true,
+                fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              ),
             ),
           ),
         ),
-        // Channels section
+        // Channels
         if (channels.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8, top: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('CHANNELS', style: GoogleFonts.inter(
-                    fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.4,
-                    color: theme.colorScheme.primary)),
-                TextButton.icon(
-                  onPressed: () => _showCreateChannelDialog(),
-                  icon: const Icon(Icons.add_rounded, size: 16),
-                  label: const Text('Create Channel', style: TextStyle(fontSize: 12)),
-                  style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
-                ),
-              ],
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('CHANNELS', style: GoogleFonts.inter(
+                      fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.4,
+                      color: theme.colorScheme.primary)),
+                  TextButton.icon(
+                    onPressed: () => _showCreateChannelDialog(),
+                    icon: const Icon(Icons.add_rounded, size: 16),
+                    label: const Text('Create Channel', style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
+                  ),
+                ],
+              ),
             ),
           ),
-          ...channels.map((ch) => _buildChannelTile(theme, ch)),
-          const SizedBox(height: 16),
-        ],
-        // Posts section
-        if (posts.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text('POSTS', style: GoogleFonts.inter(
-                fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.4,
-                color: theme.colorScheme.primary)),
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (ctx, i) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: _buildChannelTile(theme, channels[i]),
+              ),
+              childCount: channels.length,
+            ),
           ),
-          // Pinned posts first
-          ...posts.where((p) => p.isPinned).map((p) => _buildPostCard(theme, p, pinned: true)),
-          ...posts.where((p) => !p.isPinned).map((p) => _buildPostCard(theme, p)),
+          const SliverToBoxAdapter(child: SizedBox(height: 16)),
         ],
-        if (posts.isEmpty && channels.isEmpty && !_loadingItems)
-          Center(child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.article_outlined, size: 56, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
-              const SizedBox(height: 12),
-              Text(_searchQuery.isNotEmpty ? 'No posts match "$_searchQuery"' : 'No posts yet',
-                  style: GoogleFonts.inter(color: theme.colorScheme.onSurfaceVariant)),
-            ]),
-          )),
-        const SizedBox(height: 80),
+        // Posts header
+        if (orderedPosts.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+              child: Text('POSTS', style: GoogleFonts.inter(
+                  fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.4,
+                  color: theme.colorScheme.primary)),
+            ),
+          ),
+        // Lazy-rendered posts
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (ctx, i) => _buildPostCard(theme, orderedPosts[i],
+                  pinned: orderedPosts[i].isPinned),
+              childCount: orderedPosts.length,
+            ),
+          ),
+        ),
+        if (orderedPosts.isEmpty && channels.isEmpty)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.article_outlined, size: 56,
+                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
+                const SizedBox(height: 12),
+                Text(_searchQuery.isNotEmpty ? 'No posts match "$_searchQuery"' : 'No posts yet',
+                    style: GoogleFonts.inter(color: theme.colorScheme.onSurfaceVariant)),
+              ]),
+            ),
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: 100)),
       ]),
     );
   }
@@ -1913,7 +1993,12 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   }
 
   void _handleEmojiReaction(SpaceItem item, String emoji) async {
-    setState(() => item.reactions[emoji] = (item.reactions[emoji] ?? 0) + 1);
+    // Mutate per-item reactions in the local Map (immutable SpaceItem)
+    setState(() {
+      final reactions = Map<String, int>.from(_itemReactions[item.id] ?? item.reactions);
+      reactions[emoji] = (reactions[emoji] ?? 0) + 1;
+      _itemReactions[item.id] = reactions;
+    });
     final auth = Provider.of<AuthService>(context, listen: false);
     final userJid = auth.activeXmppConnection?.fullJid.userAtDomain ?? 'unknown';
     await widget.spacesService.publishReaction(widget.space.domain, widget.space.node, item.id, emoji, userJid);
@@ -1988,16 +2073,20 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   }
 
   void _handleLike(SpaceItem item) async {
+    // Track liked state per-item in widget state (SpaceItem is immutable)
+    final reactions = Map<String, int>.from(_itemReactions[item.id] ?? item.reactions);
+    final wasLiked = SpacesScreenManager.likedItems.contains(item.id);
     setState(() {
-      if (item.isLikedByMe) {
-        item.isLikedByMe = false;
-        item.reactions['👍'] = ((item.reactions['👍'] ?? 1) - 1).clamp(0, 9999);
+      if (wasLiked) {
+        SpacesScreenManager.likedItems.remove(item.id);
+        reactions['👍'] = ((reactions['👍'] ?? 1) - 1).clamp(0, 9999);
       } else {
-        item.isLikedByMe = true;
-        item.reactions['👍'] = (item.reactions['👍'] ?? 0) + 1;
+        SpacesScreenManager.likedItems.add(item.id);
+        reactions['👍'] = (reactions['👍'] ?? 0) + 1;
       }
+      _itemReactions[item.id] = reactions;
     });
-    if (!item.isLikedByMe) return; // optimistic: only send on like, not unlike
+    if (wasLiked) return; // optimistic: only send on like, not unlike
     final auth = Provider.of<AuthService>(context, listen: false);
     final userJid = auth.activeXmppConnection?.fullJid.userAtDomain ?? 'unknown';
     await widget.spacesService.publishReaction(widget.space.domain, widget.space.node, item.id, '👍', userJid);
