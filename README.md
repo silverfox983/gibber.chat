@@ -1,4 +1,6 @@
-
+<a href="https://play.google.com/apps/testing/com.gibber.desertrobotservices" target="_blank">
+    <img src="https://images.squarespace-cdn.com/content/5c213a383c3a53bf091b1c36/74658c71-a6e5-494f-adcf-cda0d8173527/button-android-us.png?content-type=image%2Fpng" alt="Get it on Google Play" style="height: 60px; border-radius: 8px; transition: transform 0.2s; transform: scale(1);" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+  </a>
 
 
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/sethfox)
