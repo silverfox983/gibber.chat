@@ -1,3 +1,11 @@
+<a href="https://play.google.com/apps/testing/com.gibber.desertrobotservices" target="_blank">
+    <img src="https://images.squarespace-cdn.com/content/5c213a383c3a53bf091b1c36/74658c71-a6e5-494f-adcf-cda0d8173527/button-android-us.png?content-type=image%2Fpng" alt="Get it on Google Play" style="height: 60px; border-radius: 8px; transition: transform 0.2s; transform: scale(1);" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+  </a>
+
+
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/sethfox)
+
+
 # 🌌 Gibber
 
 ![Flutter Version](https://img.shields.io/badge/Flutter-3.41.5-blue.svg?logo=flutter)
@@ -9,7 +17,7 @@
 
 **Gibber** is a modern, high-performance, and beautifully crafted unified communication client built natively with **Flutter** and **Dart**. 
 
-Designed to break down walled gardens, Gibber acts as a universal bridge for disparate chat networks. It seamlessly integrates traditional federated protocols like **XMPP (Jabber)** alongside support architectures for IRC, Discord, and SIP/VoIP, aggregating all your conversations into a single, cohesive interface.
+Designed to break down walled gardens, Gibber acts as a universal bridge for disparate chat networks. It seamlessly integrates traditional protocols like **XMPP (Jabber)** alongside support architectures for IRC, Discord, and SIP/VoIP, aggregating all your conversations into a single, cohesive interface.
 
 Unlike contemporary proprietary platforms, **Gibber is strictly a client application**. There is no centralized "Gibber Server" harvesting your data, nor is there a proprietary backend database. Gibber connects *directly* to standard, decentralized network servers (like `movim.eu` or your own self-hosted XMPP server), ensuring absolute data ownership, zero vendor lock-in, and uncompromising privacy for its users.
 
@@ -23,6 +31,11 @@ Unlike contemporary proprietary platforms, **Gibber is strictly a client applica
 - **High Fidelity:** From markdown rendering to WebRTC video calls, Gibber supports the rich features expected of a modern chat app without sacrificing its decentralized roots.
 
 ---
+
+## STATE OF GIBBER.
+
+Gibber is a mobile first application for xmpp. things are somewhat unstable in alpha release. most things work. If there are funds it will get development otherwise it is provided as is.
+
 
 ## ✨ Key Features
 
