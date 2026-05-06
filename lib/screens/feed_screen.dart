@@ -320,7 +320,26 @@ class _FeedScreenState extends State<FeedScreen>
               }
               return SliverList(
                 delegate: SliverChildBuilderDelegate(
-                  (context, index) => _buildSpaceItemCard(theme, items[index]),
+                  (context, index) {
+                    final item = items[index];
+                    final group = _getDateGroup(item.publishedDate);
+                    final prevGroup = index > 0 ? _getDateGroup(items[index - 1].publishedDate) : null;
+                    final showHeader = group != prevGroup;
+
+                    final card = _buildSpaceItemCard(theme, item);
+                    if (!showHeader) return card;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+                          child: Text(group, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1.5).copyWith(color: theme.colorScheme.primary)),
+                        ),
+                        card,
+                      ],
+                    );
+                  },
                   childCount: items.length,
                 ),
               );
@@ -433,7 +452,12 @@ class _FeedScreenState extends State<FeedScreen>
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
-          side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.8)),
+          side: BorderSide(
+            color: (item.mediaAttachments.isNotEmpty || item.imageUrl != null)
+                ? Colors.deepOrange.withValues(alpha: 0.4)
+                : theme.colorScheme.primary.withValues(alpha: 0.2),
+            width: 1.5,
+          ),
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -664,6 +688,19 @@ class _FeedScreenState extends State<FeedScreen>
     return 'now';
   }
 
+  String _getDateGroup(DateTime? d) {
+    if (d == null) return 'Older';
+    final now = DateTime.now();
+    final diff = now.difference(d);
+    if (now.year == d.year && now.month == d.month && now.day == d.day) return 'TODAY';
+    final yesterday = now.subtract(const Duration(days: 1));
+    if (yesterday.year == d.year && yesterday.month == d.month && yesterday.day == d.day) return 'YESTERDAY';
+    if (diff.inDays < 7) return 'THIS WEEK';
+    if (now.year == d.year && now.month == d.month) return 'THIS MONTH';
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    return '${months[d.month - 1]} ${d.year}';
+  }
+
   void _handleLike(SpaceItem item) async {
     final reactions = Map<String, int>.from(_itemReactions[item.id] ?? item.reactions);
     final wasLiked = _likedItems.contains(item.id) || item.isLikedByMe;
@@ -840,7 +877,7 @@ class _FeedScreenState extends State<FeedScreen>
                   final body = bodyCtrl.text.trim();
                   if (body.isEmpty || sel == null) return;
                   final auth = Provider.of<AuthService>(ctx2, listen: false);
-                  final nick = auth.activeXmppConnection?.fullJid.userAtDomain;
+                  final authorName = auth.getResolvedNickname(null);
                   
                   setM(() => _isPublishing = true); // Need to add _isPublishing to state or use a local var in setM
 
@@ -863,7 +900,7 @@ class _FeedScreenState extends State<FeedScreen>
 
                     final success = await _spacesService?.publishMicroblogEntry(
                       sel!.domain, sel!.node,
-                      title: titleCtrl.text.trim(), content: body, authorName: nick,
+                      title: titleCtrl.text.trim(), content: body, authorName: authorName,
                       imageUrl: finalImageUrl,
                     );
                     
@@ -914,10 +951,21 @@ class _FeedScreenState extends State<FeedScreen>
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cannot reply: Target space info missing')));
                 return;
               }
-              final messenger = ScaffoldMessenger.of(context);
-              final success = await _spacesService!.postReply(targetDomain, targetNode, text, replyToId: item.id);
+              final auth = Provider.of<AuthService>(context, listen: false);
+              final authorName = auth.getResolvedNickname(null);
+              var success = await _spacesService!.postReply(targetDomain, targetNode, text, replyToId: item.id, authorName: authorName);
+              if (!success && item.commentNode != null && item.sourceSpace != null) {
+                success = await _spacesService!.postReply(
+                  item.sourceSpace!.domain,
+                  item.sourceSpace!.node,
+                  text,
+                  replyToId: item.id,
+                  authorName: authorName,
+                  autoCreateNode: false,
+                );
+              }
               if (mounted) {
-                messenger.showSnackBar(SnackBar(content: Text(success ? 'Reply posted!' : 'Failed to post reply.')));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success ? 'Reply posted!' : 'Failed to post reply.')));
                 if (success) _refresh();
               }
             },

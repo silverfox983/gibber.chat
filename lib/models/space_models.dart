@@ -5,6 +5,7 @@ class SpaceNode {
   final String? description;
   final String? creator;
   final String? avatarUrl;
+  final String? coverUrl; // Banner/cover image, distinct from avatar
   final String? affiliation; // 'owner', 'publisher', 'member', 'none'
   final int? memberCount;
   final List<String> features;
@@ -14,9 +15,12 @@ class SpaceNode {
   final int? numSubscribers;
   final String? ownerJid;
 
+  bool get isPublic => accessModel == 'open';
+
   // Enriched fields
   final bool isSubscribed;
   final bool notificationsEnabled;
+  final String? notificationLevel; // 'all', 'mentions', 'off'
   final DateTime? lastActivity;
   final int? postCount;
   final DateTime? syncedAt;
@@ -28,6 +32,7 @@ class SpaceNode {
     this.description,
     this.creator,
     this.avatarUrl,
+    this.coverUrl,
     this.affiliation,
     this.memberCount,
     this.features = const [],
@@ -38,6 +43,7 @@ class SpaceNode {
     this.ownerJid,
     this.isSubscribed = false,
     this.notificationsEnabled = true,
+    this.notificationLevel,
     this.lastActivity,
     this.postCount,
     this.syncedAt,
@@ -50,6 +56,7 @@ class SpaceNode {
     String? description,
     String? creator,
     String? avatarUrl,
+    String? coverUrl,
     String? affiliation,
     int? memberCount,
     List<String>? features,
@@ -60,6 +67,7 @@ class SpaceNode {
     String? ownerJid,
     bool? isSubscribed,
     bool? notificationsEnabled,
+    String? notificationLevel,
     DateTime? lastActivity,
     int? postCount,
     DateTime? syncedAt,
@@ -71,6 +79,7 @@ class SpaceNode {
       description: description ?? this.description,
       creator: creator ?? this.creator,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      coverUrl: coverUrl ?? this.coverUrl,
       affiliation: affiliation ?? this.affiliation,
       memberCount: memberCount ?? this.memberCount,
       features: features ?? this.features,
@@ -81,6 +90,7 @@ class SpaceNode {
       ownerJid: ownerJid ?? this.ownerJid,
       isSubscribed: isSubscribed ?? this.isSubscribed,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      notificationLevel: notificationLevel ?? this.notificationLevel,
       lastActivity: lastActivity ?? this.lastActivity,
       postCount: postCount ?? this.postCount,
       syncedAt: syncedAt ?? this.syncedAt,
@@ -95,6 +105,7 @@ class SpaceNode {
       'description': description,
       'creator': creator,
       'avatar_url': avatarUrl,
+      'cover_url': coverUrl,
       'affiliation': affiliation,
       'member_count': memberCount,
       'features': features.join(','),
@@ -105,6 +116,7 @@ class SpaceNode {
       'owner_jid': ownerJid,
       'is_subscribed': isSubscribed ? 1 : 0,
       'notifications_enabled': notificationsEnabled ? 1 : 0,
+      'notification_level': notificationLevel,
       'last_activity': lastActivity?.toIso8601String(),
       'post_count': postCount,
       'synced_at': syncedAt?.toIso8601String(),
@@ -119,6 +131,7 @@ class SpaceNode {
       description: map['description'],
       creator: map['creator'],
       avatarUrl: map['avatar_url'],
+      coverUrl: map['cover_url'],
       affiliation: map['affiliation'],
       memberCount: map['member_count'],
       features: (map['features'] as String?)?.split(',').where((s) => s.isNotEmpty).toList() ?? [],
@@ -129,6 +142,7 @@ class SpaceNode {
       ownerJid: map['owner_jid'],
       isSubscribed: map['is_subscribed'] == 1,
       notificationsEnabled: map['notifications_enabled'] == 1,
+      notificationLevel: map['notification_level'],
       lastActivity: map['last_activity'] != null ? DateTime.tryParse(map['last_activity']) : null,
       postCount: map['post_count'],
       syncedAt: map['synced_at'] != null ? DateTime.tryParse(map['synced_at']) : null,
@@ -160,6 +174,8 @@ class SpaceItem {
   final String? author; // Microblogging author
   final DateTime? publishedDate; // Microblogging date
   final DateTime? updatedDate;
+  final DateTime? editedDate; // Set when the post was edited after publication
+  final bool isEdited; // True if editedDate > publishedDate
   final String? rawContent; // Microblogging raw content HTML/markdown
   final String? contentType;
   final String? commentNode; // XEP-0277 Replies node
@@ -188,6 +204,8 @@ class SpaceItem {
     this.author,
     this.publishedDate,
     this.updatedDate,
+    this.editedDate,
+    this.isEdited = false,
     this.rawContent,
     this.contentType,
     this.commentNode,
@@ -215,6 +233,8 @@ class SpaceItem {
     String? author,
     DateTime? publishedDate,
     DateTime? updatedDate,
+    DateTime? editedDate,
+    bool? isEdited,
     String? rawContent,
     String? contentType,
     String? commentNode,
@@ -241,6 +261,8 @@ class SpaceItem {
       author: author ?? this.author,
       publishedDate: publishedDate ?? this.publishedDate,
       updatedDate: updatedDate ?? this.updatedDate,
+      editedDate: editedDate ?? this.editedDate,
+      isEdited: isEdited ?? this.isEdited,
       rawContent: rawContent ?? this.rawContent,
       contentType: contentType ?? this.contentType,
       commentNode: commentNode ?? this.commentNode,
@@ -257,6 +279,21 @@ class SpaceItem {
 class SpaceMember {
   final String jid;
   final String affiliation; // 'owner', 'publisher', 'member', 'outcast'
+  final String? displayName; // Friendly name if known
+  final String? avatarUrl;   // Avatar URL fetched from vCard/PEP
+  final String? subscriptionState; // 'subscribed', 'pending', 'none'
 
-  SpaceMember({required this.jid, required this.affiliation});
+  SpaceMember({
+    required this.jid,
+    required this.affiliation,
+    this.displayName,
+    this.avatarUrl,
+    this.subscriptionState,
+  });
+
+  /// Returns displayName if set, otherwise the localpart of the JID.
+  String get resolvedDisplayName {
+    if (displayName != null && displayName!.isNotEmpty) return displayName!;
+    return jid.contains('@') ? jid.split('@').first : jid;
+  }
 }

@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/space_models.dart';
 
 class SpacesService {
@@ -13,6 +15,7 @@ class SpacesService {
   final _discoverCache  = _BoundedCache<String, List<SpaceNode>>(maxSize: 20, ttl: const Duration(minutes: 30));
   final _metadataCache  = _BoundedCache<String, SpaceNode>(maxSize: 100, ttl: const Duration(minutes: 15));
   final _contentCache   = _BoundedCache<String, List<SpaceItem>>(maxSize: 30, ttl: const Duration(minutes: 5));
+  final Map<String, Future<dynamic>> _inflight = {};
 
   // XEP-0060: Real-time PubSub event stream
   final StreamController<SpaceItem> _liveItemController = StreamController<SpaceItem>.broadcast();
@@ -236,7 +239,7 @@ class SpacesService {
     }
   }
 
-  Future<xmpp.IqStanza> _sendIq(xmpp.IqStanza iq, {int retries = 1}) async {
+  Future<xmpp.IqStanza> _sendIq(xmpp.IqStanza iq, {int retries = 0, Duration timeout = const Duration(seconds: 15)}) async {
     if (iq.toJid == null) return Future.error('No toJid');
     
     final domain = iq.toJid!.domain;
@@ -254,11 +257,14 @@ class SpacesService {
       _connection.writeStanza(iq);
 
       try {
-        return await completer.future.timeout(const Duration(seconds: 15));
+        return await completer.future.timeout(timeout);
       } catch (e) {
         _pendingIqs.remove(id);
         if (attempt >= retries) {
           debugPrint('IQ failed after ${retries + 1} attempts to ${iq.toJid!.fullJid}: $e');
+          if (e is xmpp.IqStanza) {
+            debugPrint('FULL ERROR STANZA: ${e.buildXmlString()}');
+          }
           rethrow;
         }
         attempt++;
@@ -901,7 +907,7 @@ class SpacesService {
     }
   }
 
-  Future<bool> publishItem(String domain, String node, xmpp.XmppElement payload, {String? itemId}) async {
+  Future<bool> publishItem(String domain, String node, xmpp.XmppElement payload, {String? itemId, bool autoCreateNode = false}) async {
     final iq = xmpp.IqStanza('publish_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
     iq.toJid = xmpp.Jid.fromFullJid(domain);
     
@@ -921,6 +927,27 @@ class SpacesService {
     item.addChild(payload);
     publish.addChild(item);
     pubsub.addChild(publish);
+
+    if (autoCreateNode) {
+      final publishOptions = xmpp.XmppElement();
+      publishOptions.name = 'publish-options';
+      final x = xmpp.XmppElement();
+      x.name = 'x';
+      x.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
+      x.addAttribute(xmpp.XmppAttribute('type', 'submit'));
+      final field = xmpp.XmppElement();
+      field.name = 'field';
+      field.addAttribute(xmpp.XmppAttribute('var', 'FORM_TYPE'));
+      field.addAttribute(xmpp.XmppAttribute('type', 'hidden'));
+      final value = xmpp.XmppElement();
+      value.name = 'value';
+      value.textValue = 'http://jabber.org/protocol/pubsub#publish-options';
+      field.addChild(value);
+      x.addChild(field);
+      publishOptions.addChild(x);
+      pubsub.addChild(publishOptions);
+    }
+
     iq.addChild(pubsub);
 
     try {
@@ -931,7 +958,8 @@ class SpacesService {
     }
   }
 
-  Future<bool> publishMicroblogEntry(String domain, String node, {required String title, required String content, String? authorName, String? itemId, String? imageUrl, String? replyToId, List<String>? categories}) async {
+  Future<bool> publishMicroblogEntry(String domain, String node, {required String title, required String content, String? authorName, String? itemId, String? imageUrl, String? replyToId, List<String>? categories, bool autoCreateNode = false}) async {
+    final explicitItemId = itemId ?? 'post_${DateTime.now().millisecondsSinceEpoch}-${node.hashCode}';
     final entry = xmpp.XmppElement();
     entry.name = 'entry';
     entry.addAttribute(xmpp.XmppAttribute('xmlns', 'http://www.w3.org/2005/Atom'));
@@ -939,12 +967,23 @@ class SpacesService {
     // Mandatory Atom fields
     final atomId = xmpp.XmppElement();
     atomId.name = 'id';
-    atomId.textValue = 'urn:uuid:${itemId ?? '${DateTime.now().millisecondsSinceEpoch}-${node.hashCode}'}';
+    atomId.textValue = 'urn:uuid:$explicitItemId';
     entry.addChild(atomId);
+
+    // XEP-0277 requires title to not be empty. If empty, use truncated content.
+    String finalTitle = title.trim();
+    if (finalTitle.isEmpty) {
+      finalTitle = content.trim().replaceAll('\n', ' ');
+      if (finalTitle.length > 50) {
+        finalTitle = '${finalTitle.substring(0, 47)}...';
+      }
+      if (finalTitle.isEmpty) finalTitle = 'Post'; // Fallback for purely image/empty posts
+    }
 
     final titleEl = xmpp.XmppElement();
     titleEl.name = 'title';
-    titleEl.textValue = title;
+    titleEl.addAttribute(xmpp.XmppAttribute('type', 'text'));
+    titleEl.textValue = finalTitle;
     entry.addChild(titleEl);
 
     final updatedEl = xmpp.XmppElement();
@@ -998,7 +1037,7 @@ class SpacesService {
       }
     }
 
-    return publishItem(domain, node, entry, itemId: itemId);
+    return publishItem(domain, node, entry, itemId: explicitItemId, autoCreateNode: autoCreateNode);
   }
 
   Future<bool> retractItem(String domain, String node, String itemId) async {
@@ -1244,13 +1283,31 @@ class SpacesService {
     if (!forceRefresh && _contentCache.containsKey(cacheKey)) {
       return _contentCache[cacheKey]!;
     }
-    
-    final isServiceNode = node == pubsubDomain;
+
+    if (_inflight.containsKey('content|$cacheKey')) {
+      debugPrint('DEDUPLICATING SpaceContent request for $cacheKey');
+      return await _inflight['content|$cacheKey'] as List<SpaceItem>;
+    }
+
+    final future = _fetchSpaceContentImpl(pubsubDomain, node, spaceContext: spaceContext);
+    _inflight['content|$cacheKey'] = future;
+    try {
+      final items = await future;
+      _contentCache[cacheKey] = items;
+      return items;
+    } finally {
+      _inflight.remove('content|$cacheKey');
+    }
+  }
+
+  Future<List<SpaceItem>> _fetchSpaceContentImpl(String pubsubDomain, String node, {SpaceNode? spaceContext}) async {
     
     if (!pubsubDomain.contains('.') && pubsubDomain != 'localhost') {
       debugPrint('Skipping fetchSpaceContent for non-FQDN target: $pubsubDomain');
       return [];
     }
+
+    final isServiceNode = node == pubsubDomain;
 
     final iq = xmpp.IqStanza('fetch_content_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
     iq.toJid = xmpp.Jid.fromFullJid(pubsubDomain);
@@ -1271,6 +1328,9 @@ class SpacesService {
     pubsub.addChild(items);
     iq.addChild(pubsub);
 
+    List<SpaceItem> spaceItems = [];
+    bool isForbidden = false;
+
     try {
       final response = await _sendIq(iq);
       
@@ -1278,26 +1338,16 @@ class SpacesService {
 
       if (response.type == xmpp.IqStanzaType.ERROR) {
         final error = response.getChild('error');
-        final isForbidden = error?.getChild('forbidden') != null;
-        debugPrint('Space error response (forbidden: $isForbidden)! Trying disco#info/items fallback...');
-        final fallbackItems = await _fetchSpaceContentDiscoFallback(pubsubDomain, node, spaceContext: spaceContext, isForbidden: isForbidden);
-        _contentCache[cacheKey] = fallbackItems;
-        return fallbackItems;
-      }
+        isForbidden = error?.getChild('forbidden') != null;
+        debugPrint('Space error response (forbidden: $isForbidden)! Continuing to disco fallback...');
+      } else {
+        final pubsubRes = response.getChild('pubsub');
+        final itemsRes = pubsubRes?.getChild('items');
+        
+        if (itemsRes != null) {
+          debugPrint('Found ${itemsRes.children.where((e) => e.name == 'item').length} items.');
 
-      final pubsubRes = response.getChild('pubsub');
-      final itemsRes = pubsubRes?.getChild('items');
-      if (itemsRes == null) {
-        debugPrint('No items element found in pubsub response. Trying disco fallback...');
-        final fallbackItems = await _fetchSpaceContentDiscoFallback(pubsubDomain, node, spaceContext: spaceContext);
-        _contentCache[cacheKey] = fallbackItems;
-        return fallbackItems;
-      }
-
-      debugPrint('Found ${itemsRes.children.where((e) => e.name == 'item').length} items.');
-
-      final List<SpaceItem> spaceItems = [];
-      for (var item in itemsRes.children.where((e) => e.name == 'item')) {
+          for (var item in itemsRes.children.where((e) => e.name == 'item')) {
         final id = item.getAttribute('id')?.value;
         if (id == null) continue;
 
@@ -1413,6 +1463,10 @@ class SpacesService {
                     debugPrint('Error parsing replies link: $e');
                   }
                }
+            }
+            if (commentNode == null) {
+              final rawId = id.replaceAll('urn-uuid-', '').replaceAll('urn:uuid:', '');
+              commentNode = 'urn:xmpp:microblog:0:comments/$rawId';
             }
             url = httpUrl ?? fallbackUrl ?? child.getChild('link')?.getAttribute('href')?.value;
             
@@ -1543,22 +1597,35 @@ class SpacesService {
               name: firstChild != null ? 'Item: ${firstChild.name}' : id,
               rawContent: firstChild?.buildXmlString() ?? item.buildXmlString(),
             ));
-          }
+          } // end inner else
+        } // end outer else
+      } // end for loop
+    } // end if itemsRes != null
+  } // end else (not error)
+} catch (e) {
+      debugPrint('Error fetching space content via pubsub: $e');
+    }
+
+    // Always attempt disco fallback to fetch associated MUC rooms or sub-nodes
+    try {
+      final fallbackItems = await _fetchSpaceContentDiscoFallback(pubsubDomain, node, spaceContext: spaceContext, isForbidden: isForbidden);
+      for (final item in fallbackItems) {
+        if (!spaceItems.any((i) => i.id == item.id)) {
+          spaceItems.add(item);
         }
       }
-      _contentCache[cacheKey] = spaceItems;
-      return spaceItems;
     } catch (e) {
-      debugPrint('Error fetching space content via pubsub: $e. Trying disco#items fallback...');
-      final fallbackItems = await _fetchSpaceContentDiscoFallback(pubsubDomain, node, spaceContext: spaceContext);
-      _contentCache[cacheKey] = fallbackItems;
-      return fallbackItems;
+      debugPrint('Error in disco fallback during fetchSpaceContent: $e');
     }
+
+    return spaceItems;
   }
 
   Future<List<SpaceItem>> _fetchSpaceContentDiscoFallback(String domain, String node, {SpaceNode? spaceContext, bool isForbidden = false}) async {
     final isServiceNode = node == domain;
     String? extractedName;
+    String? category;
+    String? type;
     
     // Attempt 1: Query disco#info to see what this thing is
     final infoIq = xmpp.IqStanza('fetch_info_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
@@ -1583,8 +1650,8 @@ class SpacesService {
           } catch (_) {}
         }
         if (identity != null) {
-          final category = identity.getAttribute('category')?.value;
-          final type = identity.getAttribute('type')?.value;
+          category = identity.getAttribute('category')?.value;
+          type = identity.getAttribute('type')?.value;
           debugPrint('Node identity: $category/$type');
           
           // Parse metadata fields for the SpaceContext if available
@@ -1613,6 +1680,12 @@ class SpacesService {
     if (!domain.contains('.') && domain != 'localhost') {
        debugPrint('Skipping disco fallback for non-FQDN target: $domain');
        return [];
+    }
+
+    // Optimization: Skip disco#items on confirmed leaf nodes (leaf nodes only contain posts, which we already have)
+    if (category == 'pubsub' && type == 'leaf') {
+      debugPrint('Skipping disco#items for leaf node $node (redundant)');
+      return [];
     }
     
     final iq = xmpp.IqStanza('fetch_disco_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
@@ -1646,6 +1719,22 @@ class SpacesService {
   }
 
   Future<List<SpaceMember>> fetchMembers(String domain, String node) async {
+    final cacheKey = 'members|$domain|$node';
+    if (_inflight.containsKey(cacheKey)) {
+      debugPrint('DEDUPLICATING Members request for $domain|$node');
+      return await _inflight[cacheKey] as List<SpaceMember>;
+    }
+
+    final future = _fetchMembersImpl(domain, node);
+    _inflight[cacheKey] = future;
+    try {
+      return await future;
+    } finally {
+      _inflight.remove(cacheKey);
+    }
+  }
+
+  Future<List<SpaceMember>> _fetchMembersImpl(String domain, String node) async {
     final iq = xmpp.IqStanza('members_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
     iq.toJid = xmpp.Jid.fromFullJid(domain);
     final pubsub = xmpp.XmppElement();
@@ -1659,6 +1748,13 @@ class SpacesService {
 
     try {
       final response = await _sendIq(iq);
+      
+      if (response.type == xmpp.IqStanzaType.ERROR) {
+        debugPrint('fetchMembers: pubsub#owner request failed. Trying disco#items fallback for $domain/$node');
+        // Fallback: try disco#items to see if subscribers are listed
+        return await _fetchMembersViaDisco(domain, node);
+      }
+
       final pubsubRes = response.getChild('pubsub');
       final affsRes = pubsubRes?.getChild('affiliations');
       final List<SpaceMember> members = [];
@@ -1672,6 +1768,51 @@ class SpacesService {
       return members;
     } catch (e) {
       debugPrint('Error fetching members: $e');
+      return [];
+    }
+  }
+
+  Future<List<SpaceMember>> _fetchMembersViaDisco(String domain, String node) async {
+    final iq = xmpp.IqStanza('disco_members_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#items'));
+    if (node.isNotEmpty) {
+      query.addAttribute(xmpp.XmppAttribute('node', node));
+    }
+
+    // Add RSM to limit results and prevent timeouts on large nodes
+    final set = xmpp.XmppElement();
+    set.name = 'set';
+    set.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/rsm'));
+    final maxItems = xmpp.XmppElement();
+    maxItems.name = 'max';
+    maxItems.textValue = '50';
+    set.addChild(maxItems);
+    query.addChild(set);
+    
+    iq.addChild(query);
+
+    try {
+      final response = await _sendIq(iq);
+      if (response.type == xmpp.IqStanzaType.ERROR) return [];
+
+      final queryRes = response.getChild('query');
+      if (queryRes == null) return [];
+
+      final List<SpaceMember> members = [];
+      for (var item in queryRes.children.where((e) => e.name == 'item')) {
+        final jid = item.getAttribute('jid')?.value;
+        final name = item.getAttribute('name')?.value;
+        // If it's a JID without a node, it's likely a subscriber/member
+        if (jid != null && !item.attributes.any((a) => a.name == 'node')) {
+          members.add(SpaceMember(jid: jid, affiliation: 'member', displayName: name));
+        }
+      }
+      return members;
+    } catch (e) {
+      debugPrint('Error in _fetchMembersViaDisco: $e');
       return [];
     }
   }
@@ -1793,7 +1934,7 @@ class SpacesService {
     }).toList();
   }
 
-  Future<bool> postReply(String domain, String node, String text, {String? replyToId, String? imageUrl}) async {
+  Future<bool> postReply(String domain, String node, String text, {String? replyToId, String? imageUrl, String? authorName, bool autoCreateNode = true}) async {
     // XEP-0277 / XEP-0060 posting logic
     // We reuse the publishMicroblogEntry logic but specifically for a reply node
     return await publishMicroblogEntry(
@@ -1803,10 +1944,42 @@ class SpacesService {
       content: text,
       replyToId: replyToId,
       imageUrl: imageUrl,
+      authorName: authorName,
+      autoCreateNode: autoCreateNode,
     );
   }
-}
+  // --- Draft Persistence ---
 
+  Future<Map<String, dynamic>?> loadDraft(String node) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonStr = prefs.getString('draft_$node');
+    if (jsonStr != null) {
+      try {
+        return json.decode(jsonStr) as Map<String, dynamic>;
+      } catch (e) {
+        debugPrint('Failed to decode draft for $node: $e');
+      }
+    }
+    return null;
+  }
+
+  Future<void> saveDraft(String node, {String? title, String? content, String? tags, String? imageUrl}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final draft = {
+      if (title != null) 'title': title,
+      if (content != null) 'content': content,
+      if (tags != null) 'tags': tags,
+      if (imageUrl != null) 'imageUrl': imageUrl,
+      'savedAt': DateTime.now().toIso8601String(),
+    };
+    await prefs.setString('draft_$node', json.encode(draft));
+  }
+
+  Future<void> deleteDraft(String node) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('draft_$node');
+  }
+}
 
 // -- Bounded LRU Cache with TTL ------------------------------------------------
 /// Generic in-memory cache that evicts the oldest entry (LRU) when [maxSize]

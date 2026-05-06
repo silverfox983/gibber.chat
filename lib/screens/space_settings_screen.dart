@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/space_models.dart';
 import '../services/spaces_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SpaceSettingsScreen extends StatefulWidget {
   final SpaceNode space;
@@ -21,6 +22,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
   late TextEditingController _nameController;
   late TextEditingController _descController;
   String _accessModel = 'open';
+  String _notificationPref = 'all'; // 'all', 'mentions', 'off'
   bool _isLoading = false;
   List<SpaceMember>? _members;
 
@@ -31,6 +33,21 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
     _descController = TextEditingController(text: widget.space.description ?? '');
     _accessModel = widget.space.accessModel ?? 'open';
     _loadMembers();
+    _loadNotificationPref();
+  }
+
+  Future<void> _loadNotificationPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    final pref = prefs.getString('space_notify_${widget.space.node}');
+    if (pref != null && mounted) {
+      setState(() => _notificationPref = pref);
+    }
+  }
+
+  Future<void> _saveNotificationPref(String val) async {
+    setState(() => _notificationPref = val);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('space_notify_${widget.space.node}', val);
   }
 
   Future<void> _loadMembers() async {
@@ -155,6 +172,25 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
             ],
             onChanged: (val) {
               if (val != null) setState(() => _accessModel = val);
+            },
+          ),
+          const SizedBox(height: 24),
+          Text('NOTIFICATIONS', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String>(
+            initialValue: _notificationPref,
+            decoration: const InputDecoration(
+              labelText: 'Alerts',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.notifications_active_outlined),
+            ),
+            items: const [
+              DropdownMenuItem(value: 'all', child: Text('All Messages')),
+              DropdownMenuItem(value: 'mentions', child: Text('Mentions Only')),
+              DropdownMenuItem(value: 'off', child: Text('Muted')),
+            ],
+            onChanged: (val) {
+              if (val != null) _saveNotificationPref(val);
             },
           ),
           const SizedBox(height: 32),

@@ -24,7 +24,7 @@ class DatabaseService {
     String path = testPath ?? join(await getDatabasesPath(), 'pidgin_chat.db');
     return await openDatabase(
       path,
-      version: 13,
+      version: 14,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -79,6 +79,7 @@ class DatabaseService {
             description TEXT,
             creator TEXT,
             avatar_url TEXT,
+            cover_url TEXT,
             affiliation TEXT,
             member_count INTEGER,
             features TEXT,
@@ -249,6 +250,7 @@ class DatabaseService {
               description TEXT,
               creator TEXT,
               avatar_url TEXT,
+              cover_url TEXT,
               affiliation TEXT,
               member_count INTEGER,
               features TEXT,
@@ -266,6 +268,13 @@ class DatabaseService {
               PRIMARY KEY(domain, node)
             )
           ''');
+        }
+        if (oldVersion < 14) {
+          try {
+            await db.execute('ALTER TABLE spaces ADD COLUMN cover_url TEXT');
+          } catch (e) {
+            debugPrint('Column cover_url might already exist: $e');
+          }
         }
       },
     );

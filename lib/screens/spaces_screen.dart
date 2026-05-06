@@ -1,16 +1,17 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'room_info_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:html2md/html2md.dart' as html2md;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:share_plus/share_plus.dart';
 import '../widgets/glassmorphic_container.dart';
-import '../widgets/member_tile.dart';
 import '../widgets/media_carousel.dart';
 
 import '../services/auth_service.dart';
@@ -55,10 +56,13 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
   Set<String> _joinedJidSet = {};
 
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _mySpacesSearchController = TextEditingController();
+  String _mySpacesSearchQuery = '';
   VoidCallback? _refreshSpace;
   int _tabIndex = 0; // 0 = Featured, 1 = My Communities
 
   String _selectedCategory = 'All';
+  String _accessFilter = 'All'; // 'All', 'Public', 'Private'
   final List<String> _categories = ['All', 'Tech', 'News', 'Gaming', 'Art', 'Music', 'Science', 'General'];
   
   String _sortMode = 'Trending';
@@ -70,6 +74,14 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeSpaces();
     });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _mySpacesSearchController.dispose();
+    _spacesService?.dispose();
+    super.dispose();
   }
 
   Future<void> _initializeSpaces({bool forceRefresh = false}) async {
@@ -133,6 +145,11 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
       items = items.where((s) =>
         s.description?.toLowerCase().contains(_selectedCategory.toLowerCase()) ?? false
       ).toList();
+    }
+    if (_accessFilter == 'Public') {
+      items = items.where((s) => s.isPublic).toList();
+    } else if (_accessFilter == 'Private') {
+      items = items.where((s) => !s.isPublic).toList();
     }
     if (_sortMode == 'Trending') {
       items.sort((a, b) => (b.numSubscribers ?? 0).compareTo(a.numSubscribers ?? 0));
@@ -303,24 +320,59 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
 
   // === DASHBOARD VIEW ===
   Widget _buildDashboard(ThemeData theme) {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final isOffline = auth.activeXmppConnection == null;
+
     if (_isLoading && _mySpaces.isEmpty && _featuredSpaces.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
-
+    // Apply live search filter for My Spaces
+    final filteredMySpaces = _mySpacesSearchQuery.isEmpty
+        ? _mySpaces
+        : _mySpaces.where((s) {
+            final q = _mySpacesSearchQuery.toLowerCase();
+            return s.name.toLowerCase().contains(q) ||
+                (s.description?.toLowerCase().contains(q) ?? false);
+          }).toList();
 
     return RefreshIndicator(
       onRefresh: _refresh,
       child: CustomScrollView(
         slivers: [
+          // ── Offline banner ──
+          if (isOffline)
+            SliverToBoxAdapter(
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.wifi_off_rounded, color: Colors.orange, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'You\'re offline. Showing cached spaces.',
+                      style: GoogleFonts.inter(fontSize: 13, color: Colors.orange.shade700, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
           // Search Bar
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
               child: TextField(
-                controller: _searchController,
+                controller: _tabIndex == 1 ? _mySpacesSearchController : _searchController,
                 decoration: InputDecoration(
-                  hintText: 'Search a domain (e.g., movim.eu)',
+                  hintText: _tabIndex == 1
+                      ? 'Filter my spaces...'
+                      : 'Search a domain (e.g., movim.eu)',
                   prefixIcon: const Icon(Icons.search_rounded),
                   suffixIcon: _isLoading
                       ? const Padding(
@@ -332,24 +384,29 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                   fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                 ),
-                onSubmitted: (domain) async {
-                  final trimmed = domain.trim();
-                  if (trimmed.isEmpty || _spacesService == null) return;
-                  setState(() { _isLoading = true; _tabIndex = 0; });
-                  try {
-                    final results = await _spacesService!.discoverAllSpaces(trimmed);
-                    if (mounted) setState(() {
-                      _featuredSpaces = results;
-                      _recomputeFilteredList();
-                      _isLoading = false;
-                    });
-                  } catch (e) {
-                    if (mounted) {
-                      setState(() => _isLoading = false);
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to search $trimmed')));
-                    }
-                  }
-                },
+                onChanged: _tabIndex == 1
+                    ? (v) => setState(() => _mySpacesSearchQuery = v)
+                    : null,
+                onSubmitted: _tabIndex == 0
+                    ? (domain) async {
+                        final trimmed = domain.trim();
+                        if (trimmed.isEmpty || _spacesService == null) return;
+                        setState(() { _isLoading = true; _tabIndex = 0; });
+                        try {
+                          final results = await _spacesService!.discoverAllSpaces(trimmed);
+                          if (mounted) setState(() {
+                            _featuredSpaces = results;
+                            _recomputeFilteredList();
+                            _isLoading = false;
+                          });
+                        } catch (e) {
+                          if (mounted) {
+                            setState(() => _isLoading = false);
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to search $trimmed')));
+                          }
+                        }
+                      }
+                    : null,
               ),
             ),
           ),
@@ -412,28 +469,71 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                     children: [
                       const Icon(Icons.sort_rounded, size: 16, color: Colors.grey),
                       const SizedBox(width: 8),
-                      ..._sortOptions.map((sort) => Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: InkWell(
-                          onTap: () => setState(() {
-                                _sortMode = sort;
-                                _recomputeFilteredList();
-                              }),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: _sortMode == sort ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : Colors.transparent,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(sort, style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: _sortMode == sort ? FontWeight.bold : FontWeight.normal,
-                              color: _sortMode == sort ? Theme.of(context).colorScheme.primary : Colors.grey,
-                            )),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: _sortOptions.map((sort) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: InkWell(
+                                onTap: () => setState(() {
+                                      _sortMode = sort;
+                                      _recomputeFilteredList();
+                                    }),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: _sortMode == sort ? theme.colorScheme.primary.withValues(alpha: 0.1) : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(sort, style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: _sortMode == sort ? FontWeight.bold : FontWeight.normal,
+                                    color: _sortMode == sort ? theme.colorScheme.primary : Colors.grey,
+                                  )),
+                                ),
+                              ),
+                            )).toList(),
                           ),
                         ),
-                      )).toList(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.lock_outline_rounded, size: 16, color: Colors.grey),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: ['All', 'Public', 'Private'].map((filter) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: InkWell(
+                                onTap: () => setState(() {
+                                      _accessFilter = filter;
+                                      _recomputeFilteredList();
+                                    }),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: _accessFilter == filter ? theme.colorScheme.primary.withValues(alpha: 0.1) : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(filter, style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: _accessFilter == filter ? FontWeight.bold : FontWeight.normal,
+                                    color: _accessFilter == filter ? theme.colorScheme.primary : Colors.grey,
+                                  )),
+                                ),
+                              ),
+                            )).toList(),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -521,7 +621,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
               ),
             ),
             
-          if (_tabIndex == 1 && _mySpaces.isNotEmpty)
+          if (_tabIndex == 1 && filteredMySpaces.isNotEmpty)
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               sliver: SliverGrid(
@@ -533,7 +633,10 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                 ),
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
-                    final space = _mySpaces[index];
+                    final space = filteredMySpaces[index];
+                    // Find the real index in _mySpaces for dismissal
+                    final realIndex = _mySpaces.indexWhere(
+                        (s) => s.domain == space.domain && s.node == space.node);
                     return Dismissible(
                       key: ValueKey('${space.domain}|${space.node}'),
                       direction: DismissDirection.startToEnd,
@@ -562,13 +665,13 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                         if (conn != null) {
                           await _spacesService?.unsubscribeFromSpace(space.domain, space.node, conn.fullJid.userAtDomain);
                           await auth.leavePersistedSpace(space.domain, space.node);
-                          setState(() { _mySpaces.removeAt(index); });
+                          if (realIndex != -1) setState(() { _mySpaces.removeAt(realIndex); });
                         }
                       },
                       child: _buildSpaceGridCard(theme, space, isJoined: true),
                     );
                   },
-                  childCount: _mySpaces.length,
+                  childCount: filteredMySpaces.length,
                 ),
               ),
             ),
@@ -580,15 +683,38 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.search_off_rounded, size: 64, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
+                    Icon(Icons.explore_outlined, size: 72, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.25)),
                     const SizedBox(height: 16),
-                    Text('No featured spaces found.', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                    Text('No spaces found', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: theme.colorScheme.onSurfaceVariant)),
+                    const SizedBox(height: 6),
+                    Text('Try a different domain or explore featured communities.',
+                        style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
+                        textAlign: TextAlign.center),
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: () async {
+                        _searchController.text = 'movim.eu';
+                        setState(() { _isLoading = true; _tabIndex = 0; });
+                        try {
+                          final results = await _spacesService?.discoverAllSpaces('movim.eu') ?? [];
+                          if (mounted) setState(() {
+                            _featuredSpaces = results;
+                            _recomputeFilteredList();
+                            _isLoading = false;
+                          });
+                        } catch (_) {
+                          if (mounted) setState(() => _isLoading = false);
+                        }
+                      },
+                      icon: const Icon(Icons.travel_explore_rounded, size: 18),
+                      label: const Text('Browse Featured Communities'),
+                    ),
                   ],
                 ),
               ),
             ),
             
-          if (_tabIndex == 1 && _mySpaces.isEmpty && !_isLoading)
+          if (_tabIndex == 1 && filteredMySpaces.isEmpty && !_isLoading)
             SliverFillRemaining(
               hasScrollBody: false,
               child: Center(
@@ -597,7 +723,21 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                   children: [
                     Icon(Icons.workspaces_outline, size: 64, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
                     const SizedBox(height: 16),
-                    Text('You haven\'t joined any spaces yet.', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                    Text(
+                      _mySpacesSearchQuery.isNotEmpty
+                          ? 'No spaces match \'$_mySpacesSearchQuery\''
+                          : 'You haven\'t joined any spaces yet.',
+                      style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (_mySpacesSearchQuery.isEmpty) ...[
+                      const SizedBox(height: 16),
+                      FilledButton.tonalIcon(
+                        onPressed: () => setState(() => _tabIndex = 0),
+                        icon: const Icon(Icons.explore_rounded, size: 18),
+                        label: const Text('Explore Communities'),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -715,7 +855,22 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                     top: 10,
                     right: 10,
                     child: Row(
-                      children: _buildFeatureIcons(space),
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(children: [
+                            Icon(space.isPublic ? Icons.public_rounded : Icons.lock_outline_rounded, size: 10, color: Colors.white70),
+                            const SizedBox(width: 4),
+                            Text(space.isPublic ? 'PUBLIC' : 'PRIVATE', style: GoogleFonts.inter(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.bold)),
+                          ]),
+                        ),
+                        if (space.features.isNotEmpty) const SizedBox(width: 4),
+                        ..._buildFeatureIcons(space),
+                      ]
                     ),
                   ),
                   // Domain tag
@@ -946,10 +1101,12 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
 
   // Per-item UI state — stored here so SpaceItem stays immutable
   final Map<String, Map<String, int>> _itemReactions = {};
+  final Set<String> _expandedItems = {}; // tracks read-more expanded state
 
   // Posts search
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  Future<List<SpaceMember>>? _membersFuture;
 
   @override
   void initState() {
@@ -959,6 +1116,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
       widget.onCreated!(() => _reload());
     }
     _load();
+    _membersFuture = widget.spacesService.fetchMembers(widget.space.domain, widget.space.node);
     _subscribeToLiveStream();
   }
 
@@ -977,23 +1135,26 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
-    // Fire both requests in parallel
-    final results = await Future.wait([
-      widget.spacesService.fetchSpaceDetails(widget.space, forceRefresh: forceRefresh)
-          .catchError((e) { debugPrint('fetchSpaceDetails error: $e'); return widget.space; }),
-      widget.spacesService.fetchSpaceContent(
-          widget.space.domain, widget.space.node,
-          spaceContext: widget.space, forceRefresh: forceRefresh)
-          .catchError((e) { debugPrint('fetchSpaceContent error: $e'); return <SpaceItem>[]; }),
-    ]);
-    if (mounted) {
-      setState(() {
-        _details = results[0] as SpaceNode;
-        _items   = results[1] as List<SpaceItem>;
-        _loadingDetails = false;
-        _loadingItems   = false;
-      });
-    }
+    // Fire both requests independently so the header renders ASAP
+    widget.spacesService.fetchSpaceDetails(widget.space, forceRefresh: forceRefresh)
+        .then((details) {
+          if (mounted) setState(() { _details = details; _loadingDetails = false; });
+        })
+        .catchError((e) { 
+          debugPrint('fetchSpaceDetails error: $e'); 
+          if (mounted) setState(() { _loadingDetails = false; }); 
+        });
+
+    widget.spacesService.fetchSpaceContent(
+        widget.space.domain, widget.space.node,
+        spaceContext: widget.space, forceRefresh: forceRefresh)
+        .then((items) {
+          if (mounted) setState(() { _items = items; _loadingItems = false; });
+        })
+        .catchError((e) { 
+          debugPrint('fetchSpaceContent error: $e'); 
+          if (mounted) setState(() { _loadingItems = false; _items = []; }); 
+        });
   }
 
   Future<void> _reload() async {
@@ -1098,9 +1259,9 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 const SizedBox(height: 8),
                 Wrap(spacing: 6, children: [
                   _badge(
-                    space.accessModel == 'authorize' ? Icons.lock_rounded : Icons.public_rounded,
-                    space.accessModel == 'authorize' ? 'Private' : 'Public',
-                    space.accessModel == 'authorize' ? Colors.redAccent : Colors.green,
+                    space.isPublic ? Icons.public_rounded : Icons.lock_rounded,
+                    space.isPublic ? 'Public' : 'Private',
+                    space.isPublic ? Colors.green : Colors.redAccent,
                   ),
                   if (space.numSubscribers != null)
                     _badge(Icons.people_alt_rounded, '${space.numSubscribers} subscribers', Colors.blueGrey),
@@ -1185,42 +1346,69 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   }
 
   void _showNotificationSheet(SpaceNode space) {
+    final prefKey = 'notif_level_${space.domain}|${space.node}';
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)))),
-            Text('Notification Preferences', style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18)),
-            const SizedBox(height: 4),
-            Text(space.name, style: GoogleFonts.inter(color: Colors.grey, fontSize: 13)),
-            const SizedBox(height: 20),
-            ListTile(
-              leading: const Icon(Icons.notifications_active_rounded),
-              title: const Text('All Notifications'),
-              subtitle: const Text('Get notified for every new post'),
-              trailing: const Icon(Icons.check_rounded),
-              onTap: () => Navigator.pop(ctx),
-            ),
-            ListTile(
-              leading: const Icon(Icons.notifications_outlined),
-              title: const Text('Mentions Only'),
-              subtitle: const Text('Only when you are mentioned'),
-              onTap: () => Navigator.pop(ctx),
-            ),
-            ListTile(
-              leading: const Icon(Icons.notifications_off_outlined),
-              title: const Text('Off'),
-              subtitle: const Text('No notifications from this space'),
-              onTap: () => Navigator.pop(ctx),
-            ),
-          ],
-        ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          // Load current level on first build — FutureBuilder inside StatefulBuilder
+          return FutureBuilder<SharedPreferences>(
+            future: SharedPreferences.getInstance(),
+            builder: (ctx, snap) {
+              final prefs = snap.data;
+              final currentLevel = prefs?.getString(prefKey) ?? 'all';
+
+              Future<void> saveLevel(String level) async {
+                await prefs?.setString(prefKey, level);
+                setSheetState(() {});
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Notifications set to: $level')),
+                  );
+                }
+              }
+
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)))),
+                    Text('Notification Preferences', style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18)),
+                    const SizedBox(height: 4),
+                    Text(space.name, style: GoogleFonts.inter(color: Colors.grey, fontSize: 13)),
+                    const SizedBox(height: 20),
+                    ListTile(
+                      leading: const Icon(Icons.notifications_active_rounded),
+                      title: const Text('All Notifications'),
+                      subtitle: const Text('Get notified for every new post'),
+                      trailing: currentLevel == 'all' ? Icon(Icons.check_rounded, color: Theme.of(context).colorScheme.primary) : null,
+                      onTap: () => saveLevel('all'),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.notifications_outlined),
+                      title: const Text('Mentions Only'),
+                      subtitle: const Text('Only when you are mentioned'),
+                      trailing: currentLevel == 'mentions' ? Icon(Icons.check_rounded, color: Theme.of(context).colorScheme.primary) : null,
+                      onTap: () => saveLevel('mentions'),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.notifications_off_outlined),
+                      title: const Text('Off'),
+                      subtitle: const Text('No notifications from this space'),
+                      trailing: currentLevel == 'off' ? Icon(Icons.check_rounded, color: Theme.of(context).colorScheme.primary) : null,
+                      onTap: () => saveLevel('off'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -1557,8 +1745,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   // ── MEMBERS TAB ───────────────────────────────────────────
   Widget _buildMembersTab(ThemeData theme) {
     return FutureBuilder<List<SpaceMember>>(
-      future: widget.spacesService.fetchMembers(
-          widget.space.domain, widget.space.node),
+      future: _membersFuture,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -1584,23 +1771,99 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         return ListView(padding: const EdgeInsets.symmetric(vertical: 8), children: [
           if (owners.isNotEmpty) ...[
             _membersHeader(theme, '👑  Owners', owners.length),
-            ...owners.map((m) => MemberTile(
-                displayName: m.jid, role: 'Owner')),
+            ...owners.map((m) => _buildMemberTile(theme, m, 'Owner')),
           ],
           if (publishers.isNotEmpty) ...[
             _membersHeader(theme, '✏️  Publishers', publishers.length),
-            ...publishers.map((m) => MemberTile(
-                displayName: m.jid, role: 'Publisher')),
+            ...publishers.map((m) => _buildMemberTile(theme, m, 'Publisher')),
           ],
           if (rest.isNotEmpty) ...[
             _membersHeader(theme, '👥  Members', rest.length),
-            ...rest.map((m) => MemberTile(
-                displayName: m.jid,
-                role: m.affiliation.isNotEmpty ? m.affiliation : 'Member')),
+            ...rest.map((m) => _buildMemberTile(theme, m,
+                m.affiliation.isNotEmpty ? m.affiliation[0].toUpperCase() + m.affiliation.substring(1) : 'Member')),
           ],
           const SizedBox(height: 80),
         ]);
       },
+    );
+  }
+
+  Widget _buildMemberTile(ThemeData theme, SpaceMember member, String roleLabel) {
+    final displayName = member.resolvedDisplayName;
+    final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
+    final colorSeed = member.jid.hashCode;
+    final avatarColors = [
+      Colors.purple, Colors.blue, Colors.teal,
+      Colors.orange, Colors.pink, Colors.indigo,
+    ];
+    final avatarColor = avatarColors[colorSeed.abs() % avatarColors.length];
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: CircleAvatar(
+        backgroundColor: avatarColor.withValues(alpha: 0.8),
+        child: member.avatarUrl != null
+            ? ClipOval(child: Image.network(member.avatarUrl!, fit: BoxFit.cover))
+            : Text(initial, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      ),
+      title: Text(displayName, style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(member.jid, style: GoogleFonts.inter(fontSize: 11, color: theme.colorScheme.onSurfaceVariant), overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 3),
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(roleLabel, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimaryContainer)),
+            ),
+            if (member.subscriptionState != null && member.subscriptionState != 'subscribed') ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(member.subscriptionState!, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.orange.shade700)),
+              ),
+            ],
+          ]),
+        ],
+      ),
+      trailing: PopupMenuButton<String>(
+        icon: Icon(Icons.more_vert_rounded, color: theme.colorScheme.onSurfaceVariant),
+        onSelected: (action) async {
+          switch (action) {
+            case 'promote':
+              await widget.spacesService.setAffiliation(widget.space.domain, widget.space.node, member.jid, 'publisher');
+              if (mounted) setState(() {});
+              break;
+            case 'owner':
+              await widget.spacesService.setAffiliation(widget.space.domain, widget.space.node, member.jid, 'owner');
+              if (mounted) setState(() {});
+              break;
+            case 'demote':
+              await widget.spacesService.setAffiliation(widget.space.domain, widget.space.node, member.jid, 'member');
+              if (mounted) setState(() {});
+              break;
+            case 'ban':
+              await widget.spacesService.setAffiliation(widget.space.domain, widget.space.node, member.jid, 'outcast');
+              if (mounted) setState(() {});
+              break;
+          }
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'promote', child: ListTile(leading: Icon(Icons.arrow_upward_rounded), title: Text('Make Publisher'))),
+          PopupMenuItem(value: 'owner', child: ListTile(leading: Icon(Icons.star_rounded), title: Text('Make Owner'))),
+          PopupMenuItem(value: 'demote', child: ListTile(leading: Icon(Icons.arrow_downward_rounded), title: Text('Demote to Member'))),
+          PopupMenuItem(value: 'ban', child: ListTile(leading: Icon(Icons.block_rounded, color: Colors.red), title: Text('Ban', style: TextStyle(color: Colors.red)))),
+        ],
+      ),
     );
   }
 
@@ -1885,7 +2148,20 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 backgroundColor: theme.colorScheme.primaryContainer,
                 child: Text(authorInitial, style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimaryContainer)),
               ),
-              title: Text(item.author ?? 'Anonymous', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+              title: Row(children: [
+                Flexible(child: Text(item.author ?? 'Anonymous', style: GoogleFonts.inter(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                if (item.isEdited) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('edited', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurfaceVariant)),
+                  ),
+                ],
+              ]),
               subtitle: item.publishedDate != null
                   ? Text(_timeAgo(item.publishedDate!), style: GoogleFonts.inter(fontSize: 12, color: theme.colorScheme.onSurfaceVariant))
                   : null,
@@ -1900,7 +2176,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
                 child: Text(item.name!, style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18, height: 1.25)),
               ),
-            // Body
+            // Body with read-more
             Builder(builder: (_) {
               String? body = item.rawContent?.trim();
               if (body == null || body.isEmpty) body = item.description?.trim();
@@ -1915,19 +2191,44 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               final title = item.name?.trim() ?? '';
               if (title.isNotEmpty && display.startsWith(title)) display = display.substring(title.length).trimLeft();
               if (display.isEmpty) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: MarkdownBody(
-                  data: display, shrinkWrap: true,
-                  styleSheet: MarkdownStyleSheet(
-                    p: TextStyle(fontSize: 15, color: theme.colorScheme.onSurface, height: 1.55),
-                    a: TextStyle(color: theme.colorScheme.primary),
-                    code: TextStyle(backgroundColor: theme.colorScheme.surfaceContainerHighest, fontFamily: 'monospace', fontSize: 13),
+
+              const maxLen = 500;
+              final isLong = display.length > maxLen;
+              final isExpanded = _expandedItems.contains(item.id);
+              final shown = isLong && !isExpanded ? '${display.substring(0, maxLen)}…' : display;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                    child: MarkdownBody(
+                      data: shown, shrinkWrap: true,
+                      styleSheet: MarkdownStyleSheet(
+                        p: TextStyle(fontSize: 15, color: theme.colorScheme.onSurface, height: 1.55),
+                        a: TextStyle(color: theme.colorScheme.primary),
+                        code: TextStyle(backgroundColor: theme.colorScheme.surfaceContainerHighest, fontFamily: 'monospace', fontSize: 13),
+                      ),
+                      onTapLink: (text, href, title) {
+                        if (href != null) { try { launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication); } catch (_) {} }
+                      },
+                    ),
                   ),
-                  onTapLink: (text, href, title) {
-                    if (href != null) { try { launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication); } catch (_) {} }
-                  },
-                ),
+                  if (isLong)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                      child: GestureDetector(
+                        onTap: () => setState(() {
+                          if (isExpanded) _expandedItems.remove(item.id);
+                          else _expandedItems.add(item.id);
+                        }),
+                        child: Text(
+                          isExpanded ? 'Show less' : 'Read more',
+                          style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: theme.colorScheme.primary),
+                        ),
+                      ),
+                    ),
+                ],
               );
             }),
             // Images
@@ -2005,7 +2306,6 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   }
 
   void _showPostContextMenu(SpaceItem item) {
-    final auth = Provider.of<AuthService>(context, listen: false);
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -2035,10 +2335,11 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         ListTile(
           leading: const Icon(Icons.copy_rounded),
           title: const Text('Copy Link'),
-          onTap: () {
+          onTap: () async {
             Navigator.pop(ctx);
             final link = 'xmpp:${widget.space.domain}?;node=${widget.space.node};item=${item.id}';
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Copied: $link')));
+            await Clipboard.setData(ClipboardData(text: link));
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link copied to clipboard')));
           },
         ),
         ListTile(
@@ -2125,12 +2426,26 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               final targetNode = item.commentNode ?? widget.space.node;
               
               final messenger = ScaffoldMessenger.of(context);
-              final success = await widget.spacesService.postReply(
+              final auth = context.read<AuthService>();
+              final authorName = auth.getResolvedNickname(null);
+              var success = await widget.spacesService.postReply(
                 targetDomain,
                 targetNode,
                 text,
                 replyToId: item.id,
+                authorName: authorName,
               );
+              
+              if (!success && item.commentNode != null) {
+                success = await widget.spacesService.postReply(
+                  widget.space.domain,
+                  widget.space.node,
+                  text,
+                  replyToId: item.id,
+                  authorName: authorName,
+                  autoCreateNode: false,
+                );
+              }
               
               if (mounted) {
                 messenger.showSnackBar(
@@ -2223,6 +2538,16 @@ class _CreatePostDialogState extends State<CreatePostDialog>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() => setState(() => _previewMode = _tabController.index == 1));
+    // Restore draft asynchronously
+    widget.spacesService.loadDraft(widget.space.node).then((draft) {
+      if (draft != null && mounted) {
+        setState(() {
+          _titleController.text = draft['title'] ?? '';
+          _contentController.text = draft['content'] ?? '';
+          _tagsController.text = draft['tags'] ?? '';
+        });
+      }
+    });
   }
 
   @override
@@ -2232,6 +2557,15 @@ class _CreatePostDialogState extends State<CreatePostDialog>
     _tagsController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _autosaveDraft() {
+    widget.spacesService.saveDraft(
+      widget.space.node,
+      title: _titleController.text,
+      content: _contentController.text,
+      tags: _tagsController.text,
+    );
   }
 
   Future<void> _pickImage() async {
@@ -2254,9 +2588,41 @@ class _CreatePostDialogState extends State<CreatePostDialog>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final content = _contentController.text;
+    final wordCount = content.trim().isEmpty ? 0 : content.trim().split(RegExp(r'\s+')).length;
+    final hasContent = content.trim().isNotEmpty;
 
-    return Dialog.fullscreen(
-      child: Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!hasContent) {
+          // Nothing to discard — just clear draft and close
+          await widget.spacesService.deleteDraft(widget.space.node);
+          if (mounted) Navigator.of(context).pop();
+          return;
+        }
+        final discard = await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text('Discard changes?'),
+            content: const Text('Your draft will be saved and restored next time.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Keep editing')),
+              FilledButton(
+                onPressed: () => Navigator.pop(c, true),
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('Discard'),
+              ),
+            ],
+          ),
+        );
+        if (discard == true && mounted) {
+          await widget.spacesService.deleteDraft(widget.space.node);
+          if (mounted) Navigator.of(context).pop();
+        }
+      },
+      child: Dialog.fullscreen(
+        child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.close_rounded),
@@ -2309,7 +2675,7 @@ class _CreatePostDialogState extends State<CreatePostDialog>
                     border: InputBorder.none,
                   ),
                   textCapitalization: TextCapitalization.sentences,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (_) { setState(() {}); _autosaveDraft(); },
                 ),
                 Divider(color: theme.dividerColor.withValues(alpha: 0.3)),
                 const SizedBox(height: 8),
@@ -2325,7 +2691,7 @@ class _CreatePostDialogState extends State<CreatePostDialog>
                     prefixIconConstraints: const BoxConstraints(minWidth: 32),
                     isDense: true,
                   ),
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (_) { setState(() {}); _autosaveDraft(); },
                 ),
                 Divider(color: theme.dividerColor.withValues(alpha: 0.3)),
                 const SizedBox(height: 8),
@@ -2421,13 +2787,14 @@ class _CreatePostDialogState extends State<CreatePostDialog>
               onPressed: () => _insertMarkdown('`', '`'),
             ),
             const Spacer(),
-            Text('${content.length} chars',
+            Text('$wordCount w · ${content.length} ch',
                 style: GoogleFonts.inter(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
             const SizedBox(width: 12),
           ]),
         ),
       ),
-    );
+    ),
+  );
   }
 
   void _insertMarkdown(String prefix, String suffix) {
@@ -2495,8 +2862,10 @@ class _CreatePostDialogState extends State<CreatePostDialog>
       if (mounted) {
         setState(() => _isPublishing = false);
         if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post published!')));
-          Navigator.pop(context);
+          // Clear draft on successful publish
+          await widget.spacesService.deleteDraft(widget.space.node);
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post published!')));
+          if (mounted) Navigator.pop(context);
           widget.onSuccess();
         } else {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to publish. Check permissions.')));

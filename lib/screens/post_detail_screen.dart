@@ -4,6 +4,8 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/space_models.dart';
 import '../services/spaces_service.dart';
+import '../services/auth_service.dart';
+import 'package:provider/provider.dart';
 
 class PostDetailScreen extends StatefulWidget {
   final SpaceItem post;
@@ -103,12 +105,28 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final targetDomain = widget.post.commentService ?? widget.space.domain;
     final targetNode = widget.post.commentNode ?? widget.space.node;
 
-    final success = await widget.spacesService.postReply(
+    final auth = context.read<AuthService>();
+    final authorName = auth.getResolvedNickname(null);
+    var success = await widget.spacesService.postReply(
       targetDomain,
       targetNode,
       text,
       replyToId: widget.post.id,
+      authorName: authorName,
     );
+
+    // Fallback: If the post specified a comment node but it failed (e.g. node doesn't exist),
+    // fallback to publishing the reply on the main space node as per XEP-0277.
+    if (!success && widget.post.commentNode != null) {
+      success = await widget.spacesService.postReply(
+        widget.space.domain,
+        widget.space.node,
+        text,
+        replyToId: widget.post.id,
+        authorName: authorName,
+        autoCreateNode: false,
+      );
+    }
 
     if (mounted) {
       setState(() => _isPosting = false);
@@ -320,3 +338,4 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     );
   }
 }
+

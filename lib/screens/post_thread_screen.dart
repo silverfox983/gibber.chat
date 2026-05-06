@@ -74,10 +74,22 @@ class _PostThreadScreenState extends State<PostThreadScreen> {
     setState(() => _posting = true);
     final targetDomain = widget.post.commentService ?? widget.space.domain;
     final targetNode = widget.post.commentNode ?? widget.space.node;
-    final ok = await widget.spacesService.postReply(
+    final auth = context.read<AuthService>();
+    final authorName = auth.getResolvedNickname(null);
+
+    var ok = await widget.spacesService.postReply(
       targetDomain, targetNode, text,
       replyToId: widget.post.id,
+      authorName: authorName,
     );
+    if (!ok && widget.post.commentNode != null) {
+      ok = await widget.spacesService.postReply(
+        widget.space.domain, widget.space.node, text,
+        replyToId: widget.post.id,
+        authorName: authorName,
+        autoCreateNode: false,
+      );
+    }
     if (mounted) {
       setState(() => _posting = false);
       if (ok) {

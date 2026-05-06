@@ -294,7 +294,7 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
             return Padding(
               padding: const EdgeInsets.only(bottom: 16),
               child: DropdownButtonFormField<String>(
-                value: _formData[field.varName]!.isNotEmpty ? _formData[field.varName] : field.options!.first.value,
+                initialValue: _formData[field.varName]!.isNotEmpty ? _formData[field.varName] : field.options!.first.value,
                 decoration: InputDecoration(
                   labelText: field.label ?? field.varName,
                   labelStyle: GoogleFonts.inter(fontSize: 14),

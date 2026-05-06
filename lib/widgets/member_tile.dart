@@ -71,9 +71,9 @@ class MemberTile extends StatelessWidget {
           ? Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: roleColor.withOpacity(0.12),
+                color: roleColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: roleColor.withOpacity(0.4)),
+                border: Border.all(color: roleColor.withValues(alpha: 0.4)),
               ),
               child: Text(
                 role!,
