@@ -375,7 +375,21 @@ class Connection {
 
   void writeStanza(AbstractStanza stanza) {
     _outStanzaStreamController.add(stanza);
-    write(stanza.buildXmlString());
+    var xml = stanza.buildXmlString();
+    if (isWebSocket) {
+      xml = _injectStanzaNamespace(xml, stanza.name);
+    }
+    write(xml);
+  }
+
+  static String _injectStanzaNamespace(String xml, String? stanzaName) {
+    if (stanzaName == null) return xml;
+    var stanzaOpenTag = '<$stanzaName ';
+    var idx = xml.indexOf(stanzaOpenTag);
+    if (idx == -1) return xml;
+    var afterTag = idx + stanzaOpenTag.length;
+    if (xml.substring(afterTag).startsWith('xmlns=')) return xml;
+    return xml.substring(0, afterTag) + 'xmlns="jabber:client" ' + xml.substring(afterTag);
   }
 
   void writeNonza(Nonza nonza) {
