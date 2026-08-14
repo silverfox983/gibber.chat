@@ -10,6 +10,7 @@ import 'package:gibber_backend/src/services/database_service.dart';
 import 'package:gibber_backend/src/services/xmpp_registrar.dart';
 import 'package:gibber_backend/src/services/miner_pool_service.dart';
 import 'package:gibber_backend/src/services/entitlement_service.dart';
+import 'package:gibber_backend/src/services/captcha_service.dart';
 
 Future<shelf.Response> _proxyToProsody(shelf.Request request, String prosodyUrl, String domain) async {
   final client = HttpClient();
@@ -88,6 +89,7 @@ void main(List<String> args) async {
     ..addOption('prosody-url', defaultsTo: Platform.environment['GIBBER_PROSODY_URL'] ?? 'http://localhost:5280')
     ..addOption('web-dir', defaultsTo: Platform.environment['GIBBER_WEB_DIR'] ?? '')
     ..addOption('admin-key', defaultsTo: Platform.environment['GIBBER_ADMIN_KEY'] ?? 'gibber-admin-key')
+    ..addOption('turnstile-secret', defaultsTo: Platform.environment['TURNSTILE_SECRET_KEY'] ?? '')
     ..addFlag('reset-db', abbr: 'r', defaultsTo: false);
 
   final result = parser.parse(args);
@@ -99,6 +101,7 @@ void main(List<String> args) async {
   final dockerContainer = result['docker-container'] as String;
   final useDocker = result['use-docker'] as bool;
   final adminKey = result['admin-key'] as String;
+  final turnstileSecret = result['turnstile-secret'] as String;
   final resetDb = result['reset-db'] as bool;
   final webDir = result['web-dir'] as String;
   final prosodyUrl = result['prosody-url'] as String;
@@ -121,6 +124,7 @@ void main(List<String> args) async {
   );
   final minerPool = MinerPoolService(db: db);
   final entitlementSvc = BackendEntitlementService(db: db);
+  final captchaSvc = CaptchaService(secretKey: turnstileSecret);
 
   final apiRouter = ApiRouter(
     db: db,
@@ -128,6 +132,7 @@ void main(List<String> args) async {
     minerPool: minerPool,
     entitlementService: entitlementSvc,
     adminApiKey: adminKey,
+    captchaService: captchaSvc,
   );
 
   final corsMiddleware = corsHeaders(headers: {

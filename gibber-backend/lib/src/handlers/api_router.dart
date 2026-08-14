@@ -5,6 +5,21 @@ import 'package:gibber_backend/src/services/database_service.dart';
 import 'package:gibber_backend/src/services/xmpp_registrar.dart';
 import 'package:gibber_backend/src/services/miner_pool_service.dart';
 import 'package:gibber_backend/src/services/entitlement_service.dart';
+import 'package:gibber_backend/src/services/captcha_service.dart';
+import 'package:gibber_backend/src/services/rate_limiter.dart';
+
+extension _RequestIp on Request {
+  String? get ip {
+    final forwarded = headers['x-forwarded-for'];
+    if (forwarded != null) {
+      final ips = forwarded.split(',');
+      return ips.first.trim();
+    }
+    final realIp = headers['x-real-ip'];
+    if (realIp != null) return realIp;
+    return context['shelf.remote_address']?.toString();
+  }
+}
 
 class ApiRouter {
   final DatabaseService db;
@@ -12,6 +27,9 @@ class ApiRouter {
   final MinerPoolService minerPool;
   final BackendEntitlementService entitlementService;
   final String adminApiKey;
+  final CaptchaService captchaService;
+  final RateLimiter _registerLimiter = RateLimiter(maxRequests: 3, window: Duration(hours: 1));
+  final RateLimiter _checkLimiter = RateLimiter(maxRequests: 20, window: Duration(minutes: 1));
 
   ApiRouter({
     required this.db,
@@ -19,7 +37,8 @@ class ApiRouter {
     required this.minerPool,
     required this.entitlementService,
     this.adminApiKey = 'gibber-admin-key',
-  }) {
+    CaptchaService? captchaService,
+  }) : captchaService = captchaService ?? CaptchaService() {
     _setupRoutes();
   }
 
@@ -46,10 +65,24 @@ class ApiRouter {
   // XMPP Registration
   Future<Response> _handleRegister(Request request) async {
     try {
+      final clientIp = request.ip ?? 'unknown';
+      if (!_registerLimiter.allow(clientIp)) {
+        return Response(429, body: jsonEncode({'error': 'Too many registration attempts. Please try again later.'}), headers: _jsonHeaders);
+      }
+
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
       final username = body['username'] as String?;
       final password = body['password'] as String?;
       final host = body['host'] as String?;
+      final captchaToken = body['captchaToken'] as String?;
+
+      if (captchaService.enabled && (captchaToken == null || captchaToken.isEmpty)) {
+        return Response(403, body: jsonEncode({'error': 'Captcha verification required'}), headers: _jsonHeaders);
+      }
+
+      if (captchaService.enabled && !await captchaService.verifyToken(captchaToken!, remoteIp: clientIp)) {
+        return Response(403, body: jsonEncode({'error': 'Captcha verification failed'}), headers: _jsonHeaders);
+      }
 
       if (username == null || password == null) {
         return Response.badRequest(
@@ -89,6 +122,11 @@ class ApiRouter {
 
   Future<Response> _handleCheckUser(Request request) async {
     try {
+      final clientIp = request.ip ?? 'unknown';
+      if (!_checkLimiter.allow(clientIp)) {
+        return Response(429, body: jsonEncode({'error': 'Too many requests'}), headers: _jsonHeaders);
+      }
+
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
       final username = body['username'] as String?;
       final host = body['host'] as String?;

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_turnstile/flutter_turnstile.dart';
 import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import '../services/registration_service.dart';
@@ -33,6 +34,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _generalError;
   bool _usernameAvailable = false;
   bool _checkingUsername = false;
+  String? _captchaToken;
+
+  static const String _turnstileSiteKey = '0x4AAAAAAAwBqkCbMG7eFpI8';
 
   @override
   void dispose() {
@@ -121,6 +125,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _handleRegister() async {
     if (!_validate()) return;
+    if (kIsWeb && _captchaToken == null && _domainController.text.trim() == 'gibberapp.online') {
+      setState(() => _generalError = 'Please complete the captcha verification.');
+      return;
+    }
     if (!_usernameAvailable && _domainController.text.trim() == 'gibberapp.online') {
       setState(() => _usernameError = 'Username is already taken.');
       return;
@@ -146,6 +154,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         apiUrl: backendConfig.apiUrl,
         username: username,
         password: password,
+        captchaToken: _captchaToken,
       );
     } else {
       if (kIsWeb) {
@@ -219,6 +228,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } else {
       setState(() {
         _isRegistering = false;
+        if (result.status == RegistrationStatus.captchaFailed) {
+          _captchaToken = null;
+        }
         _generalError = result.message ?? 'Registration failed. Please try again.';
       });
     }
@@ -311,6 +323,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
               _buildPasswordField(),
               const SizedBox(height: 16),
               _buildConfirmField(),
+              if (kIsWeb) ...[
+                const SizedBox(height: 16),
+                Center(
+                  child: CloudFlareTurnstile(
+                    siteKey: _turnstileSiteKey,
+                    onTokenReceived: (token) {
+                      setState(() => _captchaToken = token);
+                    },
+                    onTokenExpired: () {
+                      setState(() => _captchaToken = null);
+                    },
+                    options: TurnstileOptions(
+                      theme: Theme.of(context).brightness == Brightness.dark
+                          ? TurnstileTheme.dark
+                          : TurnstileTheme.light,
+                      size: TurnstileSize.normal,
+                    ),
+                  ),
+                ),
+              ],
               if (_generalError != null) ...[
                 const SizedBox(height: 16),
                 _buildErrorBanner(_generalError!),

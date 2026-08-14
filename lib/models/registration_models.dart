@@ -23,7 +23,7 @@ class InviteResult {
   }
 }
 
-enum RegistrationStatus { success, userExists, networkError, validationError, unsupported }
+enum RegistrationStatus { success, userExists, networkError, validationError, unsupported, captchaFailed }
 
 class RegistrationResult {
   final RegistrationStatus status;

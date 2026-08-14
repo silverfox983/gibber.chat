@@ -296,6 +296,7 @@ class RegistrationService {
     required String username,
     required String password,
     String? host,
+    String? captchaToken,
   }) async {
     if (username.trim().length < 3) {
       return const RegistrationResult(
@@ -325,6 +326,7 @@ class RegistrationService {
           'username': username.trim(),
           'password': password,
           if (host != null) 'host': host,
+          if (captchaToken != null) 'captchaToken': captchaToken,
         }),
       );
 
@@ -335,6 +337,16 @@ class RegistrationService {
           status: RegistrationStatus.success,
           jid: body['jid'] as String?,
           message: body['message'] as String? ?? 'Registration successful',
+        );
+      } else if (response.statusCode == 403 && (body['error'] ?? '').toString().contains('Captcha')) {
+        return RegistrationResult(
+          status: RegistrationStatus.captchaFailed,
+          message: body['error'] as String? ?? 'Captcha verification failed. Please try again.',
+        );
+      } else if (response.statusCode == 429) {
+        return RegistrationResult(
+          status: RegistrationStatus.validationError,
+          message: body['error'] as String? ?? 'Too many attempts. Please try again later.',
         );
       } else if (response.statusCode == 409 || (body['error'] ?? '').toString().contains('already exists')) {
         return RegistrationResult(
