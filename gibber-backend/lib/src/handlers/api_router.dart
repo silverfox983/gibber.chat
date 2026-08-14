@@ -54,7 +54,7 @@ class ApiRouter {
     _router.post('/gateways/authorize', _handleGatewayAuthorize);
     _router.get('/gateways/check/<jid>/<protocol>', _handleGatewayCheck);
     _router.post('/miner/register', _handleMinerRegister);
-    _router.post('/miner/credits', _handleMinerCredits);
+    _router.post('/miner/submit', _handleMinerSubmit);
     _router.post('/miner/heartbeat', _handleMinerHeartbeat);
     _router.get('/miner/stats/<jid>', _handleMinerStats);
     _router.post('/codes', _handleGenerateCode);
@@ -155,11 +155,11 @@ class ApiRouter {
   Future<Response> _handleGetEntitlement(Request request, String jid) async {
     try {
       final entitlement = await entitlementService.getEntitlement(jid);
-      final credits = await minerPool.getTotalCredits(jid);
+      final hashes = await minerPool.getTotalHashes(jid);
       return Response.ok(
         jsonEncode({
           ...entitlement.toJson(),
-          'miningCredits': credits,
+          'hashesDonated': hashes,
         }),
         headers: _jsonHeaders,
       );
@@ -286,7 +286,7 @@ class ApiRouter {
     }
   }
 
-  Future<Response> _handleMinerCredits(Request request) async {
+  Future<Response> _handleMinerSubmit(Request request) async {
     try {
       final authHeader = request.headers['authorization'];
       if (authHeader == null || !authHeader.startsWith('Bearer ')) {
@@ -302,11 +302,11 @@ class ApiRouter {
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
       final hashes = (body['hashes'] as num?)?.toDouble() ?? 0;
 
-      await minerPool.submitCredits(token, hashes);
-      final totalCredits = await minerPool.getTotalCredits(session.jid);
+      await minerPool.submitHashes(token, hashes);
+      final totalHashes = await minerPool.getTotalHashes(session.jid);
 
       return Response.ok(
-        jsonEncode({'credits': totalCredits}),
+        jsonEncode({'hashesDonated': totalHashes}),
         headers: _jsonHeaders,
       );
     } catch (e) {
@@ -345,14 +345,13 @@ class ApiRouter {
 
   Future<Response> _handleMinerStats(Request request, String jid) async {
     try {
-      final credits = await minerPool.getTotalCredits(jid);
+      final hashes = await minerPool.getTotalHashes(jid);
       final sessions = await minerPool.getActiveSessions(jid: jid);
       return Response.ok(
         jsonEncode({
           'jid': jid,
-          'totalCredits': credits,
+          'hashesDonated': hashes,
           'activeSessions': sessions.length,
-          'tier': credits >= 1000 ? 'ultimate' : (credits >= 100 ? 'pro' : 'free'),
         }),
         headers: _jsonHeaders,
       );

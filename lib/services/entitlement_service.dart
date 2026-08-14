@@ -316,14 +316,4 @@ class EntitlementService extends ChangeNotifier {
     }));
   }
 
-  void updateTierFromMining(UserTier tier) {
-    if (tier.index > _entitlement.tier.index) {
-      _entitlement = Entitlement(
-        tier: tier,
-        additionalProtocols: _entitlement.additionalProtocols,
-      );
-      _cacheEntitlement();
-      notifyListeners();
-    }
-  }
 }

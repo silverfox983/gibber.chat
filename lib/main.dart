@@ -93,7 +93,7 @@ class _ChatAppState extends State<ChatApp> {
     _initializeProviders();
   }
 
-  void _initializeProviders() {
+  Future<void> _initializeProviders() async {
     try {
       _errorSource = 'BackendConfig';
       _backendConfig = BackendConfig();
@@ -158,6 +158,13 @@ class _ChatAppState extends State<ChatApp> {
       };
 
       MobileLifecycleService.instance.syncServiceState(_authService!.isAuthenticated);
+
+      try {
+        await _authService!.loadSavedAccounts();
+        await _authService!.autoLogin();
+      } catch (e, stack) {
+        debugPrint('AUTO-LOGIN FAILED: $e\n$stack');
+      }
 
       setState(() {});
     } catch (e, stack) {

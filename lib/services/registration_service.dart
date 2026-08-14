@@ -399,7 +399,7 @@ class RegistrationService {
       }
       return false;
     } catch (_) {
-      return true;
+      return false;
     }
   }
 }

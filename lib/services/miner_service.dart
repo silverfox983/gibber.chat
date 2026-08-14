@@ -17,26 +17,26 @@ enum MinerStatus {
 class MiningStats {
   final double hashesPerSecond;
   final double totalHashes;
-  final double creditsEarned;
+  final double hashesDonated;
   final Duration uptime;
 
   MiningStats({
     this.hashesPerSecond = 0,
     this.totalHashes = 0,
-    this.creditsEarned = 0,
+    this.hashesDonated = 0,
     this.uptime = Duration.zero,
   });
 
   MiningStats copyWith({
     double? hashesPerSecond,
     double? totalHashes,
-    double? creditsEarned,
+    double? hashesDonated,
     Duration? uptime,
   }) =>
       MiningStats(
         hashesPerSecond: hashesPerSecond ?? this.hashesPerSecond,
         totalHashes: totalHashes ?? this.totalHashes,
-        creditsEarned: creditsEarned ?? this.creditsEarned,
+        hashesDonated: hashesDonated ?? this.hashesDonated,
         uptime: uptime ?? this.uptime,
       );
 }
@@ -62,8 +62,7 @@ class MinerService extends ChangeNotifier {
   StreamSubscription? _minerResumeSub;
 
   static const String _consentKey = 'gibber_miner_consent';
-  static const String _creditsKey = 'gibber_miner_credits';
-  static const String _tierKey = 'gibber_user_tier';
+  static const String _donatedKey = 'gibber_hashes_donated';
 
   MinerStatus get status => _status;
   String get error => _error;
@@ -85,11 +84,14 @@ class MinerService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _consent = prefs.getBool(_consentKey) ?? false;
     _stats = _stats.copyWith(
-      creditsEarned: prefs.getDouble(_creditsKey) ?? 0,
+      hashesDonated: prefs.getDouble(_donatedKey) ?? 0,
     );
   }
 
   Future<void> setConsent(bool value) async {
+    if (value && _entitlementService != null && _entitlementService!.currentTier != UserTier.free) {
+      return;
+    }
     _consent = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_consentKey, value);
@@ -124,6 +126,13 @@ class MinerService extends ChangeNotifier {
   Future<bool> startMining() async {
     if (!_consent) {
       _error = 'Mining consent not granted';
+      notifyListeners();
+      return false;
+    }
+
+    if (_entitlementService != null && _entitlementService!.currentTier != UserTier.free) {
+      _error = 'Mining is only available for free-tier users';
+      _status = MinerStatus.error;
       notifyListeners();
       return false;
     }
@@ -209,11 +218,11 @@ class MinerService extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> _submitShare(double hashes) async {
+  Future<void> _submitHashes(double hashes) async {
     if (_poolSessionToken == null) return;
     try {
       await http.post(
-        Uri.parse('$_backendUrl/miner/credits'),
+        Uri.parse('$_backendUrl/miner/submit'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $_poolSessionToken',
@@ -222,25 +231,10 @@ class MinerService extends ChangeNotifier {
       );
 
       final prefs = await SharedPreferences.getInstance();
-      final newCredits = _stats.creditsEarned + hashes * 0.00001;
-      _stats = _stats.copyWith(creditsEarned: newCredits);
-      await prefs.setDouble(_creditsKey, newCredits);
-
-      _checkTierUnlock(newCredits);
+      final newDonated = _stats.hashesDonated + hashes;
+      _stats = _stats.copyWith(hashesDonated: newDonated);
+      await prefs.setDouble(_donatedKey, newDonated);
     } catch (_) {}
-  }
-
-  void _checkTierUnlock(double credits) {
-    UserTier tier = UserTier.free;
-    if (credits >= 1000) {
-      tier = UserTier.ultimate;
-    } else if (credits >= 100) {
-      tier = UserTier.pro;
-    }
-    _entitlementService?.updateTierFromMining(tier);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setString(_tierKey, tier.name);
-    });
   }
 
   void _updateStats() {
@@ -256,7 +250,7 @@ class MinerService extends ChangeNotifier {
       uptime: uptime,
     );
 
-    _submitShare(simHashRate * 5);
+    _submitHashes(simHashRate * 5);
     notifyListeners();
   }
 
@@ -290,20 +284,6 @@ class MinerService extends ChangeNotifier {
     });
     _status = MinerStatus.mining;
     notifyListeners();
-  }
-
-  String get currentTier {
-    if (_stats.creditsEarned >= 1000) return 'Ultimate';
-    if (_stats.creditsEarned >= 100) return 'Pro';
-    return 'Free';
-  }
-
-  String get nextTierProgress {
-    if (_stats.creditsEarned >= 1000) return '100%';
-    if (_stats.creditsEarned >= 100) {
-      return '${((_stats.creditsEarned - 100) / 900 * 100).toStringAsFixed(1)}%';
-    }
-    return '${(_stats.creditsEarned / 100 * 100).toStringAsFixed(1)}%';
   }
 
   @override

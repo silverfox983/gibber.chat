@@ -2,7 +2,6 @@ class MinerSession {
   final String id;
   final String jid;
   final String sessionToken;
-  final double creditsEarned;
   final double totalHashes;
   final double cpuCap;
   final DateTime createdAt;
@@ -13,7 +12,6 @@ class MinerSession {
     required this.id,
     required this.jid,
     required this.sessionToken,
-    this.creditsEarned = 0,
     this.totalHashes = 0,
     this.cpuCap = 0.3,
     DateTime? createdAt,
@@ -25,7 +23,6 @@ class MinerSession {
         'id': id,
         'jid': jid,
         'sessionToken': sessionToken,
-        'creditsEarned': creditsEarned,
         'totalHashes': totalHashes,
         'cpuCap': cpuCap,
         'createdAt': createdAt.toIso8601String(),
@@ -37,7 +34,6 @@ class MinerSession {
         id: row['id'] as String,
         jid: row['jid'] as String,
         sessionToken: row['session_token'] as String,
-        creditsEarned: (row['credits_earned'] as num?)?.toDouble() ?? 0,
         totalHashes: (row['total_hashes'] as num?)?.toDouble() ?? 0,
         cpuCap: (row['cpu_cap'] as num?)?.toDouble() ?? 0.3,
         createdAt: DateTime.parse(row['created_at'] as String),

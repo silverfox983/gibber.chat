@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:crypto/crypto.dart';
 
 enum RegistrationMode { prosodyctl, http, internal }
 
@@ -101,7 +100,6 @@ class XmppRegistrar {
       if (!dataDir.existsSync()) {
         dataDir.createSync(recursive: true);
       }
-      final hash = hashPassword(password);
       final userFile = File('${dataDir.path}/accounts/$username.dat');
       if (userFile.existsSync()) {
         return XmppRegistrationResult(
@@ -114,7 +112,8 @@ class XmppRegistrar {
       if (!accountsDir.existsSync()) {
         accountsDir.createSync(recursive: true);
       }
-      userFile.writeAsStringSync('return {\n\t["password"] = "$hash";\n};\n');
+      final escaped = password.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+      userFile.writeAsStringSync('return {\n\t["password"] = "$escaped";\n};\n');
       return XmppRegistrationResult(
         success: true,
         jid: jid,
@@ -183,7 +182,7 @@ class XmppRegistrar {
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       client.close();
-      return body.contains('exists') || body.contains('false') == false;
+      return body.contains('exists');
     } catch (_) {
       return false;
     }
@@ -252,8 +251,8 @@ class XmppRegistrar {
       case RegistrationMode.internal:
         final userFile = File('/var/lib/prosody/$jidDomain/accounts/$username.dat');
         if (userFile.existsSync()) {
-          final hash = hashPassword(newPassword);
-          userFile.writeAsStringSync('return {\n\t["password"] = "$hash";\n};\n');
+          final escaped = newPassword.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+          userFile.writeAsStringSync('return {\n\t["password"] = "$escaped";\n};\n');
           return true;
         }
         return false;
@@ -277,11 +276,6 @@ class XmppRegistrar {
     return Process.run(_prosodyCtlPath, args);
   }
 
-  String hashPassword(String password) {
-    final bytes = utf8.encode(password);
-    final digest = sha256.convert(bytes);
-    return digest.toString();
-  }
 }
 
 class XmppRegistrationResult {

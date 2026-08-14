@@ -38,7 +38,6 @@ class DatabaseService {
         id TEXT PRIMARY KEY,
         jid TEXT NOT NULL,
         session_token TEXT UNIQUE NOT NULL,
-        credits_earned REAL DEFAULT 0,
         total_hashes REAL DEFAULT 0,
         cpu_cap REAL DEFAULT 0.3,
         active INTEGER DEFAULT 1,
