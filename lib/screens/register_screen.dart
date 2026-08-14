@@ -39,7 +39,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _checkingUsername = false;
   String? _captchaToken;
 
-  static const String _turnstileSiteKey = '0x4AAAAAAAwBqkCbMG7eFpI8';
+  static const String _turnstileSiteKey = '0x4AAAAAAEPu7u6fV3cTv5Q6';
 
   @override
   void dispose() {
@@ -332,6 +332,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: TurnstileWebWidget(
                     siteKey: _turnstileSiteKey,
                     theme: Theme.of(context).brightness == Brightness.dark ? 'dark' : 'light',
+                    action: 'signup',
                     onTokenReceived: (token) {
                       setState(() => _captchaToken = token);
                     },

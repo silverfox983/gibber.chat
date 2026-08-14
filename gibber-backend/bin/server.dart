@@ -91,6 +91,8 @@ void main(List<String> args) async {
     ..addOption('web-dir', defaultsTo: Platform.environment['GIBBER_WEB_DIR'] ?? '')
     ..addOption('admin-key', defaultsTo: Platform.environment['GIBBER_ADMIN_KEY'] ?? 'gibber-admin-key')
     ..addOption('turnstile-secret', defaultsTo: Platform.environment['TURNSTILE_SECRET_KEY'] ?? '')
+    ..addOption('turnstile-action', defaultsTo: Platform.environment['TURNSTILE_ACTION'] ?? 'signup')
+    ..addOption('turnstile-hostnames', defaultsTo: Platform.environment['TURNSTILE_HOSTNAMES'] ?? 'gibberapp.online,localhost,127.0.0.1')
     ..addOption('stripe-secret', defaultsTo: Platform.environment['STRIPE_SECRET_KEY'] ?? '')
     ..addOption('stripe-webhook-secret', defaultsTo: Platform.environment['STRIPE_WEBHOOK_SECRET'] ?? '')
     ..addOption('btcpay-url', defaultsTo: Platform.environment['BTCPAY_URL'] ?? '')
@@ -108,6 +110,8 @@ void main(List<String> args) async {
   final useDocker = result['use-docker'] as bool;
   final adminKey = result['admin-key'] as String;
   final turnstileSecret = result['turnstile-secret'] as String;
+  final turnstileAction = result['turnstile-action'] as String;
+  final turnstileHostnames = (result['turnstile-hostnames'] as String).split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toSet();
   final stripeSecret = result['stripe-secret'] as String;
   final stripeWebhookSecret = result['stripe-webhook-secret'] as String;
   final btcpayUrl = result['btcpay-url'] as String;
@@ -135,7 +139,11 @@ void main(List<String> args) async {
   );
   final minerPool = MinerPoolService(db: db);
   final entitlementSvc = BackendEntitlementService(db: db);
-  final captchaSvc = CaptchaService(secretKey: turnstileSecret);
+  final captchaSvc = CaptchaService(
+    secretKey: turnstileSecret,
+    expectedAction: turnstileAction,
+    allowedHostnames: turnstileHostnames,
+  );
   final paymentSvc = PaymentService(
     db: db,
     stripeSecretKey: stripeSecret,

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 class TurnstileWebWidget extends StatefulWidget {
   final String siteKey;
   final String theme;
+  final String action;
   final ValueChanged<String>? onTokenReceived;
   final VoidCallback? onTokenExpired;
   final VoidCallback? onError;
@@ -15,6 +16,7 @@ class TurnstileWebWidget extends StatefulWidget {
     super.key,
     required this.siteKey,
     this.theme = 'light',
+    this.action = 'signup',
     this.onTokenReceived,
     this.onTokenExpired,
     this.onError,
@@ -73,6 +75,7 @@ class _TurnstileWebWidgetState extends State<TurnstileWebWidget> {
   <script>
     turnstile.render('#cf-turnstile', {
       sitekey: '${widget.siteKey}',
+      action: '${widget.action}',
       theme: '${widget.theme}',
       callback: function(token) {
         parent._turnstileOnToken$_viewType(token);
