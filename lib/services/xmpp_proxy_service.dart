@@ -21,7 +21,6 @@ class XmppProxyService {
     _server!.listen((clientSocket) async {
       final List<Uint8List> buffer = [];
       bool remoteReady = false;
-      bool firstServerPacketTransformed = false;
       Socket? remoteSocket;
       
       final completer = Completer<Uint8List>();
@@ -72,63 +71,51 @@ class XmppProxyService {
 
           // 0. Strip Stream Management to prevent xmpp_stone counting bug
           if (content.contains('urn:xmpp:sm:')) {
-            content = content.replaceAll(RegExp(r'<sm xmlns=.urn:xmpp:sm:[23].[^>]*/>'), '');
-            content = content.replaceAll(RegExp(r'<sm xmlns=.urn:xmpp:sm:[23].[^>]*>.*?</sm>', dotAll: true), '');
+            content = content.replaceAll(RegExp('<sm xmlns=[\'"]urn:xmpp:sm:[23][\'"][^>]*/>'), '');
+            content = content.replaceAll(RegExp('<sm xmlns=[\'"]urn:xmpp:sm:[23][\'"][^>]*>.*?</sm>', dotAll: true), '');
             modified = true;
           }
 
-          // FEATURE TRANSFORMER: Handle STARTTLS and SASL compatibility
-          if (!firstServerPacketTransformed) {
-            if (content.contains('<stream:features')) {
-               debugPrint('Proxy: Intercepted server features. Performing compatibility transformation...');
-               
-               // 1. Strip STARTTLS (Offloaded to Proxy - we already handle TLS)
-               content = content.replaceFirst(RegExp(r'<starttls[^>]*>.*?</starttls>', dotAll: true), '');
-               content = content.replaceFirst(RegExp(r'<starttls[^>]*/>'), '');
+          // FEATURE TRANSFORMER: Transform ALL stream:features packets
+          // xmpp_stone processes every stream:features it receives, including
+          // post-auth features after SASL re-open. We must transform them all.
+          if (content.contains('<stream:features')) {
+             debugPrint('Proxy: Intercepted server features. Performing compatibility transformation...');
+             
+             // 1. Strip STARTTLS (Offloaded to Proxy - we already handle TLS)
+             content = content.replaceAll(RegExp(r'<starttls[^>]*>.*?</starttls>', dotAll: true), '');
+             content = content.replaceAll(RegExp(r'<starttls[^>]*/>'), '');
 
-               // 2. Remove SASL2 inline features that xmpp_stone doesn't support
-               //    (bind2, sm, etc.) but preserve the authentication mechanisms.
-               //    Strip <inline> children inside <authentication> which reference
-               //    features xmpp_stone can't negotiate via SASL2.
-               content = content.replaceFirst(RegExp(r'<inline[^>]*>.*?</inline>', dotAll: true), '');
+             // 2. Remove SASL2 inline features that xmpp_stone doesn't support
+             content = content.replaceAll(RegExp(r'<inline[^>]*>.*?</inline>', dotAll: true), '');
+             
+             // 3. Remove SASL2 <authentication> block (xmpp_stone only supports SASL1)
+             if (content.contains(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"]', dotAll: true))) {
+               final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
+                   .allMatches(content)
+                   .map((m) => m.group(1)!)
+                   .toSet();
                
-               // 3. If SASL2 <authentication> block remains after stripping <inline>,
-               //    also remove it since xmpp_stone only supports SASL1 auth flow.
-               //    We keep the server's original <mechanisms> block intact so that
-               //    SCRAM-SHA-256, SCRAM-SHA-512, etc. are preserved.
-               if (content.contains(RegExp(r'<authentication xmlns=.urn:xmpp:sasl:2.', dotAll: true))) {
-                 // Extract mechanism names from SASL2 <authentication> block to merge
-                 final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
-                     .allMatches(content)
-                     .map((m) => m.group(1)!)
-                     .toSet();
-                 
-                 // Remove the entire SASL2 <authentication> block
-                 content = content.replaceFirst(RegExp(r'<authentication xmlns=.urn:xmpp:sasl:2.>.*?</authentication>', dotAll: true), '');
-                 
-                 // If no <mechanisms> block exists, inject one with the extracted mechanisms
-                 // plus PLAIN (needed for xmpp_stone SASL1 flow)
-                 if (!content.contains('<mechanisms')) {
-                   final mechs = sasl2Mechs.toList()..add('PLAIN');
-                   final mechsXml = mechs.map((m) => '<mechanism>$m</mechanism>').join('');
-                   final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>$mechsXml</mechanisms>";
-                   content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
-                 }
+               content = content.replaceAll(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"][^>]*>.*?</authentication>', dotAll: true), '');
+               
+               if (!content.contains('<mechanisms')) {
+                 final mechs = sasl2Mechs.toList()..add('PLAIN');
+                 final mechsXml = mechs.map((m) => '<mechanism>$m</mechanism>').join('');
+                 final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>$mechsXml</mechanisms>";
+                 content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
                }
-               
-               // 4. Ensure PLAIN mechanism is available for xmpp_stone SASL1 auth
-               //    (xmpp_stone requires PLAIN or SCRAM-SHA-1 at minimum)
-               if (content.contains('<mechanisms') && !content.contains('<mechanism>PLAIN</mechanism>')) {
-                 content = content.replaceFirst(
-                   RegExp(r"<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>"),
-                   "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><mechanism>PLAIN</mechanism>",
-                 );
-               }
-               
-                modified = true;
-                firstServerPacketTransformed = true;
-                debugPrint('Proxy: Transformation successful. Preserved server mechanisms, removed SASL2 inline features.');
-            }
+             }
+             
+             // 4. Ensure PLAIN mechanism is available for xmpp_stone SASL1 auth
+             if (content.contains('<mechanisms') && !content.contains('<mechanism>PLAIN</mechanism>')) {
+               content = content.replaceFirst(
+                 RegExp("<mechanisms xmlns=['\"]urn:ietf:params:xml:ns:xmpp-sasl['\"]>"),
+                 "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><mechanism>PLAIN</mechanism>",
+               );
+             }
+             
+              modified = true;
+              debugPrint('Proxy: Transformation successful. Preserved server mechanisms, removed SASL2 inline features.');
           }
 
           if (modified) {
