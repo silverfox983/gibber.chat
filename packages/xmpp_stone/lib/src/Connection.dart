@@ -385,12 +385,15 @@ class Connection {
 
   static String _injectStanzaNamespace(String xml, String? stanzaName) {
     if (stanzaName == null) return xml;
-    var stanzaOpenTag = '<$stanzaName ';
-    var idx = xml.indexOf(stanzaOpenTag);
+    var tagStart = '<$stanzaName';
+    var idx = xml.indexOf(tagStart);
     if (idx == -1) return xml;
-    var afterTag = idx + stanzaOpenTag.length;
-    if (xml.substring(afterTag).startsWith('xmlns=')) return xml;
-    return xml.substring(0, afterTag) + 'xmlns="jabber:client" ' + xml.substring(afterTag);
+    var tagEnd = xml.indexOf('>', idx);
+    if (tagEnd == -1) return xml;
+    var openTag = xml.substring(idx, tagEnd);
+    if (openTag.contains('xmlns=')) return xml;
+    var insertPoint = idx + tagStart.length;
+    return xml.substring(0, insertPoint) + ' xmlns="jabber:client"' + xml.substring(insertPoint);
   }
 
   void writeNonza(Nonza nonza) {

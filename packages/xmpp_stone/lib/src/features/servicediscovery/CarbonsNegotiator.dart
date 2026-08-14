@@ -55,7 +55,6 @@ class CarbonsNegotiator extends Negotiator {
 
   void sendRequest() {
     var iqStanza = IqStanza(AbstractStanza.getRandomId(), IqStanzaType.SET);
-    iqStanza.addAttribute(XmppAttribute('xmlns', 'jabber:client'));
     var element = XmppElement();
     element.name = 'enable';
     element.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:carbons:2'));
