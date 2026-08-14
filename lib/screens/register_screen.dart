@@ -5,12 +5,15 @@ import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_turnstile/flutter_turnstile.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import '../services/registration_service.dart';
 import '../services/backend_config.dart';
 import '../models/registration_models.dart';
 import '../models/chat_models.dart';
+import '../widgets/turnstile_web_widget_stub.dart'
+    if (dart.library.html) '../widgets/turnstile_web_widget.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -326,22 +329,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
               if (kIsWeb) ...[
                 const SizedBox(height: 16),
                 Center(
-                  child: CloudFlareTurnstile(
+                  child: TurnstileWebWidget(
                     siteKey: _turnstileSiteKey,
+                    theme: Theme.of(context).brightness == Brightness.dark ? 'dark' : 'light',
                     onTokenReceived: (token) {
                       setState(() => _captchaToken = token);
                     },
                     onTokenExpired: () {
                       setState(() => _captchaToken = null);
                     },
-                    options: TurnstileOptions(
-                      theme: Theme.of(context).brightness == Brightness.dark
-                          ? TurnstileTheme.dark
-                          : TurnstileTheme.light,
-                      size: TurnstileSize.normal,
-                    ),
+                    onError: () {
+                      setState(() => _generalError = 'Captcha verification failed. Please try again.');
+                    },
                   ),
                 ),
+                if (_captchaToken == null && kIsWeb) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Verifying you are human...',
+                    style: GoogleFonts.inter(fontSize: 11, color: Colors.white54),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ],
               if (_generalError != null) ...[
                 const SizedBox(height: 16),
