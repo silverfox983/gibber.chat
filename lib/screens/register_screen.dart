@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_turnstile/flutter_turnstile.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import '../services/registration_service.dart';
@@ -26,7 +24,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _domainController = TextEditingController(text: 'gibberapp.online');
 
   bool _isRegistering = false;
   bool _obscurePassword = true;
@@ -47,7 +44,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _usernameController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
-    _domainController.dispose();
     super.dispose();
   }
 
@@ -110,7 +106,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final available = await RegistrationService.checkUsernameAvailable(
       apiUrl: backendConfig.apiUrl,
       username: username,
-      host: _domainController.text.trim(),
     );
 
     if (mounted) {
@@ -128,11 +123,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _handleRegister() async {
     if (!_validate()) return;
-    if (kIsWeb && _captchaToken == null && _domainController.text.trim() == 'gibberapp.online') {
+    if (kIsWeb && _captchaToken == null) {
       setState(() => _generalError = 'Please complete the captcha verification.');
       return;
     }
-    if (!_usernameAvailable && _domainController.text.trim() == 'gibberapp.online') {
+    if (!_usernameAvailable) {
       setState(() => _usernameError = 'Username is already taken.');
       return;
     }
@@ -144,43 +139,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
-    final domain = _domainController.text.trim();
+    const domain = 'gibberapp.online';
     final jid = '$username@$domain';
 
     final backendConfig = Provider.of<BackendConfig>(context, listen: false);
-    final isGibberDomain = domain == 'gibberapp.online';
 
-    RegistrationResult result;
-
-    if (isGibberDomain) {
-      result = await RegistrationService.registerViaBackend(
-        apiUrl: backendConfig.apiUrl,
-        username: username,
-        password: password,
-        captchaToken: _captchaToken,
-      );
-    } else {
-      if (kIsWeb) {
-        if (mounted) {
-          setState(() {
-            _isRegistering = false;
-            _generalError = 'Registration on external servers is not supported in browser. Use gibberapp.online or the desktop app.';
-          });
-        }
-        return;
-      }
-
-      final success = await RegistrationService.registerAccountInBand(
-        domain,
-        username,
-        password,
-      );
-      result = RegistrationResult(
-        status: success ? RegistrationStatus.success : RegistrationStatus.networkError,
-        jid: jid,
-        message: success ? 'Registration successful' : 'Registration failed. The server may not support public registration.',
-      );
-    }
+    final result = await RegistrationService.registerViaBackend(
+      apiUrl: backendConfig.apiUrl,
+      username: username,
+      password: password,
+      captchaToken: _captchaToken,
+    );
 
     if (!mounted) return;
 
@@ -193,7 +162,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
           domain: domain,
           pass: password,
           port: kIsWeb ? 443 : 5222,
-          host: domain,
         );
 
         await authService.saveAccount(
@@ -201,7 +169,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             user: username,
             domain: domain,
             port: kIsWeb ? 443 : 5222,
-            host: domain,
             protocol: 'XMPP',
           ),
           password,
@@ -321,8 +288,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             children: [
               _buildUsernameField(primary),
               const SizedBox(height: 16),
-              _buildDomainField(),
-              const SizedBox(height: 16),
               _buildPasswordField(),
               const SizedBox(height: 16),
               _buildConfirmField(),
@@ -344,11 +309,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     },
                   ),
                 ),
-                if (_captchaToken == null && kIsWeb) ...[
+                if (_captchaToken == null) ...[
                   const SizedBox(height: 4),
                   Text(
                     'Verifying you are human...',
-                    style: GoogleFonts.inter(fontSize: 11, color: Colors.white54),
+                    style: TextStyle(fontSize: 11, color: Colors.white54),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -405,32 +370,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _debounceUsernameCheck() {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 600), () {
-      if (_domainController.text.trim() == 'gibberapp.online' && mounted) {
+      if (mounted) {
         _checkUsername();
       }
     });
-  }
-
-  Widget _buildDomainField() {
-    return TextField(
-      controller: _domainController,
-      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 16),
-      decoration: InputDecoration(
-        labelText: 'Server Domain',
-        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 14),
-        prefixIcon: Icon(Icons.dns_rounded, color: Colors.white.withValues(alpha: 0.7), size: 22),
-        filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.1),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.5), width: 1.5)),
-        helperText: 'gibberapp.online for instant signup. Other servers may not be supported.',
-        helperStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 11),
-        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-      ),
-      onChanged: (_) {
-        setState(() { _usernameAvailable = false; _usernameError = null; });
-      },
-    );
   }
 
   Widget _buildPasswordField() {

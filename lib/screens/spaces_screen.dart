@@ -9,7 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:html2md/html2md.dart' as html2md;
-import 'package:google_fonts/google_fonts.dart';
+
 import 'package:share_plus/share_plus.dart';
 import '../widgets/glassmorphic_container.dart';
 import '../widgets/media_carousel.dart';
@@ -354,7 +354,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                   Expanded(
                     child: Text(
                       'You\'re offline. Showing cached spaces.',
-                      style: GoogleFonts.inter(fontSize: 13, color: Colors.orange.shade700, fontWeight: FontWeight.w600),
+                      style: TextStyle(fontSize: 13, color: Colors.orange.shade700, fontWeight: FontWeight.w600),
                     ),
                   ),
                 ]),
@@ -682,10 +682,10 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                   children: [
                     Icon(Icons.explore_outlined, size: 72, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.25)),
                     const SizedBox(height: 16),
-                    Text('No spaces found', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: theme.colorScheme.onSurfaceVariant)),
+                    Text('No spaces found', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.onSurfaceVariant)),
                     const SizedBox(height: 6),
                     Text('Try a different domain or explore featured communities.',
-                        style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
+                        style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
                         textAlign: TextAlign.center),
                     const SizedBox(height: 20),
                     FilledButton.icon(
@@ -843,7 +843,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                         child: Row(children: [
                           Icon(isOwner ? Icons.shield_rounded : (affiliation == 'publisher' ? Icons.edit_note_rounded : Icons.check_circle_rounded), size: 10, color: Colors.white),
                           const SizedBox(width: 4),
-                          Text(isOwner ? 'OWNER' : (affiliation?.toUpperCase() ?? 'JOINED'), style: GoogleFonts.inter(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900)),
+                          Text(isOwner ? 'OWNER' : (affiliation?.toUpperCase() ?? 'JOINED'), style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900)),
                         ]),
                       ),
                     ),
@@ -862,7 +862,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                           child: Row(children: [
                             Icon(space.isPublic ? Icons.public_rounded : Icons.lock_outline_rounded, size: 10, color: Colors.white70),
                             const SizedBox(width: 4),
-                            Text(space.isPublic ? 'PUBLIC' : 'PRIVATE', style: GoogleFonts.inter(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.bold)),
+                            Text(space.isPublic ? 'PUBLIC' : 'PRIVATE', style: TextStyle(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.bold)),
                           ]),
                         ),
                         if (space.features.isNotEmpty) const SizedBox(width: 4),
@@ -875,7 +875,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                     bottom: 8,
                     left: 10,
                     child: Text(space.domain.toUpperCase(),
-                        style: GoogleFonts.inter(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+                        style: TextStyle(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
                   ),
                 ],
               ),
@@ -888,14 +888,14 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                   children: [
                     Text(
                       space.name.isNotEmpty ? space.name : space.node,
-                      style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 16, height: 1.2),
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, height: 1.2),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 6),
                     Text(
                       space.description ?? 'No description provided.',
-                      style: GoogleFonts.inter(fontSize: 12, color: theme.colorScheme.onSurfaceVariant, height: 1.4),
+                      style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant, height: 1.4),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -925,7 +925,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                         Flexible(
                           child: Text(
                             isPrivate ? 'Approval Required' : 'Open Community',
-                            style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: theme.colorScheme.primary),
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: theme.colorScheme.primary),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -934,7 +934,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                           const SizedBox(width: 8),
                           Text(
                             space.publishModel!.toUpperCase(),
-                            style: GoogleFonts.inter(fontSize: 8, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
+                            style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
                           ),
                         ],
                       ],
@@ -949,7 +949,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                           space.syncedAt != null && _timeAgo(space.syncedAt!) != 'just now'
                               ? 'SYNCED ${_timeAgo(space.syncedAt!).toUpperCase()} AGO'
                               : 'SYNCED JUST NOW',
-                          style: GoogleFonts.inter(fontSize: 8, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
+                          style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
                         ),
                       ],
                     ),
@@ -968,8 +968,8 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
       children: [
         Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
         const SizedBox(height: 4),
-        Text(value, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurface)),
-        Text(label, style: GoogleFonts.inter(fontSize: 8, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurfaceVariant)),
+        Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurface)),
+        Text(label, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurfaceVariant)),
       ],
     );
   }
@@ -1238,7 +1238,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               children: [
                 Text(
                   space.name.isNotEmpty ? space.name : space.node,
-                  style: GoogleFonts.inter(color: Colors.white, fontSize: 26,
+                  style: TextStyle(color: Colors.white, fontSize: 26,
                       fontWeight: FontWeight.w900, height: 1.15),
                   maxLines: 2, overflow: TextOverflow.ellipsis,
                 ),
@@ -1362,9 +1362,9 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                   children: [
                     Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
                       decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)))),
-                    Text('Notification Preferences', style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18)),
+                    Text('Notification Preferences', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
                     const SizedBox(height: 4),
-                    Text(space.name, style: GoogleFonts.inter(color: Colors.grey, fontSize: 13)),
+                    Text(space.name, style: TextStyle(color: Colors.grey, fontSize: 13)),
                     const SizedBox(height: 20),
                     ListTile(
                       leading: const Icon(Icons.notifications_active_rounded),
@@ -1405,7 +1405,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(icon, size: 11, color: Colors.white),
         const SizedBox(width: 4),
-        Text(label, style: GoogleFonts.inter(color: Colors.white,
+        Text(label, style: TextStyle(color: Colors.white,
             fontSize: 10, fontWeight: FontWeight.bold)),
       ]),
     );
@@ -1462,7 +1462,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
           const SizedBox(height: 8),
           GlassMorphicContainer(
             child: Text(space.description!,
-                style: GoogleFonts.inter(fontSize: 15, height: 1.6)),
+                style: TextStyle(fontSize: 15, height: 1.6)),
           ),
           const SizedBox(height: 20),
         ],
@@ -1493,7 +1493,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               final short = f.contains('#') ? f.split('#').last : f.split('/').last;
               return Chip(
                 label: Text(short,
-                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600)),
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                 avatar: const Icon(Icons.check_circle_outline_rounded, size: 14),
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
@@ -1512,9 +1512,9 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             color: Colors.red.withValues(alpha: 0.05),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Delete Space', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.red)),
+            Text('Delete Space', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
             const SizedBox(height: 4),
-            Text('Permanently delete this space and all contents.', style: GoogleFonts.inter(fontSize: 12, color: Colors.redAccent)),
+            Text('Permanently delete this space and all contents.', style: TextStyle(fontSize: 12, color: Colors.redAccent)),
             const SizedBox(height: 12),
             OutlinedButton(
               onPressed: () async {
@@ -1596,9 +1596,9 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13)),
+                    Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     const SizedBox(height: 2),
-                    Text(subtitle, style: GoogleFonts.inter(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                    Text(subtitle, style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
                     if (isPost && (item.name?.isNotEmpty ?? false)) ...[
                       const SizedBox(height: 6),
                       Container(
@@ -1608,7 +1608,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: theme.dividerColor.withValues(alpha: 0.3)),
                         ),
-                        child: Text(item.name!, style: GoogleFonts.inter(fontSize: 12), maxLines: 2, overflow: TextOverflow.ellipsis),
+                        child: Text(item.name!, style: TextStyle(fontSize: 12), maxLines: 2, overflow: TextOverflow.ellipsis),
                       ),
                     ]
                   ],
@@ -1696,9 +1696,9 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         child: Column(children: [
           Icon(icon, color: theme.colorScheme.primary, size: 22),
           const SizedBox(height: 4),
-          Text(value, style: GoogleFonts.inter(
+          Text(value, style: TextStyle(
               fontWeight: FontWeight.w900, fontSize: 20)),
-          Text(label, style: GoogleFonts.inter(
+          Text(label, style: TextStyle(
               fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
         ]),
       ),
@@ -1711,17 +1711,17 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
       child: Row(children: [
         Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
         const SizedBox(width: 10),
-        Text('$label ', style: GoogleFonts.inter(
+        Text('$label ', style: TextStyle(
             color: theme.colorScheme.onSurfaceVariant, fontSize: 13)),
         Expanded(child: Text(value, textAlign: TextAlign.end,
-            style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13),
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
             maxLines: 1, overflow: TextOverflow.ellipsis)),
       ]),
     );
   }
 
   Widget _sectionLabel(ThemeData theme, String text) {
-    return Text(text, style: GoogleFonts.inter(
+    return Text(text, style: TextStyle(
         fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.4,
         color: theme.colorScheme.primary));
   }
@@ -1742,7 +1742,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               Icon(Icons.group_off_rounded, size: 56,
                   color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
               const SizedBox(height: 12),
-              Text('No members found', style: GoogleFonts.inter(
+              Text('No members found', style: TextStyle(
                   color: theme.colorScheme.onSurfaceVariant)),
             ],
           ));
@@ -1790,11 +1790,11 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             ? ClipOval(child: Image.network(member.avatarUrl!, fit: BoxFit.cover))
             : Text(initial, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
-      title: Text(displayName, style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+      title: Text(displayName, style: TextStyle(fontWeight: FontWeight.bold)),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(member.jid, style: GoogleFonts.inter(fontSize: 11, color: theme.colorScheme.onSurfaceVariant), overflow: TextOverflow.ellipsis),
+          Text(member.jid, style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant), overflow: TextOverflow.ellipsis),
           const SizedBox(height: 3),
           Row(children: [
             Container(
@@ -1803,7 +1803,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 color: theme.colorScheme.primaryContainer,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Text(roleLabel, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimaryContainer)),
+              child: Text(roleLabel, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimaryContainer)),
             ),
             if (member.subscriptionState != null && member.subscriptionState != 'subscribed') ...[
               const SizedBox(width: 6),
@@ -1813,7 +1813,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                   color: Colors.orange.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(member.subscriptionState!, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.orange.shade700)),
+                child: Text(member.subscriptionState!, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.orange.shade700)),
               ),
             ],
           ]),
@@ -1855,7 +1855,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
       child: Row(children: [
-        Text(title, style: GoogleFonts.inter(
+        Text(title, style: TextStyle(
             fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5)),
         const Spacer(),
         Container(
@@ -1864,7 +1864,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             color: theme.colorScheme.primaryContainer,
             borderRadius: BorderRadius.circular(20),
           ),
-          child: Text('$count', style: GoogleFonts.inter(
+          child: Text('$count', style: TextStyle(
               fontSize: 11, fontWeight: FontWeight.bold,
               color: theme.colorScheme.onPrimaryContainer)),
         ),
@@ -1920,7 +1920,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                   Icon(Icons.fiber_new_rounded, color: theme.colorScheme.primary, size: 20),
                   const SizedBox(width: 8),
                   Text('$_newLiveCount new post${_newLiveCount > 1 ? 's' : ''} — tap to dismiss',
-                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13,
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13,
                           color: theme.colorScheme.onPrimaryContainer)),
                 ]),
               ),
@@ -1956,7 +1956,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('CHANNELS', style: GoogleFonts.inter(
+                  Text('CHANNELS', style: TextStyle(
                       fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.4,
                       color: theme.colorScheme.primary)),
                   TextButton.icon(
@@ -1985,7 +1985,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-              child: Text('POSTS', style: GoogleFonts.inter(
+              child: Text('POSTS', style: TextStyle(
                   fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.4,
                   color: theme.colorScheme.primary)),
             ),
@@ -2010,7 +2010,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                     color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
                 const SizedBox(height: 12),
                 Text(_searchQuery.isNotEmpty ? 'No posts match "$_searchQuery"' : 'No posts yet',
-                    style: GoogleFonts.inter(color: theme.colorScheme.onSurfaceVariant)),
+                    style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
               ]),
             ),
           ),
@@ -2061,11 +2061,11 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               color: theme.colorScheme.onPrimaryContainer, size: 18),
         ),
         title: Text(ch.name ?? ch.id,
-            style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+            style: TextStyle(fontWeight: FontWeight.bold)),
         subtitle: ch.description != null
             ? Text(ch.description!, maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.inter(fontSize: 12))
+                style: TextStyle(fontSize: 12))
             : null,
         trailing: FilledButton.tonal(
           onPressed: () {
@@ -2120,7 +2120,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 child: Row(children: [
                   Icon(Icons.push_pin_rounded, size: 13, color: theme.colorScheme.primary),
                   const SizedBox(width: 5),
-                  Text('Pinned Post', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: theme.colorScheme.primary)),
+                  Text('Pinned Post', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: theme.colorScheme.primary)),
                 ]),
               ),
             // Header
@@ -2128,10 +2128,10 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               leading: CircleAvatar(
                 backgroundColor: theme.colorScheme.primaryContainer,
-                child: Text(authorInitial, style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimaryContainer)),
+                child: Text(authorInitial, style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimaryContainer)),
               ),
               title: Row(children: [
-                Flexible(child: Text(item.author ?? 'Anonymous', style: GoogleFonts.inter(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                Flexible(child: Text(item.author ?? 'Anonymous', style: TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
                 if (item.isEdited) ...[
                   const SizedBox(width: 6),
                   Container(
@@ -2140,12 +2140,12 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                       color: theme.colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Text('edited', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurfaceVariant)),
+                    child: Text('edited', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurfaceVariant)),
                   ),
                 ],
               ]),
               subtitle: item.publishedDate != null
-                  ? Text(_timeAgo(item.publishedDate!), style: GoogleFonts.inter(fontSize: 12, color: theme.colorScheme.onSurfaceVariant))
+                  ? Text(_timeAgo(item.publishedDate!), style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant))
                   : null,
               trailing: IconButton(
                 icon: Icon(Icons.more_horiz_rounded, color: theme.colorScheme.onSurfaceVariant),
@@ -2156,7 +2156,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             if (item.name?.isNotEmpty == true)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-                child: Text(item.name!, style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18, height: 1.25)),
+                child: Text(item.name!, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, height: 1.25)),
               ),
             // Body with read-more
             Builder(builder: (_) {
@@ -2206,7 +2206,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                         }),
                         child: Text(
                           isExpanded ? 'Show less' : 'Read more',
-                          style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: theme.colorScheme.primary),
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: theme.colorScheme.primary),
                         ),
                       ),
                     ),
@@ -2266,7 +2266,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
           Text(emoji, style: const TextStyle(fontSize: 17)),
           if (count > 0) ...[
             const SizedBox(width: 4),
-            Text('$count', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurfaceVariant)),
+            Text('$count', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurfaceVariant)),
           ],
         ]),
       ),
@@ -2345,7 +2345,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
           Icon(icon, size: 19, color: color),
           if (label.isNotEmpty && label != '0') ...[
             const SizedBox(width: 5),
-            Text(label, style: GoogleFonts.inter(
+            Text(label, style: TextStyle(
                 color: color, fontWeight: FontWeight.bold, fontSize: 13)),
           ],
         ]),
@@ -2609,7 +2609,7 @@ class _CreatePostDialogState extends State<CreatePostDialog>
             onPressed: () => Navigator.pop(context),
           ),
           title: Text('New Post in ${widget.space.name}',
-              style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 16),
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
               maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: [
             if (_isPublishing)
@@ -2648,10 +2648,10 @@ class _CreatePostDialogState extends State<CreatePostDialog>
                 // Title
                 TextField(
                   controller: _titleController,
-                  style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 20),
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20),
                   decoration: InputDecoration(
                     hintText: 'Post title (optional)...',
-                    hintStyle: GoogleFonts.inter(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4), fontWeight: FontWeight.w900, fontSize: 20),
+                    hintStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4), fontWeight: FontWeight.w900, fontSize: 20),
                     border: InputBorder.none,
                   ),
                   textCapitalization: TextCapitalization.sentences,
@@ -2662,10 +2662,10 @@ class _CreatePostDialogState extends State<CreatePostDialog>
                 // Tags
                 TextField(
                   controller: _tagsController,
-                  style: GoogleFonts.inter(fontSize: 14),
+                  style: TextStyle(fontSize: 14),
                   decoration: InputDecoration(
                     hintText: 'Tags (comma separated)...',
-                    hintStyle: GoogleFonts.inter(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5), fontSize: 14),
+                    hintStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5), fontSize: 14),
                     border: InputBorder.none,
                     prefixIcon: Icon(Icons.tag_rounded, size: 16, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
                     prefixIconConstraints: const BoxConstraints(minWidth: 32),
@@ -2680,10 +2680,10 @@ class _CreatePostDialogState extends State<CreatePostDialog>
                   controller: _contentController,
                   maxLines: null,
                   minLines: 10,
-                  style: GoogleFonts.inter(fontSize: 16, height: 1.6),
+                  style: TextStyle(fontSize: 16, height: 1.6),
                   decoration: InputDecoration(
                     hintText: "What's on your mind?\n\nMarkdown is supported: **bold**, _italic_, [links](url)",
-                    hintStyle: GoogleFonts.inter(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4), fontSize: 15, height: 1.6),
+                    hintStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4), fontSize: 15, height: 1.6),
                     border: InputBorder.none,
                   ),
                   textCapitalization: TextCapitalization.sentences,
@@ -2718,12 +2718,12 @@ class _CreatePostDialogState extends State<CreatePostDialog>
               padding: const EdgeInsets.all(20),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 if (_titleController.text.isNotEmpty) ...[
-                  Text(_titleController.text, style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 24, height: 1.2)),
+                  Text(_titleController.text, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 24, height: 1.2)),
                   const SizedBox(height: 16),
                 ],
                 if (content.isEmpty)
                   Text('Nothing to preview yet. Write something in the Write tab.',
-                      style: GoogleFonts.inter(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5), fontSize: 15))
+                      style: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5), fontSize: 15))
                 else
                   MarkdownBody(
                     data: content,
@@ -2768,7 +2768,7 @@ class _CreatePostDialogState extends State<CreatePostDialog>
             ),
             const Spacer(),
             Text('$wordCount w · ${content.length} ch',
-                style: GoogleFonts.inter(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
             const SizedBox(width: 12),
           ]),
         ),

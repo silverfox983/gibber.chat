@@ -37,6 +37,35 @@ import '../screens/article_view_screen.dart';
 import '../screens/group_settings_screen.dart';
 import '../screens/register_screen.dart';
 
+CustomTransitionPage<void> _fadePage({
+  required GoRouterState state,
+  required Widget child,
+}) {
+  return CustomTransitionPage(
+    key: state.pageKey,
+    child: child,
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      return FadeTransition(
+        opacity: CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        ),
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.98, end: 1.0).animate(
+            CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+            ),
+          ),
+          child: child,
+        ),
+      );
+    },
+    transitionDuration: const Duration(milliseconds: 300),
+    reverseTransitionDuration: const Duration(milliseconds: 200),
+  );
+}
+
 GoRouter createAppRouter({
   required AuthService authService,
   required ChatProvider chatProvider,
@@ -62,19 +91,19 @@ GoRouter createAppRouter({
       GoRoute(
         path: '/',
         name: 'landing',
-        builder: (context, state) => const LandingScreen(),
+        pageBuilder: (context, state) => _fadePage(state: state, child: const LandingScreen()),
       ),
       GoRoute(
         path: '/login',
         name: 'login',
-        builder: (context, state) => LoginScreen(
+        pageBuilder: (context, state) => _fadePage(state: state, child: LoginScreen(
           isAddingAccount: state.uri.queryParameters['addAccount'] == 'true',
-        ),
+        )),
       ),
       GoRoute(
         path: '/register',
         name: 'register',
-        builder: (context, state) => const RegisterScreen(),
+        pageBuilder: (context, state) => _fadePage(state: state, child: const RegisterScreen()),
       ),
       ShellRoute(
         builder: (context, state, child) {
@@ -95,47 +124,47 @@ GoRouter createAppRouter({
           GoRoute(
             path: '/app',
             name: 'home',
-            builder: (context, state) => const MainChatScreen(),
+            pageBuilder: (context, state) => _fadePage(state: state, child: const MainChatScreen()),
             routes: [
               GoRoute(
                 path: 'contacts',
                 name: 'contacts',
-                builder: (context, state) => const ContactsScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const ContactsScreen()),
               ),
               GoRoute(
                 path: 'add-contact',
                 name: 'addContact',
-                builder: (context, state) => const AddContactScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const AddContactScreen()),
               ),
               GoRoute(
                 path: 'contact-profile',
                 name: 'contactProfile',
-                builder: (context, state) {
+                pageBuilder: (context, state) {
                   final args = state.extra as Map<String, dynamic>;
-                  return ContactProfileScreen(
+                  return _fadePage(state: state, child: ContactProfileScreen(
                     contact: args['contact'] as Contact,
-                  );
+                  ));
                 },
               ),
               GoRoute(
                 path: 'profile',
                 name: 'profile',
-                builder: (context, state) => const ProfileScreen(isSidebar: false),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const ProfileScreen(isSidebar: false)),
               ),
               GoRoute(
                 path: 'preferences',
                 name: 'preferences',
-                builder: (context, state) => const AccountPreferencesScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const AccountPreferencesScreen()),
                 routes: [
                   GoRoute(
                     path: 'security',
                     name: 'security',
-                    builder: (context, state) => const SecuritySettingsScreen(),
+                    pageBuilder: (context, state) => _fadePage(state: state, child: const SecuritySettingsScreen()),
                     routes: [
                       GoRoute(
                         path: 'identity',
                         name: 'identity',
-                        builder: (context, state) => const IdentityTrustScreen(),
+                        pageBuilder: (context, state) => _fadePage(state: state, child: const IdentityTrustScreen()),
                       ),
                     ],
                   ),
@@ -144,134 +173,134 @@ GoRouter createAppRouter({
               GoRoute(
                 path: 'invite',
                 name: 'invite',
-                builder: (context, state) => const InviteScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const InviteScreen()),
               ),
               GoRoute(
                 path: 'recordings',
                 name: 'recordings',
-                builder: (context, state) => const RecordingsScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const RecordingsScreen()),
               ),
               GoRoute(
                 path: 'tier',
                 name: 'tier',
-                builder: (context, state) => const TierScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const TierScreen()),
               ),
               GoRoute(
                 path: 'transports',
                 name: 'transports',
-                builder: (context, state) => const TransportsScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const TransportsScreen()),
               ),
               GoRoute(
                 path: 'create-room',
                 name: 'createRoom',
-                builder: (context, state) => const CreateRoomScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const CreateRoomScreen()),
               ),
               GoRoute(
                 path: 'room-discovery',
                 name: 'roomDiscovery',
-                builder: (context, state) => const RoomDiscoveryScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const RoomDiscoveryScreen()),
               ),
               GoRoute(
                 path: 'room-info',
                 name: 'roomInfo',
-                builder: (context, state) {
+                pageBuilder: (context, state) {
                   final args = state.extra as Map<String, dynamic>;
-                  return RoomInfoScreen(
+                  return _fadePage(state: state, child: RoomInfoScreen(
                     room: args['room'] as Map<String, dynamic>,
                     accountId: args['accountId'] as String,
-                  );
+                  ));
                 },
               ),
               GoRoute(
                 path: 'room-settings',
                 name: 'roomSettings',
-                builder: (context, state) {
+                pageBuilder: (context, state) {
                   final args = state.extra as Map<String, dynamic>;
-                  return RoomSettingsScreen(
+                  return _fadePage(state: state, child: RoomSettingsScreen(
                     room: args['room'] as Conversation,
-                  );
+                  ));
                 },
               ),
               GoRoute(
                 path: 'room-affiliation',
                 name: 'roomAffiliation',
-                builder: (context, state) {
+                pageBuilder: (context, state) {
                   final args = state.extra as Map<String, dynamic>;
-                  return RoomAffiliationScreen(
+                  return _fadePage(state: state, child: RoomAffiliationScreen(
                     room: args['room'] as Conversation,
-                  );
+                  ));
                 },
               ),
               GoRoute(
                 path: 'search',
                 name: 'search',
-                builder: (context, state) => const NexusSearchScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const NexusSearchScreen()),
               ),
               GoRoute(
                 path: 'feed',
                 name: 'feed',
-                builder: (context, state) => const FeedScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const FeedScreen()),
               ),
               GoRoute(
                 path: 'spaces',
                 name: 'spaces',
-                builder: (context, state) => const SpacesScreen(),
+                pageBuilder: (context, state) => _fadePage(state: state, child: const SpacesScreen()),
               ),
               GoRoute(
                 path: 'space-settings',
                 name: 'spaceSettings',
-                builder: (context, state) {
+                pageBuilder: (context, state) {
                   final args = state.extra as Map<String, dynamic>;
-                  return SpaceSettingsScreen(
+                  return _fadePage(state: state, child: SpaceSettingsScreen(
                     space: args['space'] as SpaceNode,
                     spacesService: args['spacesService'] as SpacesService,
-                  );
+                  ));
                 },
               ),
               GoRoute(
                 path: 'post-detail',
                 name: 'postDetail',
-                builder: (context, state) {
+                pageBuilder: (context, state) {
                   final args = state.extra as Map<String, dynamic>;
-                  return PostDetailScreen(
+                  return _fadePage(state: state, child: PostDetailScreen(
                     post: args['post'] as SpaceItem,
                     space: args['space'] as SpaceNode,
                     spacesService: args['spacesService'] as SpacesService,
                     allItems: args['allItems'] as List<SpaceItem>,
-                  );
+                  ));
                 },
               ),
               GoRoute(
                 path: 'post-thread',
                 name: 'postThread',
-                builder: (context, state) {
+                pageBuilder: (context, state) {
                   final args = state.extra as Map<String, dynamic>;
-                  return PostThreadScreen(
+                  return _fadePage(state: state, child: PostThreadScreen(
                     post: args['post'] as SpaceItem,
                     space: args['space'] as SpaceNode,
                     spacesService: args['spacesService'] as SpacesService,
-                  );
+                  ));
                 },
               ),
               GoRoute(
                 path: 'article-view',
                 name: 'articleView',
-                builder: (context, state) {
+                pageBuilder: (context, state) {
                   final args = state.extra as Map<String, dynamic>;
-                  return ArticleViewScreen(
+                  return _fadePage(state: state, child: ArticleViewScreen(
                     item: args['item'] as SpaceItem,
                     spacesService: args['spacesService'] as SpacesService?,
-                  );
+                  ));
                 },
               ),
               GoRoute(
                 path: 'group-settings',
                 name: 'groupSettings',
-                builder: (context, state) {
+                pageBuilder: (context, state) {
                   final args = state.extra as Map<String, dynamic>;
-                  return GroupSettingsScreen(
+                  return _fadePage(state: state, child: GroupSettingsScreen(
                     conversation: args['conversation'] as Conversation,
-                  );
+                  ));
                 },
               ),
             ],

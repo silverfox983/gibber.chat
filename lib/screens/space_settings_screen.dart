@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 import '../models/space_models.dart';
 import '../services/spaces_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -148,7 +148,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('GENERAL', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
+          Text('GENERAL', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
           const SizedBox(height: 16),
           TextField(
             controller: _nameController,
@@ -161,7 +161,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
             decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder()),
           ),
           const SizedBox(height: 24),
-          Text('PRIVACY', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
+          Text('PRIVACY', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
             initialValue: _accessModel,
@@ -175,7 +175,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
             },
           ),
           const SizedBox(height: 24),
-          Text('NOTIFICATIONS', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
+          Text('NOTIFICATIONS', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
             initialValue: _notificationPref,
@@ -196,7 +196,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
           const SizedBox(height: 32),
           Row(
             children: [
-              Text('MEMBERS', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
+              Text('MEMBERS', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
               const Spacer(),
               if (_members == null) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
             ],
@@ -213,7 +213,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
                onTap: () => _showMemberOptions(m),
              )),
           const SizedBox(height: 32),
-          Text('DANGER ZONE', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.red, letterSpacing: 1.2, fontSize: 12)),
+          Text('DANGER ZONE', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red, letterSpacing: 1.2, fontSize: 12)),
           const SizedBox(height: 16),
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),

@@ -26,7 +26,7 @@ class ArticleViewScreen extends StatelessWidget {
         : null;
 
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
@@ -34,7 +34,6 @@ class ArticleViewScreen extends StatelessWidget {
             floating: false,
             pinned: true,
             stretch: true,
-            backgroundColor: theme.colorScheme.surface,
             flexibleSpace: FlexibleSpaceBar(
               stretchModes: const [
                 StretchMode.zoomBackground,

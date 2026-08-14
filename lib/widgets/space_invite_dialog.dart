@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 import '../services/spaces_service.dart';
 
 class SpaceInviteDialog extends StatefulWidget {
@@ -57,11 +57,11 @@ class _SpaceInviteDialogState extends State<SpaceInviteDialog> {
         padding: const EdgeInsets.all(24),
         child: Column(mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Invite Member', style: GoogleFonts.inter(
+          Text('Invite Member', style: TextStyle(
               fontWeight: FontWeight.w900, fontSize: 20)),
           const SizedBox(height: 4),
           Text('Invite someone to this space by their address.',
-              style: GoogleFonts.inter(fontSize: 13,
+              style: TextStyle(fontSize: 13,
                   color: theme.colorScheme.onSurfaceVariant)),
           const SizedBox(height: 20),
           TextField(
@@ -75,7 +75,7 @@ class _SpaceInviteDialogState extends State<SpaceInviteDialog> {
             ),
           ),
           const SizedBox(height: 14),
-          Text('Role', style: GoogleFonts.inter(
+          Text('Role', style: TextStyle(
               fontWeight: FontWeight.w700, fontSize: 13,
               color: theme.colorScheme.onSurfaceVariant)),
           const SizedBox(height: 8),
@@ -118,7 +118,7 @@ class _SpaceInviteDialogState extends State<SpaceInviteDialog> {
     return ChoiceChip(
       avatar: Icon(icon, size: 15,
           color: selected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant),
-      label: Text(label, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+      label: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
       selected: selected,
       onSelected: (_) => setState(() => _affiliation = value),
       selectedColor: theme.colorScheme.primary,

@@ -9,7 +9,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 
 class RecordingsScreen extends StatefulWidget {
   const RecordingsScreen({super.key});
@@ -371,7 +371,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                       const CircularProgressIndicator(),
                       const SizedBox(height: 16),
                       Text('Exporting recordings…',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                     ]),
                   ),
                 ),
@@ -391,12 +391,12 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
           const SizedBox(height: 16),
           Text('No recordings yet',
-              style: GoogleFonts.inter(
+              style: TextStyle(
                   color: theme.colorScheme.onSurfaceVariant,
                   fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Text('Call recordings will appear here automatically.',
-              style: GoogleFonts.inter(
+              style: TextStyle(
                   color: theme.colorScheme.onSurfaceVariant,
                   fontSize: 13)),
         ],
@@ -510,17 +510,17 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(_displayName(file),
-                            style: GoogleFonts.inter(
+                            style: TextStyle(
                                 fontWeight: FontWeight.w800, fontSize: 14),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis),
                         const SizedBox(height: 2),
                         Text(_formatDate(file.lastModifiedSync()),
-                            style: GoogleFonts.inter(
+                            style: TextStyle(
                                 fontSize: 11,
                                 color: theme.colorScheme.onSurfaceVariant)),
                         Text(_formatFileSize(file.lengthSync()),
-                            style: GoogleFonts.inter(
+                            style: TextStyle(
                                 fontSize: 10,
                                 color: theme.colorScheme.onSurfaceVariant
                                     .withValues(alpha: 0.7))),
@@ -569,12 +569,12 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: Row(children: [
                       Text(_formatDuration(_playbackPos),
-                          style: GoogleFonts.inter(
+                          style: TextStyle(
                               fontSize: 10,
                               color: theme.colorScheme.onSurfaceVariant)),
                       const Spacer(),
                       Text(_formatDuration(_playbackDur),
-                          style: GoogleFonts.inter(
+                          style: TextStyle(
                               fontSize: 10,
                               color: theme.colorScheme.onSurfaceVariant)),
                     ]),
@@ -613,7 +613,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Text(_displayName(file),
-                style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 16),
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                 maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
           const SizedBox(height: 8),
@@ -648,9 +648,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         child: Icon(icon, color: c, size: 20),
       ),
       title: Text(title,
-          style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: c)),
+          style: TextStyle(fontWeight: FontWeight.w700, color: c)),
       subtitle: Text(subtitle,
-          style: GoogleFonts.inter(fontSize: 11,
+          style: TextStyle(fontSize: 11,
               color: theme.colorScheme.onSurfaceVariant)),
       onTap: onTap,
     );

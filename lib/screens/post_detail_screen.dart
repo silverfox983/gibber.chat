@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/space_models.dart';
@@ -198,13 +198,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 CircleAvatar(
                   radius: 12,
                   backgroundColor: theme.colorScheme.secondaryContainer,
-                  child: Text(authorInitial, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: theme.colorScheme.onSecondaryContainer)),
+                  child: Text(authorInitial, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: theme.colorScheme.onSecondaryContainer)),
                 ),
                 const SizedBox(width: 8),
-                Text(reply.author ?? 'Anonymous', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13)),
+                Text(reply.author ?? 'Anonymous', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 const SizedBox(width: 8),
                 if (reply.publishedDate != null)
-                  Text(_timeAgo(reply.publishedDate!), style: GoogleFonts.inter(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                  Text(_timeAgo(reply.publishedDate!), style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
               ],
             ),
           ),
@@ -236,15 +236,15 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     children: [
                       CircleAvatar(
                         backgroundColor: theme.colorScheme.primaryContainer,
-                        child: Text(authorInitial, style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimaryContainer)),
+                        child: Text(authorInitial, style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimaryContainer)),
                       ),
                       const SizedBox(width: 12),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(widget.post.author ?? 'Anonymous', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text(widget.post.author ?? 'Anonymous', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                           if (widget.post.publishedDate != null)
-                            Text(_timeAgo(widget.post.publishedDate!), style: GoogleFonts.inter(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+                            Text(_timeAgo(widget.post.publishedDate!), style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
                         ],
                       ),
                     ],
@@ -253,7 +253,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 if (widget.post.name?.isNotEmpty == true)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(widget.post.name!, style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 20, height: 1.25)),
+                    child: Text(widget.post.name!, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, height: 1.25)),
                   ),
                 _buildContent(theme, widget.post),
                 
@@ -273,7 +273,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      Text('${_replies.length} Replies', style: GoogleFonts.inter(fontWeight: FontWeight.w900)),
+                      Text('${_replies.length} Replies', style: TextStyle(fontWeight: FontWeight.w900)),
                       if (_isLoadingReplies) ...[
                         const SizedBox(width: 12),
                         const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
@@ -285,7 +285,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   Padding(
                     padding: const EdgeInsets.all(32),
                     child: Center(
-                      child: Text('No replies yet. Be the first!', style: GoogleFonts.inter(color: theme.colorScheme.onSurfaceVariant)),
+                      child: Text('No replies yet. Be the first!', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
                     ),
                   )
                 else

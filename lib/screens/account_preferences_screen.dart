@@ -23,10 +23,7 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('Account Preferences', style: TextStyle(fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onPrimary)),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        elevation: 0,
-        iconTheme: IconThemeData(color: Theme.of(context).colorScheme.onPrimary),
+        title: const Text('Account Preferences'),
       ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: null,
@@ -480,12 +477,10 @@ class _AccountEditorScreenState extends State<AccountEditorScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Edit Account', style: TextStyle(fontWeight: FontWeight.w900)),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+        title: const Text('Edit Account'),
         actions: [
           IconButton(
-            icon: Icon(Icons.check_rounded, color: Theme.of(context).colorScheme.primary, size: 28),
+            icon: const Icon(Icons.check_rounded),
             onPressed: _saveChanges,
             tooltip: 'Save Settings',
           ),

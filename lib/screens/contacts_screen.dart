@@ -46,16 +46,10 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
               expandedHeight: 180.0,
               floating: false,
               pinned: true,
-              backgroundColor: Theme.of(context).colorScheme.primary,
               flexibleSpace: FlexibleSpaceBar(
                 titlePadding: const EdgeInsets.only(left: 24, bottom: 64),
-                title: Text(
+                title: const Text(
                   'Social Spaces',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: Theme.of(context).colorScheme.onPrimary,
-                    shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 10)],
-                  ),
                 ),
                 background: Stack(
                   fit: StackFit.expand,

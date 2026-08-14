@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 import '../models/transport_models.dart';
 import '../services/transport_service.dart';
 import 'glassmorphic_container.dart';
@@ -23,7 +23,7 @@ Future<void> showTransportRegistrationDialog({
           children: [
             const CircularProgressIndicator(strokeWidth: 3),
             const SizedBox(height: 16),
-            Text('Probing...', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold)),
+            Text('Probing...', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
           ],
         ),
       ),
@@ -153,14 +153,14 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('GATEWAY REGISTRATION',
-                            style: GoogleFonts.inter(
+                            style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: 1.5,
                                 color: theme.colorScheme.primary)),
                         const SizedBox(height: 4),
                         Text(widget.gatewayName,
-                            style: GoogleFonts.inter(
+                            style: TextStyle(
                                 fontSize: 22, fontWeight: FontWeight.w900)),
                       ],
                     ),
@@ -204,11 +204,11 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Active Connection',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(
                             fontWeight: FontWeight.w900, fontSize: 14)),
                     const SizedBox(height: 2),
                     Text('You are registered with this service.',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(
                             fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
                   ],
                 ),
@@ -219,7 +219,7 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
         const SizedBox(height: 24),
         Text(
           'To use this transport, you can start searching for contacts or rooms from this provider.',
-          style: GoogleFonts.inter(
+          style: TextStyle(
               fontSize: 13, height: 1.5, color: theme.colorScheme.onSurfaceVariant),
           textAlign: TextAlign.center,
         ),
@@ -240,7 +240,7 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
             ),
             child: Text(
               widget.form.instructions!,
-              style: GoogleFonts.inter(fontSize: 12, height: 1.5),
+              style: TextStyle(fontSize: 12, height: 1.5),
             ),
           ),
           const SizedBox(height: 20),
@@ -257,7 +257,7 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
                 }
               },
               icon: const Icon(Icons.open_in_browser_rounded),
-              label: Text('Authenticate via Browser', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+              label: Text('Authenticate via Browser', style: TextStyle(fontWeight: FontWeight.bold)),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -266,7 +266,7 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
           ),
           const SizedBox(height: 24),
           Text('After authenticating in your browser, press "Complete Registration" below.',
-              style: GoogleFonts.inter(fontSize: 12, color: theme.colorScheme.onSurfaceVariant), textAlign: TextAlign.center),
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant), textAlign: TextAlign.center),
           const SizedBox(height: 16),
         ],
         ...widget.form.fields.map((field) {
@@ -281,7 +281,7 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: SwitchListTile(
-                  title: Text(field.label ?? field.varName, style: GoogleFonts.inter(fontSize: 14)),
+                  title: Text(field.label ?? field.varName, style: TextStyle(fontSize: 14)),
                   value: _formData[field.varName] == '1',
                   onChanged: (val) => setState(() => _formData[field.varName] = val ? '1' : '0'),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -297,7 +297,7 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
                 initialValue: _formData[field.varName]!.isNotEmpty ? _formData[field.varName] : field.options!.first.value,
                 decoration: InputDecoration(
                   labelText: field.label ?? field.varName,
-                  labelStyle: GoogleFonts.inter(fontSize: 14),
+                  labelStyle: TextStyle(fontSize: 14),
                   filled: true,
                   fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
@@ -318,7 +318,7 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
               obscureText: field.type == 'text-private' || field.varName.toLowerCase().contains('password'),
               decoration: InputDecoration(
                 labelText: field.label ?? field.varName,
-                labelStyle: GoogleFonts.inter(fontSize: 14),
+                labelStyle: TextStyle(fontSize: 14),
                 filled: true,
                 fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                 border: OutlineInputBorder(
@@ -408,7 +408,7 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : Text(widget.form.oobUrl != null ? 'COMPLETE REGISTRATION' : 'CONNECT SERVICE', style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 13)),
+                  : Text(widget.form.oobUrl != null ? 'COMPLETE REGISTRATION' : 'CONNECT SERVICE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
             ),
           ),
       ],

@@ -55,20 +55,9 @@ class RoomInfoScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Room Details', style: TextStyle(fontWeight: FontWeight.w900)),
+        title: const Text('Room Details'),
         centerTitle: true,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        flexibleSpace: ClipRRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(
-              color: theme.colorScheme.surface.withValues(alpha: 0.6),
-            ),
-          ),
-        ),
       ),
       body: Stack(
         children: [

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:html2md/html2md.dart' as html2md;
@@ -122,7 +122,7 @@ class _PostThreadScreenState extends State<PostThreadScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('Thread', style: GoogleFonts.inter(fontWeight: FontWeight.w900)),
+        title: Text('Thread', style: TextStyle(fontWeight: FontWeight.w900)),
         centerTitle: false,
         elevation: 0,
         backgroundColor: theme.scaffoldBackgroundColor,
@@ -158,7 +158,7 @@ class _PostThreadScreenState extends State<PostThreadScreen> {
                       Text(
                         _loading ? 'Loading replies…' :
                           '${_replies?.length ?? 0} ${(_replies?.length ?? 0) == 1 ? 'Reply' : 'Replies'}',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w800,
+                        style: TextStyle(fontWeight: FontWeight.w800,
                             fontSize: 13, color: theme.colorScheme.primary),
                       ),
                       const Spacer(),
@@ -186,7 +186,7 @@ class _PostThreadScreenState extends State<PostThreadScreen> {
                             color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
                         const SizedBox(height: 12),
                         Text('Be the first to reply!',
-                            style: GoogleFonts.inter(
+                            style: TextStyle(
                                 color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
                       ]),
                     ))
@@ -231,17 +231,17 @@ class _PostThreadScreenState extends State<PostThreadScreen> {
             backgroundColor: theme.colorScheme.primaryContainer,
             child: Text(
               post.author?.isNotEmpty == true ? post.author![0].toUpperCase() : '?',
-              style: GoogleFonts.inter(fontWeight: FontWeight.bold,
+              style: TextStyle(fontWeight: FontWeight.bold,
                   color: theme.colorScheme.onPrimaryContainer),
             ),
           ),
           const SizedBox(width: 10),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(post.author ?? 'Anonymous',
-                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14)),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
             if (post.publishedDate != null)
               Text(_timeAgo(post.publishedDate!),
-                  style: GoogleFonts.inter(
+                  style: TextStyle(
                       fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
           ])),
           // Reactions summary
@@ -263,7 +263,7 @@ class _PostThreadScreenState extends State<PostThreadScreen> {
         if (post.name?.isNotEmpty == true) ...[
           const SizedBox(height: 12),
           Text(post.name!,
-              style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 20, height: 1.2)),
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, height: 1.2)),
         ],
         if (content.isNotEmpty) ...[
           const SizedBox(height: 8),
@@ -343,17 +343,17 @@ class _PostThreadScreenState extends State<PostThreadScreen> {
             backgroundColor: theme.colorScheme.tertiaryContainer,
             child: Text(
               reply.author?.isNotEmpty == true ? reply.author![0].toUpperCase() : '?',
-              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12,
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12,
                   color: theme.colorScheme.onTertiaryContainer),
             ),
           ),
           const SizedBox(width: 8),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(reply.author ?? 'Anonymous',
-                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13)),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
             if (reply.publishedDate != null)
               Text(_timeAgo(reply.publishedDate!),
-                  style: GoogleFonts.inter(fontSize: 10,
+                  style: TextStyle(fontSize: 10,
                       color: theme.colorScheme.onSurfaceVariant)),
           ])),
           GestureDetector(
@@ -364,7 +364,7 @@ class _PostThreadScreenState extends State<PostThreadScreen> {
         ]),
         if (content.isNotEmpty) ...[
           const SizedBox(height: 8),
-          Text(content, style: GoogleFonts.inter(fontSize: 14, height: 1.5,
+          Text(content, style: TextStyle(fontSize: 14, height: 1.5,
               color: theme.colorScheme.onSurface)),
         ],
       ]),
@@ -387,7 +387,7 @@ class _PostThreadScreenState extends State<PostThreadScreen> {
             minLines: 1,
             decoration: InputDecoration(
               hintText: 'Write a reply…',
-              hintStyle: GoogleFonts.inter(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
+              hintStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
               filled: true,
               fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
               border: OutlineInputBorder(

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../services/entitlement_service.dart';
@@ -198,10 +198,10 @@ class _TransportsScreenState extends State<TransportsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Gateways & Transports',
-                style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18)),
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
             if (_gateways.isNotEmpty)
               Text('${_gateways.length} available',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(
                       fontSize: 11,
                       color: theme.colorScheme.primary,
                       fontWeight: FontWeight.w600)),
@@ -259,7 +259,7 @@ class _TransportsScreenState extends State<TransportsScreen> {
               const SizedBox(width: 8),
               Text(
                 _statusText,
-                style: GoogleFonts.inter(
+                style: TextStyle(
                     fontSize: 12,
                     color: _isLoading
                         ? theme.colorScheme.primary
@@ -339,7 +339,7 @@ class _TransportsScreenState extends State<TransportsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(children: [
-                        Text(gw.name, style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 16)),
+                        Text(gw.name, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                         if (isLocked) ...[
                           const SizedBox(width: 6),
                           Container(
@@ -349,7 +349,7 @@ class _TransportsScreenState extends State<TransportsScreen> {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text('${neededTier.label} only',
-                                style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.orange)),
+                                style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.orange)),
                           ),
                         ],
                       ]),
@@ -362,7 +362,7 @@ class _TransportsScreenState extends State<TransportsScreen> {
                         ),
                         child: Text(
                           meta.label,
-                          style: GoogleFonts.inter(
+                          style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
                               color: meta.color),
@@ -382,7 +382,7 @@ class _TransportsScreenState extends State<TransportsScreen> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(isLocked ? 'Upgrade' : 'Connect',
-                          style: GoogleFonts.inter(
+                          style: TextStyle(
                               color: Colors.white,
                               fontSize: 12,
                               fontWeight: FontWeight.w700)),
@@ -409,12 +409,12 @@ class _TransportsScreenState extends State<TransportsScreen> {
                   color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.25)),
               const SizedBox(height: 24),
               Text('No Local Gateways',
-                  style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.w900)),
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
               const SizedBox(height: 12),
               Text(
                 'Your home server does not currently advertise any transport gateways.',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.inter(
+                style: TextStyle(
                     fontSize: 14, height: 1.6,
                     color: theme.colorScheme.onSurfaceVariant),
               ),

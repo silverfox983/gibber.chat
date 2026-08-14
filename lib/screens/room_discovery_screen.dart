@@ -147,11 +147,8 @@ class _RoomDiscoveryScreenState extends State<RoomDiscoveryScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('Discover Rooms', style: TextStyle(fontWeight: FontWeight.w900, color: theme.colorScheme.onPrimary)),
-        backgroundColor: theme.colorScheme.primary,
-        elevation: 0,
+        title: const Text('Discover Rooms'),
         centerTitle: true,
-        iconTheme: IconThemeData(color: theme.colorScheme.onPrimary),
       ),
       body: Column(
         children: [

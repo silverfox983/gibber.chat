@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../models/chat_models.dart';
-import '../services/registration_service.dart';
 
 class LoginScreen extends StatefulWidget {
   final bool isAddingAccount;
@@ -18,12 +17,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _jidController = TextEditingController();
   final TextEditingController _passController = TextEditingController();
-  final TextEditingController _portController = TextEditingController(
-    text: kIsWeb ? '443' : '5222',
-  );
-  final TextEditingController _hostController = TextEditingController();
 
-  bool _showAdvanced = false;
   bool _rememberMe = true;
   String? _selectedAccount;
 
@@ -31,8 +25,6 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _jidController.dispose();
     _passController.dispose();
-    _portController.dispose();
-    _hostController.dispose();
     super.dispose();
   }
 
@@ -125,7 +117,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Secure XMPP Communication',
+          'Secure Communication',
           style: TextStyle(
             fontSize: 16,
             color: Colors.white.withValues(alpha: 0.8),
@@ -152,7 +144,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ],
         _buildTextField(
           _jidController,
-          'XMPP ID (user@domain)',
+          'Username',
           Icons.alternate_email,
         ),
         const SizedBox(height: 16),
@@ -190,8 +182,6 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 24),
-        _buildAdvancedToggle(),
         if (authService.lastDiagnostic != null) ...[
           const SizedBox(height: 24),
           _buildDiagnostic(authService.lastDiagnostic!),
@@ -268,12 +258,9 @@ class _LoginScreenState extends State<LoginScreen> {
             if (val == 'new') {
               _jidController.clear();
               _passController.clear();
-              _hostController.clear();
             } else if (val != null) {
               final acc = savedAccounts.firstWhere((a) => a.fullJid == val);
               _jidController.text = acc.fullJid;
-              _portController.text = acc.port.toString();
-              _hostController.text = acc.host ?? '';
             }
           },
         ),
@@ -311,68 +298,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildAdvancedToggle() {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: _buildTextField(
-                _portController,
-                'Port',
-                Icons.settings_ethernet,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 3,
-              child: InkWell(
-                onTap: () => setState(() => _showAdvanced = !_showAdvanced),
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.1),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        _showAdvanced
-                            ? Icons.keyboard_arrow_up_rounded
-                            : Icons.keyboard_arrow_down_rounded,
-                        color: Colors.white.withValues(alpha: 0.9),
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _showAdvanced ? 'Hide Advanced' : 'Advanced',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.9),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        if (_showAdvanced) ...[
-          const SizedBox(height: 16),
-          _buildTextField(_hostController, 'Server Host (Optional)', Icons.dns),
-        ],
-      ],
     );
   }
 
@@ -487,7 +412,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   )
                 : const Text(
-                    'Secure Connect',
+                    'Sign In',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
@@ -519,472 +444,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ],
         ),
-        if (_selectedAccount == 'new' || _selectedAccount == null)
-          TextButton.icon(
-            onPressed: _showRegistrationDialog,
-            icon: Icon(
-              Icons.person_add_alt_1_rounded,
-              color: Colors.white.withValues(alpha: 0.6),
-              size: 18,
-            ),
-              label: Text(
-                'External Server Registration',
-                style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.6),
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
       ],
-    );
-  }
-
-  void _showRegistrationDialog() {
-    final publicDomainController = TextEditingController(text: 'movim.eu');
-    final publicUserController = TextEditingController();
-    final publicPassController = TextEditingController();
-
-    final inviteTokenController = TextEditingController();
-    final inviteUserController = TextEditingController();
-    final invitePassController = TextEditingController();
-    final inviteDomainController = TextEditingController();
-
-    final publicServers = [
-      'movim.eu',
-      'conversations.im',
-      'xmpp.jp',
-      'jabb.im',
-      'Custom...',
-    ];
-    String selectedServer = 'movim.eu';
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        bool isRegistering = false;
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            return DefaultTabController(
-              length: 2,
-              child: AlertDialog(
-                backgroundColor: Theme.of(context).colorScheme.surface,
-                contentPadding: EdgeInsets.zero,
-                titlePadding: const EdgeInsets.only(
-                  top: 24,
-                  left: 24,
-                  right: 24,
-                  bottom: 8,
-                ),
-                title: const Text(
-                  'Register XMPP Account',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                content: SizedBox(
-                  width: double.maxFinite,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const TabBar(
-                        tabs: [
-                          Tab(text: 'Public Server'),
-                          Tab(text: 'Invite Token'),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Flexible(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                          child: SingleChildScrollView(
-                            child: SizedBox(
-                              height: 340,
-                              child: TabBarView(
-                                children: [
-                                  // Tab 1: Public Server
-                                  Column(
-                                    children: [
-                                      DropdownButtonFormField<String>(
-                                        initialValue: selectedServer,
-                                        decoration: const InputDecoration(
-                                          labelText: 'Select Public Server',
-                                          border: OutlineInputBorder(),
-                                        ),
-                                        items: publicServers
-                                            .map(
-                                              (s) => DropdownMenuItem(
-                                                value: s,
-                                                child: Text(s),
-                                              ),
-                                            )
-                                            .toList(),
-                                        onChanged: (val) {
-                                          if (val != null) {
-                                            setStateDialog(() {
-                                              selectedServer = val;
-                                              if (val != 'Custom...') {
-                                                publicDomainController.text =
-                                                    val;
-                                              } else {
-                                                publicDomainController.text =
-                                                    '';
-                                              }
-                                            });
-                                          }
-                                        },
-                                      ),
-                                      if (selectedServer == 'Custom...') ...[
-                                        const SizedBox(height: 12),
-                                        TextField(
-                                          controller: publicDomainController,
-                                          decoration: const InputDecoration(
-                                            labelText: 'Custom Domain',
-                                            border: OutlineInputBorder(),
-                                          ),
-                                        ),
-                                      ],
-                                      const SizedBox(height: 12),
-                                      TextField(
-                                        controller: publicUserController,
-                                        decoration: const InputDecoration(
-                                          labelText: 'Username',
-                                          border: OutlineInputBorder(),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      TextField(
-                                        controller: publicPassController,
-                                        obscureText: true,
-                                        decoration: const InputDecoration(
-                                          labelText: 'Password',
-                                          border: OutlineInputBorder(),
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      SizedBox(
-                                        width: double.infinity,
-                                        child: ElevatedButton(
-                                          onPressed: isRegistering
-                                              ? null
-                                              : () async {
-                                                  final domain =
-                                                      publicDomainController
-                                                          .text
-                                                          .trim();
-                                                  final username =
-                                                      publicUserController.text
-                                                          .trim();
-                                                  final password =
-                                                      publicPassController.text;
-
-                                                  if (domain.isEmpty ||
-                                                      username.isEmpty ||
-                                                      password.isEmpty) {
-                                                    ScaffoldMessenger.of(
-                                                      context,
-                                                    ).showSnackBar(
-                                                      const SnackBar(
-                                                        content: Text(
-                                                          'All fields are required.',
-                                                        ),
-                                                      ),
-                                                    );
-                                                    return;
-                                                  }
-
-                                                  setStateDialog(
-                                                    () => isRegistering = true,
-                                                  );
-                                                  try {
-                                                    final success =
-                                                        await RegistrationService.registerAccountInBand(
-                                                          domain,
-                                                          username,
-                                                          password,
-                                                        );
-                                                    if (context.mounted) {
-                                                      if (success) {
-                                                        ScaffoldMessenger.of(
-                                                          context,
-                                                        ).showSnackBar(
-                                                          const SnackBar(
-                                                            content: Text(
-                                                              'Registration successful!',
-                                                            ),
-                                                            backgroundColor:
-                                                                Colors.green,
-                                                          ),
-                                                        );
-                                                        Navigator.pop(context);
-                                                      } else {
-                                                        ScaffoldMessenger.of(
-                                                          context,
-                                                        ).showSnackBar(
-                                                          SnackBar(
-                                                            content: Text(
-                                                              'Registration failed. Server may not support public registration.',
-                                                            ),
-                                                            backgroundColor:
-                                                                Theme.of(
-                                                                      context,
-                                                                    )
-                                                                    .colorScheme
-                                                                    .error,
-                                                          ),
-                                                        );
-                                                      }
-                                                    }
-                                                  } catch (e) {
-                                                    if (context.mounted) {
-                                                      ScaffoldMessenger.of(
-                                                        context,
-                                                      ).showSnackBar(
-                                                        SnackBar(
-                                                          content: Text(
-                                                            'Error: $e',
-                                                          ),
-                                                          backgroundColor:
-                                                              Theme.of(context)
-                                                                  .colorScheme
-                                                                  .error,
-                                                        ),
-                                                      );
-                                                    }
-                                                  } finally {
-                                                    if (context.mounted) {
-                                                      setStateDialog(
-                                                        () => isRegistering =
-                                                            false,
-                                                      );
-                                                    }
-                                                  }
-                                                },
-                                          child: isRegistering
-                                              ? const SizedBox(
-                                                  width: 16,
-                                                  height: 16,
-                                                  child:
-                                                      CircularProgressIndicator(
-                                                        strokeWidth: 2,
-                                                      ),
-                                                )
-                                              : const Text(
-                                                  'REGISTER ON PUBLIC SERVER',
-                                                ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 16),
-                                    ],
-                                  ),
-
-                                  // Tab 2: Invite Token
-                                  Column(
-                                    children: [
-                                      TextField(
-                                        controller: inviteTokenController,
-                                        decoration: const InputDecoration(
-                                          labelText: 'Invite Token or URI',
-                                          border: OutlineInputBorder(),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: TextField(
-                                              controller: inviteUserController,
-                                              decoration: const InputDecoration(
-                                                labelText: 'Username',
-                                                border: OutlineInputBorder(),
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          const Text(
-                                            '@',
-                                            style: TextStyle(fontSize: 16),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: TextField(
-                                              controller:
-                                                  inviteDomainController,
-                                              decoration: const InputDecoration(
-                                                labelText: 'Domain',
-                                                border: OutlineInputBorder(),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 12),
-                                      TextField(
-                                        controller: invitePassController,
-                                        obscureText: true,
-                                        decoration: const InputDecoration(
-                                          labelText: 'Password',
-                                          border: OutlineInputBorder(),
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      SizedBox(
-                                        width: double.infinity,
-                                        child: ElevatedButton(
-                                          onPressed: isRegistering
-                                              ? null
-                                              : () async {
-                                                  final domain =
-                                                      inviteDomainController
-                                                          .text
-                                                          .trim();
-                                                  final username =
-                                                      inviteUserController.text
-                                                          .trim();
-                                                  final password =
-                                                      invitePassController.text;
-                                                  final tokenInput =
-                                                      inviteTokenController.text
-                                                          .trim();
-
-                                                  if (domain.isEmpty ||
-                                                      username.isEmpty ||
-                                                      password.isEmpty ||
-                                                      tokenInput.isEmpty) {
-                                                    ScaffoldMessenger.of(
-                                                      context,
-                                                    ).showSnackBar(
-                                                      const SnackBar(
-                                                        content: Text(
-                                                          'All fields are required.',
-                                                        ),
-                                                      ),
-                                                    );
-                                                    return;
-                                                  }
-
-                                                  String token = tokenInput;
-                                                  if (tokenInput.contains(
-                                                    'preauth=',
-                                                  )) {
-                                                    final tokenParts =
-                                                        tokenInput.split(
-                                                          'preauth=',
-                                                        );
-                                                    if (tokenParts.length > 1) {
-                                                      token = tokenParts[1]
-                                                          .split(';')
-                                                          .first
-                                                          .split('&')
-                                                          .first;
-                                                    }
-                                                  }
-
-                                                  setStateDialog(
-                                                    () => isRegistering = true,
-                                                  );
-                                                  try {
-                                                    final success =
-                                                        await RegistrationService.registerAccountInBand(
-                                                          domain,
-                                                          username,
-                                                          password,
-                                                          token,
-                                                        );
-                                                    if (context.mounted) {
-                                                      if (success) {
-                                                        ScaffoldMessenger.of(
-                                                          context,
-                                                        ).showSnackBar(
-                                                          const SnackBar(
-                                                            content: Text(
-                                                              'Registration successful!',
-                                                            ),
-                                                            backgroundColor:
-                                                                Colors.green,
-                                                          ),
-                                                        );
-                                                        Navigator.pop(context);
-                                                      } else {
-                                                        ScaffoldMessenger.of(
-                                                          context,
-                                                        ).showSnackBar(
-                                                          SnackBar(
-                                                            content: Text(
-                                                              'Registration failed. Token may be invalid.',
-                                                            ),
-                                                            backgroundColor:
-                                                                Theme.of(
-                                                                      context,
-                                                                    )
-                                                                    .colorScheme
-                                                                    .error,
-                                                          ),
-                                                        );
-                                                      }
-                                                    }
-                                                  } catch (e) {
-                                                    if (context.mounted) {
-                                                      ScaffoldMessenger.of(
-                                                        context,
-                                                      ).showSnackBar(
-                                                        SnackBar(
-                                                          content: Text(
-                                                            'Error: $e',
-                                                          ),
-                                                          backgroundColor:
-                                                              Theme.of(context)
-                                                                  .colorScheme
-                                                                  .error,
-                                                        ),
-                                                      );
-                                                    }
-                                                  } finally {
-                                                    if (context.mounted) {
-                                                      setStateDialog(
-                                                        () => isRegistering =
-                                                            false,
-                                                      );
-                                                    }
-                                                  }
-                                                },
-                                          child: isRegistering
-                                              ? const SizedBox(
-                                                  width: 16,
-                                                  height: 16,
-                                                  child:
-                                                      CircularProgressIndicator(
-                                                        strokeWidth: 2,
-                                                      ),
-                                                )
-                                              : const Text(
-                                                  'REGISTER WITH INVITE',
-                                                ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 16),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: isRegistering
-                        ? null
-                        : () => Navigator.pop(context),
-                    child: const Text('CANCEL'),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 
@@ -1031,15 +491,29 @@ class _LoginScreenState extends State<LoginScreen> {
     final input = _jidController.text.trim();
 
     if (input.isEmpty) {
-      _showLoginError('Please enter your XMPP address.');
+      _showLoginError('Please enter your username.');
       return;
     }
 
-    if (!input.contains('@') ||
-        input.split('@').length != 2 ||
-        input.split('@')[1].isEmpty) {
-      _showLoginError('Invalid XMPP address. Use the format user@domain.com');
+    String user;
+    String domain;
+
+    if (input.contains('@')) {
+      final parts = input.split('@');
+      user = parts[0];
+      domain = parts.length > 1 ? parts[1] : '';
+    } else {
+      user = input;
+      domain = 'gibberapp.online';
+    }
+
+    if (user.isEmpty) {
+      _showLoginError('Please enter a valid username.');
       return;
+    }
+
+    if (domain.isEmpty) {
+      domain = 'gibberapp.online';
     }
 
     if (_passController.text.isEmpty) {
@@ -1047,15 +521,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    final port = int.tryParse(_portController.text);
-    if (port == null || port <= 0 || port > 65535) {
-      _showLoginError('Invalid port number. Use a value between 1 and 65535.');
-      return;
-    }
-
-    final parts = input.split('@');
-    final user = parts[0];
-    final domain = parts.length > 1 ? parts[1] : '';
+    final port = kIsWeb ? 443 : 5222;
 
     try {
       await authService.connectXmpp(
@@ -1063,7 +529,6 @@ class _LoginScreenState extends State<LoginScreen> {
         domain: domain,
         pass: _passController.text,
         port: port,
-        host: _hostController.text.isNotEmpty ? _hostController.text : null,
       );
 
       if (_rememberMe) {
@@ -1072,7 +537,6 @@ class _LoginScreenState extends State<LoginScreen> {
             user: user,
             domain: domain,
             port: port,
-            host: _hostController.text.isNotEmpty ? _hostController.text : null,
             protocol: 'XMPP',
           ),
           _passController.text,
@@ -1101,7 +565,7 @@ class _LoginScreenState extends State<LoginScreen> {
         String errorMessage = errorStr.replaceAll('Exception: ', '');
         if (isSocketError) {
           errorMessage =
-              'Could not reach the server. Check the hostname and your network.';
+              'Could not reach the server. Please check your network connection.';
         } else if (isTlsError) {
           errorMessage =
               'Secure connection failed. Server certificate could not be verified.';
@@ -1130,16 +594,6 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             duration: const Duration(seconds: 12),
             backgroundColor: Theme.of(context).colorScheme.error,
-            action: SnackBarAction(
-              label: 'PROBE',
-              textColor: Colors.white,
-              onPressed: () {
-                final host = _hostController.text.isNotEmpty
-                    ? _hostController.text
-                    : domain;
-                authService.testSocketConnection(host, port);
-              },
-            ),
           ),
         );
       }

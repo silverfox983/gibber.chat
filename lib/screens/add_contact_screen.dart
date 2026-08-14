@@ -67,13 +67,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('Add Connection', style: TextStyle(fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onPrimary)),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onPrimary),
-          onPressed: () => Navigator.pop(context),
-        ),
+        title: const Text('Add Connection'),
       ),
       body: Column(
         children: [

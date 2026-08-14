@@ -84,16 +84,7 @@ class _InviteScreenState extends State<InviteScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(
-          'Server Invites',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            color: theme.colorScheme.onPrimary,
-          ),
-        ),
-        elevation: 0,
-        backgroundColor: theme.colorScheme.primary,
-        iconTheme: IconThemeData(color: theme.colorScheme.onPrimary),
+        title: const Text('Server Invites'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),

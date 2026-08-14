@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/entitlement_service.dart';
@@ -39,7 +39,7 @@ class _TierScreenState extends State<TierScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('Subscription', style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18)),
+        title: Text('Subscription', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
         backgroundColor: theme.scaffoldBackgroundColor,
         elevation: 0,
       ),
@@ -108,26 +108,26 @@ class _TierScreenState extends State<TierScreen> {
             Expanded(child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Current Tier', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurfaceVariant)),
-                Text(tier.label, style: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.w900, color: color)),
+                Text('Current Tier', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurfaceVariant)),
+                Text(tier.label, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: color)),
               ],
             )),
             if (entitlement.entitlement.expiresAt != null)
               Text('Exp: ${_formatDate(entitlement.entitlement.expiresAt!)}',
-                  style: GoogleFonts.inter(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                  style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
           ]),
           const SizedBox(height: 12),
           Wrap(spacing: 6, runSpacing: 4, children: [
             for (final proto in tier.allowedProtocols)
               Chip(
-                label: Text(proto, style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600)),
+                label: Text(proto, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                 backgroundColor: color.withValues(alpha: 0.12),
                 side: BorderSide.none,
                 visualDensity: VisualDensity.compact,
               ),
             for (final proto in entitlement.entitlement.additionalProtocols)
               Chip(
-                label: Text(proto, style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.green)),
+                label: Text(proto, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.green)),
                 backgroundColor: Colors.green.withValues(alpha: 0.12),
                 side: BorderSide.none,
                 visualDensity: VisualDensity.compact,
@@ -162,7 +162,7 @@ class _TierScreenState extends State<TierScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('UPGRADE', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+          Text('UPGRADE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
           const SizedBox(height: 12),
           if (proTier != null) ...[
             _buildUpgradeRow(theme, proTier, Colors.purpleAccent, entitlement, subscription),
@@ -174,7 +174,7 @@ class _TierScreenState extends State<TierScreen> {
           if (proTier == null && ultimateTier == null && subscription.isLoading)
             const Center(child: CircularProgressIndicator()),
           if (proTier == null && ultimateTier == null && !subscription.isLoading)
-            Text('Pricing unavailable', style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
+            Text('Pricing unavailable', style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
         ],
       ),
     );
@@ -191,10 +191,10 @@ class _TierScreenState extends State<TierScreen> {
         Expanded(child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(tier.name, style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: color)),
+            Text(tier.name, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: color)),
             const SizedBox(height: 2),
             Text('\$${tier.price.toStringAsFixed(2)}/${tier.interval}',
-                style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
+                style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
           ],
         )),
         if (subscription.stripeEnabled)
@@ -203,7 +203,7 @@ class _TierScreenState extends State<TierScreen> {
             child: FilledButton(
               onPressed: () => _handleSubscribe(tier.id, 'stripe', entitlement),
               style: FilledButton.styleFrom(backgroundColor: color, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-              child: Text('Card', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
+              child: Text('Card', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
             ),
           ),
         if (subscription.btcpayEnabled)
@@ -212,7 +212,7 @@ class _TierScreenState extends State<TierScreen> {
             child: OutlinedButton(
               onPressed: () => _handleSubscribe(tier.id, 'btcpay', entitlement),
               style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), side: BorderSide(color: color)),
-              child: Text('Crypto', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+              child: Text('Crypto', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
             ),
           ),
       ]),
@@ -260,25 +260,25 @@ class _TierScreenState extends State<TierScreen> {
           Row(children: [
             Icon(Icons.credit_card_rounded, size: 20, color: theme.colorScheme.primary),
             const SizedBox(width: 8),
-            Text('MANAGE SUBSCRIPTION', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+            Text('MANAGE SUBSCRIPTION', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
           ]),
           const SizedBox(height: 12),
           Text(
             entitlement.currentTier == UserTier.pro ? 'Pro plan — \$9.99/month' : 'Ultimate plan — \$19.99/month',
-            style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
           ),
           if (entitlement.entitlement.expiresAt != null) ...[
             const SizedBox(height: 4),
             Text(
               'Renews: ${_formatDate(entitlement.entitlement.expiresAt!)}',
-              style: GoogleFonts.inter(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
             ),
           ],
           const SizedBox(height: 12),
           OutlinedButton(
             onPressed: () => _handleCancelSubscription(entitlement),
             style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
-            child: Text('Cancel Subscription', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+            child: Text('Cancel Subscription', style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -289,11 +289,11 @@ class _TierScreenState extends State<TierScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Cancel Subscription?', style: GoogleFonts.inter(fontWeight: FontWeight.w800)),
-        content: Text('Your subscription will remain active until the end of your billing period. After that, you\'ll revert to the Free tier.', style: GoogleFonts.inter()),
+        title: Text('Cancel Subscription?', style: TextStyle(fontWeight: FontWeight.w800)),
+        content: Text('Your subscription will remain active until the end of your billing period. After that, you\'ll revert to the Free tier.', style: TextStyle()),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Keep', style: GoogleFonts.inter())),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text('Cancel Sub', style: GoogleFonts.inter(color: Colors.red))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Keep', style: TextStyle())),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text('Cancel Sub', style: TextStyle(color: Colors.red))),
         ],
       ),
     );
@@ -325,8 +325,8 @@ class _TierScreenState extends State<TierScreen> {
       Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
       const SizedBox(width: 8),
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600)),
-        Text(displayText, style: GoogleFonts.inter(fontSize: 10, color: theme.colorScheme.onSurfaceVariant)),
+        Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+        Text(displayText, style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurfaceVariant)),
       ])),
       if (!isUnlimited) SizedBox(
         width: 60,
@@ -359,24 +359,24 @@ class _TierScreenState extends State<TierScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('TIER COMPARISON', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+          Text('TIER COMPARISON', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
           const SizedBox(height: 12),
           for (final (tier, name, icon, color, features) in tiers) ...[
             Row(children: [
               Icon(icon, size: 18, color: color),
               const SizedBox(width: 8),
-              Expanded(child: Text(name, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: color))),
+              Expanded(child: Text(name, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: color))),
               if (entitlement.currentTier == tier)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
-                  child: Text('Active', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+                  child: Text('Active', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color)),
                 ),
             ]),
             const SizedBox(height: 4),
             for (final f in features)
               Padding(padding: const EdgeInsets.only(left: 26, bottom: 2),
-                child: Text(f, style: GoogleFonts.inter(fontSize: 12, color: theme.colorScheme.onSurfaceVariant))),
+                child: Text(f, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant))),
             const SizedBox(height: 10),
           ],
         ],
@@ -398,12 +398,12 @@ class _TierScreenState extends State<TierScreen> {
           Row(children: [
             Icon(Icons.favorite_rounded, size: 20, color: theme.colorScheme.primary),
             const SizedBox(width: 8),
-            Text('SUPPORT GIBBER', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+            Text('SUPPORT GIBBER', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
           ]),
           const SizedBox(height: 12),
           Text(
             'Free users can donate idle CPU power to support development. Opt in from Settings.',
-            style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
+            style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -424,16 +424,16 @@ class _TierScreenState extends State<TierScreen> {
           Row(children: [
             Icon(Icons.card_giftcard_rounded, size: 20, color: theme.colorScheme.primary),
             const SizedBox(width: 8),
-            Text('REDEMPTION CODE', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+            Text('REDEMPTION CODE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
           ]),
           const SizedBox(height: 12),
           Row(children: [
             Expanded(child: TextField(
               controller: _codeController,
-              style: GoogleFonts.inter(fontSize: 14),
+              style: TextStyle(fontSize: 14),
               decoration: InputDecoration(
                 hintText: 'Enter code (e.g. GIBBER-PRO-XXXX)',
-                hintStyle: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
+                hintStyle: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
                 filled: true,
                 fillColor: theme.colorScheme.surfaceContainerHighest,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -446,12 +446,12 @@ class _TierScreenState extends State<TierScreen> {
               style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
               child: _redeeming
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : Text('Redeem', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+                  : Text('Redeem', style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ]),
           if (entitlement.error.isNotEmpty) ...[
             const SizedBox(height: 8),
-            Text(entitlement.error, style: GoogleFonts.inter(fontSize: 12, color: theme.colorScheme.error)),
+            Text(entitlement.error, style: TextStyle(fontSize: 12, color: theme.colorScheme.error)),
           ],
         ],
       ),
@@ -498,23 +498,23 @@ class _TierScreenState extends State<TierScreen> {
           Row(children: [
             Icon(Icons.dns_rounded, size: 20, color: theme.colorScheme.onSurfaceVariant),
             const SizedBox(width: 8),
-            Text('BACKEND SERVER', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+            Text('BACKEND SERVER', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
             const Spacer(),
             TextButton(
               onPressed: () async {
                 await config.resetToDefaults();
                 apiController.text = config.apiUrl;
               },
-              child: Text('Reset', style: GoogleFonts.inter(fontSize: 12)),
+              child: Text('Reset', style: TextStyle(fontSize: 12)),
             ),
           ]),
           const SizedBox(height: 12),
           TextField(
             controller: apiController,
-            style: GoogleFonts.inter(fontSize: 13),
+            style: TextStyle(fontSize: 13),
             decoration: InputDecoration(
               labelText: 'API URL',
-              labelStyle: GoogleFonts.inter(fontSize: 12),
+              labelStyle: TextStyle(fontSize: 12),
               filled: true,
               fillColor: theme.colorScheme.surfaceContainerHighest,
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

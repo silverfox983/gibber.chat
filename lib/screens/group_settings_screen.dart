@@ -43,14 +43,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     );
 
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: CustomScrollView(
         slivers: [
           SliverAppBar.large(
-            title: Text(
-              'Group Settings',
-              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -1.0),
-            ),
+            title: const Text('Group Settings'),
             actions: [
               IconButton(
                 icon: const Icon(Icons.info_outline_rounded),

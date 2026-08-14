@@ -21,10 +21,7 @@ class _IdentityTrustScreenState extends State<IdentityTrustScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('Identity Trust List', style: TextStyle(fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onPrimary)),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        elevation: 0,
-        iconTheme: IconThemeData(color: Theme.of(context).colorScheme.onPrimary),
+        title: const Text('Identity Trust List'),
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: authService.fetchOmemoIdentities(),

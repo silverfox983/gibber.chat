@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 
 /// Displays a single space member with avatar, name, role badge, and optional join date.
 class MemberTile extends StatelessWidget {
@@ -44,7 +44,7 @@ class MemberTile extends StatelessWidget {
         child: avatarUrl == null
             ? Text(
                 name.isNotEmpty ? name[0].toUpperCase() : '?',
-                style: GoogleFonts.inter(
+                style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: theme.colorScheme.onPrimaryContainer,
                   fontSize: 16,
@@ -54,14 +54,14 @@ class MemberTile extends StatelessWidget {
       ),
       title: Text(
         name,
-        style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 15),
+        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
       subtitle: joinDate != null
           ? Text(
               'Joined ${_formatDate(joinDate!)}',
-              style: GoogleFonts.inter(
+              style: TextStyle(
                 fontSize: 12,
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -77,7 +77,7 @@ class MemberTile extends StatelessWidget {
               ),
               child: Text(
                 role!,
-                style: GoogleFonts.inter(
+                style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
                   color: roleColor,
