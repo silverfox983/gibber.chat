@@ -27,6 +27,10 @@ ssl = {
 -- Require encryption for client connections
 c2s_require_encryption = false
 
+-- Allow self-signed certs for S2S federation (development)
+s2s_allow_encrypted = true
+s2s_secure_auth = false
+
 -- Server domain
 VirtualHost "gibberapp.online"
 modules_enabled = {
@@ -51,6 +55,14 @@ modules_enabled = {
     "http";
     "bosh";
     "websocket";
+
+    -- Stream Management (XEP-0198)
+    "smacks";
+
+    -- SASL2 (XEP-0388) - requires Prosody 0.12+
+    "sasl2";
+    "sasl2_bind2";
+    "sasl2_fast";
 }
 
 -- MUC (Multi-User Chat) for group channels
