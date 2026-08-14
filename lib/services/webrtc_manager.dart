@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'web_audio_effects_stub.dart' if (dart.library.html) 'web_audio_effects_service.dart';
 
 typedef OnLocalStream = void Function(MediaStream stream);
 typedef OnRemoteStream = void Function(MediaStream stream);
@@ -181,6 +182,16 @@ class WebRTCManager {
         'WebRTC: Local stream has ${_localStream!.getTracks().length} tracks total',
       );
 
+      // Web: Route audio through Web Audio effects processor
+      if (kIsWeb) {
+        try {
+          _localStream = WebAudioEffectsService.instance.processMediaStream(_localStream!);
+          debugPrint('WebRTC: Audio stream processed through Web Audio effects');
+        } catch (e) {
+          debugPrint('WebRTC: Web Audio effects processing failed: $e');
+        }
+      }
+
       // HARDENING: Ensure audio tracks are explicitly started
       final audioTracks = _localStream!.getAudioTracks();
       debugPrint('WebRTC: Found ${audioTracks.length} audio track(s)');
@@ -216,6 +227,11 @@ class WebRTCManager {
             'audio': true,
             'video': false,
           });
+          if (kIsWeb) {
+            try {
+              _localStream = WebAudioEffectsService.instance.processMediaStream(_localStream!);
+            } catch (_) {}
+          }
           return false;
         } catch (e2) {
           debugPrint('WebRTC: Total media failure: $e2');

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:sip_ua/sip_ua.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'web_audio_effects_stub.dart' if (dart.library.html) 'web_audio_effects_service.dart';
 
 enum SipCallState { idle, connecting, ringing, active, ended }
 
@@ -214,6 +215,14 @@ class SipService implements SipUaHelperListener {
       MediaStream mediaStream = await navigator.mediaDevices.getUserMedia(
         mediaConstraints,
       );
+
+      // Web: Route audio through Web Audio effects processor
+      if (kIsWeb) {
+        try {
+          mediaStream = WebAudioEffectsService.instance.processMediaStream(mediaStream);
+        } catch (_) {}
+      }
+
       _localStream = mediaStream;
 
       bool success = await _helper!.call(

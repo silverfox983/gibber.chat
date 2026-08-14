@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'package:archive/archive_io.dart';
 import 'package:share_plus/share_plus.dart';
@@ -14,6 +14,7 @@ class DataExportService {
   /// Generates a comprehensive ZIP export of all user data, including
   /// the encrypted profile backup and raw media files (voice notes, calls).
   Future<String> createFullExport(String password) async {
+    if (kIsWeb) throw UnsupportedError('Not available on web');
     try {
       final tempDir = await getTemporaryDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -64,6 +65,7 @@ class DataExportService {
 
   /// Imports a comprehensive backup from either a ZIP archive or a legacy .gibber file.
   Future<void> importFullBackup(String filePath, String password) async {
+    if (kIsWeb) throw UnsupportedError('Not available on web');
     try {
       final isZip = filePath.toLowerCase().endsWith('.zip');
       final backupService = BackupService(authService);
@@ -130,7 +132,7 @@ class DataExportService {
   Future<void> _copyDirectory(Directory source, Directory destination, {List<String>? excludeExtensions}) async {
     await destination.create(recursive: true);
     await for (final entity in source.list(recursive: false)) {
-      final name = entity.path.split(Platform.pathSeparator).last;
+      final name = entity.path.split(RegExp(r'[/\\]')).last;
       
       if (excludeExtensions != null && entity is File) {
         if (excludeExtensions.any((ext) => name.toLowerCase().endsWith(ext))) {

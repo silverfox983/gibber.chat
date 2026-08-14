@@ -1,4 +1,5 @@
 import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'auth_service.dart';
 
@@ -18,7 +19,7 @@ class AccountStatusNotificationService {
   AuthService? _authService;
 
   Future<void> initialize() async {
-    if (!Platform.isAndroid || _initialized) return;
+    if (kIsWeb || !Platform.isAndroid || _initialized) return;
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettings = InitializationSettings(android: androidInit);
     await _plugin.initialize(settings: initSettings);
@@ -26,7 +27,7 @@ class AccountStatusNotificationService {
   }
 
   Future<void> start(AuthService authService) async {
-    if (!Platform.isAndroid || _isStarted) return;
+    if (kIsWeb || !Platform.isAndroid || _isStarted) return;
     await initialize();
     _authService = authService;
     _authService!.addListener(_onAuthChanged);
@@ -35,7 +36,7 @@ class AccountStatusNotificationService {
   }
 
   Future<void> stop() async {
-    if (!Platform.isAndroid) return;
+    if (kIsWeb || !Platform.isAndroid) return;
     if (_isStarted && _authService != null) {
       _authService!.removeListener(_onAuthChanged);
     }
@@ -51,7 +52,7 @@ class AccountStatusNotificationService {
   }
 
   Future<void> _refresh() async {
-    if (!Platform.isAndroid || !_initialized || _authService == null) return;
+    if (kIsWeb || !Platform.isAndroid || !_initialized || _authService == null) return;
     final auth = _authService!;
     final lines = auth.getAccountsStatusLines();
     final connectedCount = lines

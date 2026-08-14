@@ -6,7 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'room_info_screen.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:html2md/html2md.dart' as html2md;
 import 'package:google_fonts/google_fonts.dart';
@@ -20,9 +20,6 @@ import '../services/spaces_service.dart';
 import '../models/space_models.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/create_space_dialog.dart';
-import 'space_settings_screen.dart';
-import 'post_detail_screen.dart';
-import 'post_thread_screen.dart';
 import '../widgets/space_invite_dialog.dart';
 
 // Provides global state for liked items across the session
@@ -1036,18 +1033,13 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
       final auth = Provider.of<AuthService>(context, listen: false);
       final conn = auth.activeXmppConnection;
       if (conn != null) {
-        Navigator.push(context, MaterialPageRoute(
-          builder: (ctx) => RoomInfoScreen(
-            room: {
+        context.goNamed('roomInfo', extra: {'room': {
               'jid': '${space.node}@${space.domain}',
               'name': space.name,
               'topic': space.description ?? '',
-            },
-            accountId: conn.fullJid.userAtDomain,
-          ),
-        ));
-      }
-      return;
+            }, 'accountId': conn.fullJid.userAtDomain});
+        }
+        return;
     }
 
     setState(() {
@@ -1274,15 +1266,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             top: 8, right: 8,
             child: Column(children: [
               _iconBtn(Icons.settings_rounded, () async {
-                final changed = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => SpaceSettingsScreen(
-                      space: space,
-                      spacesService: widget.spacesService,
-                    ),
-                  ),
-                );
+                final changed = await context.pushNamed('spaceSettings', extra: {'space': space, 'spacesService': widget.spacesService});
                 if (changed == 'deleted') {
                   widget.onBack();
                 } else if (changed == true) {
@@ -2125,9 +2109,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () {
-            Navigator.push(context, MaterialPageRoute(
-              builder: (_) => PostDetailScreen(post: item, space: widget.space, spacesService: widget.spacesService, allItems: _items ?? []),
-            )).then((_) => _reload());
+            context.pushNamed('postDetail', extra: {'post': item, 'space': widget.space, 'spacesService': widget.spacesService, 'allItems': _items ?? []}).then((_) => _reload());
           },
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             // Pinned badge
@@ -2262,9 +2244,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 _emojiReactionBtn(theme, '😂', item, item.reactions['😂'] ?? 0),
                 _reactionBtn(theme, Icons.chat_bubble_outline_rounded, 'Reply', theme.colorScheme.onSurfaceVariant, onTap: () => _showReplyDialog(item)),
                 _reactionBtn(theme, Icons.forum_rounded, 'Thread', theme.colorScheme.onSurfaceVariant, onTap: () {
-                  Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => PostThreadScreen(post: item, space: widget.space, spacesService: widget.spacesService),
-                  )).then((_) => _reload());
+                  context.pushNamed('postThread', extra: {'post': item, 'space': widget.space, 'spacesService': widget.spacesService}).then((_) => _reload());
                 }),
                 const Spacer(),
                 _reactionBtn(theme, Icons.ios_share_rounded, '', theme.colorScheme.onSurfaceVariant, onTap: () => _handleShare(item)),
@@ -2831,7 +2811,7 @@ class _CreatePostDialogState extends State<CreatePostDialog>
         }
 
         final file = File(_attachedImageUrl!);
-        final fileName = file.path.split(Platform.pathSeparator).last;
+        final fileName = file.path.split(RegExp(r'[/\\]')).last;
         final size = await file.length();
         final contentType = 'image/${fileName.split('.').last.toLowerCase()}';
 

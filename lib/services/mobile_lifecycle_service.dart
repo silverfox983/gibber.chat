@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
@@ -32,7 +33,7 @@ class MobileLifecycleService extends WidgetsBindingObserver {
   bool _isInitialized = false;
 
   Future<void> init() async {
-    if (!Platform.isAndroid) return;
+    if (kIsWeb || !Platform.isAndroid) return;
 
     FlutterForegroundTask.init(
       androidNotificationOptions: AndroidNotificationOptions(
@@ -71,7 +72,7 @@ class MobileLifecycleService extends WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // We keep the service running even when resumed to ensure connection stability
     // but we can adjust priorities here if needed.
-    if (!_isInitialized || !Platform.isAndroid) return;
+    if (!_isInitialized || kIsWeb || !Platform.isAndroid) return;
 
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
@@ -82,7 +83,7 @@ class MobileLifecycleService extends WidgetsBindingObserver {
 
   /// Syncs the foreground service state based on whether the user is logged in
   Future<void> syncServiceState(bool isAuthenticated) async {
-    if (!Platform.isAndroid || !_isInitialized) return;
+    if (kIsWeb || !Platform.isAndroid || !_isInitialized) return;
 
     if (isAuthenticated) {
       await _startBackgroundService();

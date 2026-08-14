@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -13,6 +14,9 @@ import '../services/auth_service.dart';
 import '../services/call_history_service.dart';
 import '../services/sound_service.dart';
 import '../services/multi_peer_webrtc_manager.dart';
+import '../services/audio_effects_service.dart';
+import '../services/call_audio_playback_service.dart';
+import '../services/resource_scheduler_service.dart';
 import '../models/call_log.dart';
 import '../models/chat_models.dart' as chat;
 
@@ -36,6 +40,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   DateTime? _callStartTime;
   AuthService? _authService;
   CallHistoryService? _historyService;
+  ResourceSchedulerService? _scheduler;
   String? _callAccountId;
   bool _isRecording = false;
   String? _lastRecordingPath;
@@ -71,6 +76,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   final Map<String, double> _groupAudioLevels = {};
   MultiPeerWebRTCManager? _multiPeerManager;
 
+  final AudioEffectsService _audioEffects = AudioEffectsService.instance;
+  final CallAudioPlaybackService _audioPlayback = CallAudioPlaybackService.instance;
+  bool _audioEffectsInitialized = false;
+
   CallState get state => _state;
   String? get remoteJid => _remoteJid;
   String? get sessionId => _sessionId;
@@ -97,6 +106,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   bool get isGroupCall => _isGroupCall;
   Map<String, RTCVideoRenderer> get groupRenderers => _groupRenderers;
   Map<String, double> get groupAudioLevels => _groupAudioLevels;
+  AudioEffectsService get audioEffects => _audioEffects;
+  CallAudioPlaybackService get audioPlayback => _audioPlayback;
+  bool get isAudioEffectsAvailable => _audioEffectsInitialized && (kIsWeb || Platform.isAndroid);
 
   void _applyDefaultSpeakerRoute({required bool isVideo, String? source}) {
     // Voice calls should default to speakerphone so users can immediately hear audio.
@@ -117,11 +129,13 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
   Future<void> initialize(
     AuthService authService,
-    CallHistoryService historyService,
-  ) async {
+    CallHistoryService historyService, {
+    ResourceSchedulerService? scheduler,
+  }) async {
     if (_authService != null) return;
     _authService = authService;
     _historyService = historyService;
+    _scheduler = scheduler;
     _signalingSub = _authService!.jingleEvents.listen(_handleJingleEvent);
 
     // Set up XEP-0353 proceed callback
@@ -134,6 +148,27 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // ATTACH: Initialize Proximity Sensor for automatic routing
     _setupProximitySensor();
+
+    // ATTACH: Initialize Audio Effects (Android only)
+    _audioEffects.initialize().then((ok) {
+      _audioEffectsInitialized = ok;
+      debugPrint('CallProvider: Audio effects initialized: $ok');
+    });
+    _audioPlayback.initialize().then((ok) {
+      debugPrint('CallProvider: Audio playback initialized: $ok');
+    });
+
+    // ATTACH: Forward service notifications to UI
+    _audioEffects.addListener(_onAudioEffectsChanged);
+    _audioPlayback.addListener(_onAudioPlaybackChanged);
+  }
+
+  void _onAudioEffectsChanged() {
+    notifyListeners();
+  }
+
+  void _onAudioPlaybackChanged() {
+    notifyListeners();
   }
 
   void _onJingleProceedReceived(String sessionId, String sdp, String toJid) {
@@ -185,6 +220,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         case SipCallState.active:
           _callStartTime = DateTime.now();
           _state = CallState.active;
+          _acquireSchedulerForCall();
           _stopAllSounds();
           _remoteRenderer.srcObject = _sipService!.remoteRenderer.srcObject;
           _localRenderer.srcObject = _sipService!.localRenderer.srcObject;
@@ -452,6 +488,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   }
 
   void _setupProximitySensor() {
+    if (kIsWeb) return;
     _proximitySub?.cancel();
     _proximitySub = ProximitySensor.events.listen((int event) {
       // 1 = near, 0 = far
@@ -1201,6 +1238,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       }
 
       _state = CallState.active;
+      _acquireSchedulerForCall();
       _stopAllSounds();
       HapticFeedback.heavyImpact();
       _callStartTime ??= DateTime.now();
@@ -1307,6 +1345,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         debugPrint('CallProvider: ICE CONNECTED - Data path established!');
         if (_state != CallState.active) {
           _state = CallState.active;
+          _acquireSchedulerForCall();
           _callTimeoutTimer?.cancel();
           _callTimeoutTimer = null;
           _stopAllSounds();
@@ -1421,17 +1460,21 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       notifyListeners();
     } else {
       try {
-        final docsDir = await getApplicationDocumentsDirectory();
-        final exportDir = Directory('${docsDir.path}/GibberExport/Calls');
-        if (!await exportDir.exists()) {
-          await exportDir.create(recursive: true);
-        }
-        
-        final timestamp = DateTime.now().millisecondsSinceEpoch;
-        _lastRecordingPath =
-            '${exportDir.path}/call_${_remoteJid?.split("@").first}_$timestamp.mp4';
+        if (kIsWeb) {
+          await _rtcManager.startRecording('web_call_recording');
+        } else {
+          final docsDir = await getApplicationDocumentsDirectory();
+          final exportDir = Directory('${docsDir.path}/GibberExport/Calls');
+          if (!await exportDir.exists()) {
+            await exportDir.create(recursive: true);
+          }
+          
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          _lastRecordingPath =
+              '${exportDir.path}/call_${_remoteJid?.split("@").first}_$timestamp.mp4';
 
-        await _rtcManager.startRecording(_lastRecordingPath!);
+          await _rtcManager.startRecording(_lastRecordingPath!);
+        }
         _isRecording = true;
         _log(
           'Recording started',
@@ -1550,6 +1593,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     debugPrint('CallProvider: === CLEANUP STARTING ===');
     debugPrint('CallProvider: Cleanup reason: $reason');
 
+    _releaseSchedulerForCall();
+
     _statsSub?.cancel();
     _roomParticipantSub?.cancel();
     _roomParticipantSub = null;
@@ -1620,6 +1665,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _remoteAnswerProcessed = false;
     _iceCheckingStartTime = null;
 
+    // Reset audio effects and stop playback on call end
+    _audioEffects.reset();
+    _audioPlayback.stop();
+
     notifyListeners();
     debugPrint('CallProvider: === CLEANUP COMPLETE ===');
   }
@@ -1651,12 +1700,22 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     return 'unknown';
   }
 
+  void _acquireSchedulerForCall() {
+    _scheduler?.acquire(ResourceTask.webrtcCall);
+  }
+
+  void _releaseSchedulerForCall() {
+    _scheduler?.release(ResourceTask.webrtcCall);
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _signalingSub?.cancel();
     _proximitySub?.cancel();
     _sipCallStateSub?.cancel();
+    _audioEffects.removeListener(_onAudioEffectsChanged);
+    _audioPlayback.removeListener(_onAudioPlaybackChanged);
     _sipService?.dispose();
     _sipService = null;
     _cleanup(reason: 'provider disposed');

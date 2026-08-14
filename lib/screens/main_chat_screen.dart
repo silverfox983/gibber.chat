@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
@@ -13,12 +14,11 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
-import 'room_settings_screen.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:giphy_get/giphy_get.dart';
-import './room_discovery_screen.dart';
 import '../widgets/link_preview.dart';
 import '../widgets/audio_waveform.dart';
 import '../widgets/typing_indicator.dart';
@@ -29,22 +29,19 @@ import '../providers/chat_provider.dart';
 import '../widgets/group_invite_dialog.dart';
 import '../providers/call_provider.dart';
 import '../services/database_service.dart';
-import './profile_screen.dart';
 import './call_screen.dart';
 import '../services/call_history_service.dart';
 import '../models/call_log.dart';
 import '../widgets/omemo_trust_dialog.dart';
 import '../widgets/room_participants_dialog.dart';
 import '../providers/theme_provider.dart';
+import '../services/xep_0392_service.dart';
 import './contacts_screen.dart';
 import './feed_screen.dart';
 import './nexus_search_screen.dart';
-import './security_settings_screen.dart';
-import './invite_screen.dart';
-import './create_room_screen.dart';
-import '../services/xep_0392_service.dart';
+import './profile_screen.dart';
+import './welcome_dashboard.dart';
 import './spaces_screen.dart';
-import './transports_screen.dart';
 
 class HighlightedText extends StatelessWidget {
   final String text;
@@ -486,7 +483,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   Icons.insert_drive_file,
                   color: Theme.of(context).colorScheme.primary,
                 ),
-                title: Text(file.path.split(Platform.pathSeparator).last),
+                title: Text(file.path.split(RegExp(r'[/\\]')).last),
                 subtitle: Text(
                   '${(file.lengthSync() / 1024).toStringAsFixed(1)} KB',
                 ),
@@ -613,6 +610,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
       }
     } else {
       if (await _audioRecorder.hasPermission()) {
+        if (kIsWeb) return;
         final docsDir = await getApplicationDocumentsDirectory();
         final exportDir = Directory('${docsDir.path}/GibberExport/VoiceNotes');
         if (!await exportDir.exists()) {
@@ -738,12 +736,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     color: Theme.of(context).appBarTheme.foregroundColor,
                     size: 20,
                   ),
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const NexusSearchScreen(),
-                    ),
-                  ),
+                  onPressed: () => context.goNamed('search'),
                   tooltip: 'Nexus Global Search',
                 ),
                 IconButton(
@@ -847,19 +840,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
   Widget _buildChatContent(Conversation? activeChat) {
     if (activeChat == null) {
-      return Center(
-        child: Text(
-          'Gibber: Welcome',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.12),
-            letterSpacing: -0.5,
-          ),
-        ),
-      );
+      return const WelcomeDashboard();
     }
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
 
@@ -1282,13 +1263,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     ),
                   );
                 } else if (val == 'settings') {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          RoomSettingsScreen(room: activeChat),
-                    ),
-                  );
+                  context.goNamed('roomSettings', extra: {'room': activeChat});
                 } else if (val == 'call') {
                   Provider.of<CallProvider>(context, listen: false).startCall(
                     activeChat.id,
@@ -1304,12 +1279,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     protocol: activeChat.protocol,
                   );
                 } else if (val == 'security') {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const SecuritySettingsScreen(),
-                    ),
-                  );
+                  context.goNamed('security');
                 } else if (val == 'otr') {
                   final bareJid = activeChat.id.split('/').first;
                   if (_authService.otrService.isOtrSessionActive(bareJid)) {
@@ -2604,6 +2574,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   Future<void> _downloadAndOpenFile(ChatMessage msg) async {
+    if (kIsWeb) return;
     try {
       final response = await http.get(Uri.parse(msg.text));
       if (response.statusCode == 200) {
@@ -3885,12 +3856,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   color: Colors.white70,
                   size: 20,
                 ),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const NexusSearchScreen(),
-                  ),
-                ),
+                onPressed: () => context.goNamed('search'),
                 tooltip: 'Nexus Global Search',
               ),
               _buildAddAction(chatProvider, authService),
@@ -3990,22 +3956,13 @@ class _MainChatScreenState extends State<MainChatScreen> {
     if (val == 'buddy') chatProvider.setSidebarTab(1);
     if (val == 'group') _showJoinRoomDialog(authService);
     if (val == 'discover') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const RoomDiscoveryScreen()),
-      );
+      context.goNamed('roomDiscovery');
     }
     if (val == 'invite') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const InviteScreen()),
-      );
+      context.goNamed('invite');
     }
     if (val == 'transports') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const TransportsScreen()),
-      );
+      context.goNamed('transports');
     }
   }
 
@@ -4582,12 +4539,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
             heroTag: 'discoverRooms',
             backgroundColor: Theme.of(context).colorScheme.secondary,
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const RoomDiscoveryScreen(),
-                ),
-              );
+              context.goNamed('roomDiscovery');
             },
             child: const Icon(Icons.explore_rounded, color: Colors.white),
           ),
@@ -4611,10 +4563,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   void _showCreateGroupDialog(AuthService authService) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const CreateRoomScreen()),
-    );
+    context.goNamed('createRoom');
   }
 
   void _showJoinRoomDialog(AuthService authService) {

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/registration_models.dart';
 
@@ -172,6 +173,9 @@ class RegistrationService {
     String password, [
     String? token,
   ]) async {
+    if (kIsWeb) {
+      throw UnsupportedError('In-band registration requires TCP sockets, not available on web');
+    }
     Socket? socket;
     try {
       // Connect to standard XMPP client port
@@ -284,6 +288,106 @@ class RegistrationService {
       debugPrint('In-band registration error: $e');
       socket?.destroy();
       return false;
+    }
+  }
+
+  static Future<RegistrationResult> registerViaBackend({
+    required String apiUrl,
+    required String username,
+    required String password,
+    String? host,
+  }) async {
+    if (username.trim().length < 3) {
+      return const RegistrationResult(
+        status: RegistrationStatus.validationError,
+        message: 'Username must be at least 3 characters.',
+      );
+    }
+    if (password.length < 8) {
+      return const RegistrationResult(
+        status: RegistrationStatus.validationError,
+        message: 'Password must be at least 8 characters.',
+      );
+    }
+    if (!RegExp(r'^[a-zA-Z0-9._-]+$').hasMatch(username)) {
+      return const RegistrationResult(
+        status: RegistrationStatus.validationError,
+        message: 'Username can only contain letters, numbers, dots, hyphens, and underscores.',
+      );
+    }
+
+    try {
+      final uri = Uri.parse('$apiUrl/register');
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'username': username.trim(),
+          'password': password,
+          if (host != null) 'host': host,
+        }),
+      );
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        return RegistrationResult(
+          status: RegistrationStatus.success,
+          jid: body['jid'] as String?,
+          message: body['message'] as String? ?? 'Registration successful',
+        );
+      } else if (response.statusCode == 409 || (body['error'] ?? '').toString().contains('already exists')) {
+        return RegistrationResult(
+          status: RegistrationStatus.userExists,
+          jid: body['jid'] as String?,
+          message: 'Username already taken.',
+        );
+      } else {
+        return RegistrationResult(
+          status: RegistrationStatus.networkError,
+          message: body['error'] as String? ?? 'Registration failed (${response.statusCode}).',
+        );
+      }
+    } on SocketException {
+      return const RegistrationResult(
+        status: RegistrationStatus.networkError,
+        message: 'Could not reach the server. Check your network connection.',
+      );
+    } on FormatException {
+      return const RegistrationResult(
+        status: RegistrationStatus.networkError,
+        message: 'Invalid server response.',
+      );
+    } catch (e) {
+      return RegistrationResult(
+        status: RegistrationStatus.networkError,
+        message: 'Error: $e',
+      );
+    }
+  }
+
+  static Future<bool> checkUsernameAvailable({
+    required String apiUrl,
+    required String username,
+    String? host,
+  }) async {
+    try {
+      final uri = Uri.parse('$apiUrl/register/check');
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'username': username.trim(),
+          if (host != null) 'host': host,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        return body['available'] == true;
+      }
+      return false;
+    } catch (_) {
+      return true;
     }
   }
 }

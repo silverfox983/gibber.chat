@@ -21,7 +21,12 @@ class DatabaseService {
   }
 
   Future<Database> _initDatabase() async {
-    String path = testPath ?? join(await getDatabasesPath(), 'pidgin_chat.db');
+    String path;
+    if (kIsWeb) {
+      path = 'pidgin_chat.db';
+    } else {
+      path = testPath ?? join(await getDatabasesPath(), 'pidgin_chat.db');
+    }
     return await openDatabase(
       path,
       version: 14,

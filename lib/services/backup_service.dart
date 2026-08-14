@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:cryptography/cryptography.dart';
 import 'package:path_provider/path_provider.dart';
 import './auth_service.dart';
@@ -14,6 +14,7 @@ class BackupService {
   BackupService(this.authService);
 
   Future<String> generateBackup() async {
+    if (kIsWeb) throw UnsupportedError('Not available on web');
     try {
       final Map<String, dynamic> backup = {
         'version': '1.0',
@@ -34,6 +35,7 @@ class BackupService {
   }
 
   Future<void> restoreBackup(String jsonStr) async {
+    if (kIsWeb) throw UnsupportedError('Not available on web');
     try {
       final Map<String, dynamic> backup = json.decode(jsonStr);
       

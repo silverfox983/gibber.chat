@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
-import './identity_trust_screen.dart';
 import 'package:flutter/services.dart';
 
 class SecuritySettingsScreen extends StatelessWidget {
@@ -138,7 +138,7 @@ class SecuritySettingsScreen extends StatelessWidget {
             subtitle: const Text('Manage trusted keys for your contacts'),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () {
-               Navigator.push(context, MaterialPageRoute(builder: (context) => const IdentityTrustScreen()));
+                context.goNamed('identity');
             },
           ),
           const Divider(height: 1),

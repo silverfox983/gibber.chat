@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,8 +7,6 @@ import '../services/auth_service.dart';
 import '../models/chat_models.dart';
 import '../services/backup_service.dart';
 import '../services/data_export_service.dart';
-import './login_screen.dart';
-import './security_settings_screen.dart';
 
 class AccountPreferencesScreen extends StatefulWidget {
   const AccountPreferencesScreen({super.key});
@@ -32,10 +31,7 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
       floatingActionButton: FloatingActionButton.extended(
         heroTag: null,
         onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const LoginScreen(isAddingAccount: true)),
-          );
+          context.goNamed('login', queryParameters: {'addAccount': 'true'});
         },
         backgroundColor: Theme.of(context).colorScheme.secondary,
         icon: Icon(Icons.add, color: Theme.of(context).colorScheme.onSecondary),
@@ -110,10 +106,7 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
                       title: const Text('Security & Encryption', style: TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: const Text('Manage OTR fingerprints and trust'),
                       onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const SecuritySettingsScreen()),
-                        );
+                        context.goNamed('security');
                       },
                     ),
                     Divider(height: 1, color: Theme.of(context).colorScheme.outline),

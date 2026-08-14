@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import '../services/auth_service.dart';
 import '../services/avatar_cache_service.dart';
-import './account_preferences_screen.dart';
 import '../providers/theme_provider.dart';
 import '../models/chat_models.dart';
-import './security_settings_screen.dart';
-import './recordings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final bool isSidebar;
@@ -411,10 +409,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           subtitle: const Text('Edit XMPP hosts, ports, and credentials'),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (context) => const AccountPreferencesScreen()),
-                            );
+                            context.goNamed('preferences');
                           },
                         ),
                         const Divider(height: 1),
@@ -424,10 +419,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           subtitle: const Text('OMEMO keys, blocking, and history'),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (context) => const SecuritySettingsScreen()),
-                            );
+                            context.goNamed('security');
                           },
                         ),
                         const Divider(height: 1),
@@ -437,10 +429,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           subtitle: const Text('View and play your saved calls'),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (context) => const RecordingsScreen()),
-                            );
+                            context.goNamed('recordings');
+                          },
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: Icon(Icons.workspace_premium_rounded, color: Colors.amber),
+                          title: const Text('Tier & Mining', style: TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: const Text('Manage your plan, mine credits, redeem codes'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            context.goNamed('tier');
                           },
                         ),
                       ],

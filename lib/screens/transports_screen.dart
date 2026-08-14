@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
+import '../services/entitlement_service.dart';
 import '../services/transport_service.dart';
 import '../models/transport_models.dart';
 import '../widgets/transport_registration_dialog.dart';
@@ -146,6 +148,36 @@ class _TransportsScreenState extends State<TransportsScreen> {
 
   Future<void> _showRegistrationDialog(TransportNode gateway) async {
     if (_transportService == null) return;
+    final entitlement = Provider.of<EntitlementService>(context, listen: false);
+    final protocol = gateway.type.isNotEmpty ? gateway.type[0].toUpperCase() + gateway.type.substring(1).toLowerCase() : '';
+    if (!entitlement.isProtocolAllowed(protocol)) {
+      if (!mounted) return;
+      final currentTier = entitlement.currentTier;
+      final neededTier = protocol == 'Slack' || protocol == 'Discord' || protocol == 'Irc'
+          ? UserTier.pro : UserTier.ultimate;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Upgrade Required'),
+          content: Text(
+            '$protocol is available on the ${neededTier.label} tier.\n'
+            'You are currently on the ${currentTier.label} tier.\n\n'
+            'Mine credits to upgrade, or enter a redemption code.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                context.goNamed('tier');
+              },
+              child: Text('Upgrade'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     await showTransportRegistrationDialog(
       context: context,
       transportService: _transportService!,
@@ -256,13 +288,21 @@ class _TransportsScreenState extends State<TransportsScreen> {
     final cardColor = isDark
         ? meta.color.withValues(alpha: 0.10)
         : meta.color.withValues(alpha: 0.07);
+    final entitlement = Provider.of<EntitlementService>(context);
+    final protocol = gw.type.isNotEmpty ? gw.type[0].toUpperCase() + gw.type.substring(1).toLowerCase() : '';
+    final isLocked = !entitlement.isProtocolAllowed(protocol);
+    final neededTier = protocol == 'Slack' || protocol == 'Discord' || protocol == 'Irc'
+        ? UserTier.pro : UserTier.ultimate;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: meta.color.withValues(alpha: 0.3), width: 1.5),
+        border: Border.all(
+          color: isLocked ? Colors.orange.withValues(alpha: 0.5) : meta.color.withValues(alpha: 0.3),
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(color: meta.color.withValues(alpha: 0.06), blurRadius: 12, offset: const Offset(0, 4)),
         ],
@@ -285,7 +325,12 @@ class _TransportsScreenState extends State<TransportsScreen> {
                     color: cardColor,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Icon(meta.icon, color: meta.color, size: 26),
+                  child: isLocked
+                      ? Stack(alignment: Alignment.center, children: [
+                          Icon(meta.icon, color: meta.color.withValues(alpha: 0.4), size: 26),
+                          Positioned(bottom: 2, right: 2, child: Icon(Icons.lock_rounded, size: 14, color: Colors.orange)),
+                        ])
+                      : Icon(meta.icon, color: meta.color, size: 26),
                 ),
                 const SizedBox(width: 14),
                 // ── Info ──
@@ -293,10 +338,22 @@ class _TransportsScreenState extends State<TransportsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(gw.name,
-                          style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 16)),
+                      Row(children: [
+                        Text(gw.name, style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 16)),
+                        if (isLocked) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text('${neededTier.label} only',
+                                style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.orange)),
+                          ),
+                        ],
+                      ]),
                       const SizedBox(height: 2),
-                      // Type badge
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
@@ -321,10 +378,10 @@ class _TransportsScreenState extends State<TransportsScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: meta.color,
+                        color: isLocked ? Colors.orange : meta.color,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Text('Connect',
+                      child: Text(isLocked ? 'Upgrade' : 'Connect',
                           style: GoogleFonts.inter(
                               color: Colors.white,
                               fontSize: 12,

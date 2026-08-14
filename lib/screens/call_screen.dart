@@ -6,6 +6,9 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import 'dart:math' as math;
 import '../providers/call_provider.dart';
+import '../services/transcription_service.dart';
+import '../services/assistant_service.dart';
+import '../widgets/live_captions_panel.dart';
 
 class CallScreen extends StatefulWidget {
   const CallScreen({super.key});
@@ -21,6 +24,9 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
   Timer? _durationTimer;
   Duration _callDuration = Duration.zero;
   bool _showDtmfPad = false;
+  bool _showCaptions = false;
+  bool _showAssistant = false;
+  final TextEditingController _assistantController = TextEditingController();
   bool get isCallActive => _callProvider.state == CallState.active;
 
   @override
@@ -53,6 +59,18 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
       _startTimer();
     } else if (_callProvider.state == CallState.idle) {
       _stopTimer();
+      if (_showCaptions) {
+        final ts = Provider.of<TranscriptionService>(context, listen: false);
+        if (ts.status == TranscriptionStatus.listening || ts.status == TranscriptionStatus.paused) {
+          ts.stopTranscription();
+        }
+        _showCaptions = false;
+      }
+      if (_showAssistant) {
+        final as2 = Provider.of<AssistantService>(context, listen: false);
+        as2.clearMessages();
+        _showAssistant = false;
+      }
       Navigator.of(context).maybePop();
     }
     setState(() {});
@@ -81,6 +99,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     _stopTimer();
     _pulseController.dispose();
     _waveController.dispose();
+    _assistantController.dispose();
     super.dispose();
   }
 
@@ -145,6 +164,26 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                         _buildHeader(call),
                         const Spacer(),
                         if (!call.isVideo || !isCallActive) _buildVisualizer(call),
+                        if (_showCaptions)
+                          Consumer<TranscriptionService>(
+                            builder: (context, ts, _) => LiveCaptionsPanel(
+                              transcriptionService: ts,
+                              isExpanded: true,
+                              onToggleExpand: () => setState(() => _showCaptions = false),
+                            ),
+                          ),
+                        if (!_showCaptions)
+                          Consumer<TranscriptionService>(
+                            builder: (context, ts, _) => LiveCaptionsPanel(
+                              transcriptionService: ts,
+                              isExpanded: false,
+                              onToggleExpand: () => setState(() => _showCaptions = true),
+                            ),
+                          ),
+                        if (_showAssistant)
+                          Consumer<AssistantService>(
+                            builder: (context, as, _) => _buildAssistantPanel(as),
+                          ),
                         const Spacer(),
                         _buildControls(call),
                         const SizedBox(height: 20),
@@ -649,10 +688,52 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                   icon: Icons.flip_camera_ios_rounded,
                   label: 'Switch',
                   isActive: true,
-                  activeColor: Theme.of(context).colorScheme.secondary,
+                  activeColor: theme.colorScheme.secondary,
                   onPressed: () {
                     HapticFeedback.lightImpact();
                     call.switchCamera();
+                  },
+                ),
+              if (call.state == CallState.active)
+                _enhancedCircleButton(
+                  icon: _showCaptions ? Icons.subtitles : Icons.subtitles_outlined,
+                  label: 'Captions',
+                  isActive: _showCaptions,
+                  activeColor: Colors.cyan,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    setState(() => _showCaptions = !_showCaptions);
+                    final ts = Provider.of<TranscriptionService>(context, listen: false);
+                    if (_showCaptions) {
+                      if (ts.status == TranscriptionStatus.idle) {
+                        ts.initialize().then((_) {
+                          ts.startTranscription(call.localRenderer.srcObject, call.remoteRenderer.srcObject);
+                        });
+                      } else if (ts.status == TranscriptionStatus.ready) {
+                        ts.startTranscription(call.localRenderer.srcObject, call.remoteRenderer.srcObject);
+                      }
+                    } else {
+                      if (ts.status == TranscriptionStatus.listening) {
+                        ts.stopTranscription();
+                      }
+                    }
+                  },
+                ),
+              if (call.state == CallState.active)
+                _enhancedCircleButton(
+                  icon: Icons.auto_awesome_rounded,
+                  label: 'AI',
+                  isActive: _showAssistant,
+                  activeColor: Colors.purpleAccent,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    setState(() => _showAssistant = !_showAssistant);
+                    if (_showAssistant) {
+                      final as2 = Provider.of<AssistantService>(context, listen: false);
+                      if (as2.status == AssistantStatus.idle) {
+                        as2.initialize();
+                      }
+                    }
                   },
                 ),
             ],
@@ -880,6 +961,55 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
         ),
       ),
     );
+  }
+
+  Widget _buildAssistantPanel(AssistantService assistant) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.purpleAccent.withValues(alpha: 0.5), width: 1),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.auto_awesome_rounded, size: 16, color: Colors.purpleAccent),
+            const SizedBox(width: 6),
+            Text('Gibber AI', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+            const Spacer(),
+            IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => setState(() => _showAssistant = false), padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),
+          ]),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 4, children: [
+            ActionChip(avatar: Icon(Icons.summarize_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Summarize', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('Summarize the call', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
+            ActionChip(avatar: Icon(Icons.checklist_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Actions', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('List action items', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
+            ActionChip(avatar: Icon(Icons.email_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Follow Up', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('Draft a follow-up', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: TextField(controller: _assistantController, style: const TextStyle(fontSize: 13), decoration: InputDecoration(hintText: 'Ask about the call...', hintStyle: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant), filled: true, fillColor: theme.colorScheme.surface, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none), isDense: true), onSubmitted: (v) => _askAssistant(v, assistant))),
+            const SizedBox(width: 8),
+            IconButton(icon: Icon(Icons.send_rounded, color: Colors.purpleAccent, size: 20), onPressed: () => _askAssistant(_assistantController.text, assistant), padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 32, minHeight: 32)),
+          ]),
+          if (assistant.messages.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(constraints: const BoxConstraints(maxHeight: 100), child: ListView.builder(shrinkWrap: true, itemCount: assistant.messages.length, itemBuilder: (ctx, i) { final m = assistant.messages[i]; return Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('${m.isUser ? "You" : "AI"}: ${m.text}', style: TextStyle(fontSize: 12, color: m.isUser ? Colors.purpleAccent.shade100 : Colors.cyan.shade100))); })),
+          ],
+          if (assistant.status == AssistantStatus.generating) const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.purpleAccent)))),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _askAssistant(String query, AssistantService assistant) async {
+    if (query.trim().isEmpty) return;
+    _assistantController.clear();
+    await assistant.ask(query);
   }
 }
 

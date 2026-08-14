@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../models/chat_models.dart';
@@ -495,20 +496,42 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         const SizedBox(height: 24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              "Don't have an account?",
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.7),
+                fontSize: 14,
+              ),
+            ),
+            TextButton(
+              onPressed: () => context.go('/register'),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.secondary,
+              ),
+              child: const Text(
+                'Create Account',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              ),
+            ),
+          ],
+        ),
         if (_selectedAccount == 'new' || _selectedAccount == null)
           TextButton.icon(
             onPressed: _showRegistrationDialog,
             icon: Icon(
               Icons.person_add_alt_1_rounded,
-              color: Colors.white.withValues(alpha: 0.8),
-              size: 20,
+              color: Colors.white.withValues(alpha: 0.6),
+              size: 18,
             ),
             label: Text(
-              'Register on Server (XEP-0401)',
+              'External Server Registration (XEP-0401)',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.8),
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -710,7 +733,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                                       }
                                                     }
                                                   } catch (e) {
-                                                    if (context.mounted)
+                                                    if (context.mounted) {
                                                       ScaffoldMessenger.of(
                                                         context,
                                                       ).showSnackBar(
@@ -724,12 +747,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                                                   .error,
                                                         ),
                                                       );
+                                                    }
                                                   } finally {
-                                                    if (context.mounted)
+                                                    if (context.mounted) {
                                                       setStateDialog(
                                                         () => isRegistering =
                                                             false,
                                                       );
+                                                    }
                                                   }
                                                 },
                                           child: isRegistering
@@ -896,7 +921,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                                       }
                                                     }
                                                   } catch (e) {
-                                                    if (context.mounted)
+                                                    if (context.mounted) {
                                                       ScaffoldMessenger.of(
                                                         context,
                                                       ).showSnackBar(
@@ -910,12 +935,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                                                   .error,
                                                         ),
                                                       );
+                                                    }
                                                   } finally {
-                                                    if (context.mounted)
+                                                    if (context.mounted) {
                                                       setStateDialog(
                                                         () => isRegistering =
                                                             false,
                                                       );
+                                                    }
                                                   }
                                                 },
                                           child: isRegistering

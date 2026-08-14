@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   xmpp_stone: ^0.4.4-dev.6
-  libsignal_protocol_dart: ^0.4.0
+  libsignal_protocol_dart: ^0.4.0 # Not web-compatible; OMEMO stubbed on web
   cryptography: ^2.7.0
   file_picker: ^10.3.10
   record: ^6.2.0
@@ -30,13 +30,16 @@ dependencies:
   sqflite: ^2.4.2
   path: ^1.9.1
   sqflite_common_ffi: ^2.4.0+2
+  sqflite_common_ffi_web: ^0.4.5+2
   sqlite3_flutter_libs: ^0.6.0+eol
+  web: ^1.1.1
   url_launcher: ^6.3.2
   open_filex: ^4.7.0
   image_picker: ^1.2.1
   flutter_markdown: ^0.7.7+1
   giphy_get: ^3.6.1+1
-  sip_ua: ^1.1.0
+  sip_ua:
+    path: packages/sip_ua
   flutter_local_notifications: ^21.0.0
   tray_manager: ^0.5.2
   window_manager: ^0.5.1
@@ -47,6 +50,7 @@ dependencies:
   archive: ^4.0.9
   any_link_preview: ^3.0.3
   html2md: ^1.3.2
+  go_router: ^17.5.0
 
 dev_dependencies:
   flutter_test:
@@ -63,6 +67,7 @@ flutter:
     - assets/sounds/ringback.mp3
     - assets/sounds/message.mp3
     - assets/sounds/notification.mp3
+    - assets/sounds/soundboard/
 
 dependency_overrides:
   intl: ^0.20.2

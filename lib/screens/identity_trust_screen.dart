@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
-import '../services/omemo_storage.dart';
+import '../services/omemo_storage_stub.dart' if (dart.library.io) '../services/omemo_storage.dart';
 
 class IdentityTrustScreen extends StatefulWidget {
   const IdentityTrustScreen({super.key});

@@ -2,18 +2,19 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/chat_models.dart';
 import '../models/user_profile.dart';
 import './jingle_signaling_service.dart';
-import './xmpp_proxy_service.dart';
+import './xmpp_proxy_service.dart' if (dart.library.html) './xmpp_proxy_service_web.dart';
 import './http_upload_service.dart';
 import './avatar_cache_service.dart';
-import './omemo_service.dart';
-import './omemo_storage.dart';
+import './omemo_service_stub.dart' if (dart.library.io) './omemo_service.dart';
+import './secure_storage_service.dart';
+import './omemo_storage_stub.dart' if (dart.library.io) './omemo_storage.dart';
 import './otr_service.dart';
 import './spaces_service.dart';
 import '../models/space_models.dart';
@@ -22,6 +23,7 @@ import './database_service.dart';
 enum ConnectionProtocol { xmpp, none }
 
 class AuthService with ChangeNotifier {
+  void Function(String bareJid)? onAuthenticated;
   bool _xmppConnecting = false;
 
   ConnectionStatus getAccountStatus(String accountId) {
@@ -293,6 +295,7 @@ class AuthService with ChangeNotifier {
   }
 
   Future<bool> hasUnverifiedDevices(String jid) async {
+    if (kIsWeb) return false;
     final store = SQLiteSignalStore();
     final identities = await store.getIdentitiesForJid(
       jid.split('/').first.toLowerCase(),
@@ -362,6 +365,7 @@ class AuthService with ChangeNotifier {
   }
 
   Future<List<Map<String, dynamic>>> fetchOmemoIdentities() async {
+    if (kIsWeb) return [];
     final store = SQLiteSignalStore();
     final List<Map<String, dynamic>> identities = List.from(
       await store.getAllIdentities(),
@@ -395,7 +399,7 @@ class AuthService with ChangeNotifier {
     notifyListeners();
   }
 
-  final _secureStorage = const FlutterSecureStorage();
+  final _secureStorage = SecureStorageService.instance;
 
   // Helper to get Jingle service for call provider
   JingleSignalingService? get jingleSignaling => _activeAccountId != null
@@ -542,7 +546,7 @@ class AuthService with ChangeNotifier {
       throw Exception('Upload service not available for this account.');
     }
 
-    final fileName = file.path.split(Platform.pathSeparator).last;
+    final fileName = file.path.split(RegExp(r'[/\\]')).last;
     final size = await file.length();
     final contentType = type == MessageType.image
         ? 'image/jpeg'
@@ -831,32 +835,53 @@ class AuthService with ChangeNotifier {
     try {
       final jid = xmpp.Jid.fromFullJid(fullJidStr);
 
-      _xmppProxies[id]?.stop();
-      final proxy = XmppProxyService();
-      _xmppProxies[id] = proxy;
-
-      final proxyTargetHost = host ?? domain;
-      final proxyTargetPort =
-          (domain == 'jabb3r.org' || domain == 'jabb3r.info') ? 5222 : port;
-
-      final localPort = await proxy.start(
-        proxyTargetHost,
-        proxyTargetPort,
-        domain,
-      );
-
       final Completer<void> connectionCompleter = Completer<void>();
 
-      final accountSettings = xmpp.XmppAccountSettings(
-        jid.fullJid ?? fullJidStr,
-        jid.local,
-        jid.domain,
-        pass,
-        localPort,
-        host: '127.0.0.1',
-        resource: configData?.customResource ?? 'gibber_mobile',
-        wsPath: configData?.wsPath,
-      );
+      late final xmpp.XmppAccountSettings accountSettings;
+
+      if (kIsWeb) {
+        // Web: connect directly via WebSocket, no proxy
+        final wsHost = host ?? domain;
+        final wsPort = port;
+        final wsPath = configData?.wsPath ?? '/xmpp-websocket';
+        accountSettings = xmpp.XmppAccountSettings(
+          jid.fullJid ?? fullJidStr,
+          jid.local,
+          jid.domain,
+          pass,
+          wsPort,
+          host: wsHost,
+          resource: configData?.customResource ?? 'gibber_web',
+          wsPath: wsPath,
+        );
+        accountSettings.wsProtocols = ['xmpp'];
+      } else {
+        // Native: connect via local TCP/TLS proxy
+        _xmppProxies[id]?.stop();
+        final proxy = XmppProxyService();
+        _xmppProxies[id] = proxy;
+
+        final proxyTargetHost = host ?? domain;
+        final proxyTargetPort =
+            (domain == 'jabb3r.org' || domain == 'jabb3r.info') ? 5222 : port;
+
+        final localPort = await proxy.start(
+          proxyTargetHost,
+          proxyTargetPort,
+          domain,
+        );
+
+        accountSettings = xmpp.XmppAccountSettings(
+          jid.fullJid ?? fullJidStr,
+          jid.local,
+          jid.domain,
+          pass,
+          localPort,
+          host: '127.0.0.1',
+          resource: configData?.customResource ?? 'gibber_mobile',
+          wsPath: configData?.wsPath,
+        );
+      }
 
       // DOMAIN GUARD: Ensure SASL identity is explicitly the target domain
       debugPrint(
@@ -920,6 +945,8 @@ class AuthService with ChangeNotifier {
 
           // Trigger Full Data Sync (MAM, Bookmarks, vCard)
           _syncAllXmppData(id, conn);
+
+          onAuthenticated?.call(bareJid);
 
           // Services are initialized on Ready state above.
           // Redundant listener removed to centralize state handling.
@@ -995,7 +1022,7 @@ class AuthService with ChangeNotifier {
               xmpp.XmppElement? mucUser;
               for (var child in stanza.children) {
                 if (child.name == 'x' && child.getAttribute('xmlns')?.value == 'http://jabber.org/protocol/muc#user') {
-                  mucUser = child as xmpp.XmppElement;
+                  mucUser = child;
                   break;
                 }
               }
@@ -1493,12 +1520,15 @@ class AuthService with ChangeNotifier {
                       final varName = field.getAttribute('var')?.value;
                       final val = field.getChild('value')?.textValue;
                       if (varName != null && val != null) {
-                        if (varName == 'muc#roominfo_occupants')
+                        if (varName == 'muc#roominfo_occupants') {
                           roomInfo['users'] = val;
-                        if (varName == 'muc#roominfo_description')
+                        }
+                        if (varName == 'muc#roominfo_description') {
                           roomInfo['description'] = val;
-                        if (varName == 'muc#roominfo_subject')
+                        }
+                        if (varName == 'muc#roominfo_subject') {
                           roomInfo['topic'] = val;
+                        }
                       }
                     }
                   }
@@ -1930,8 +1960,9 @@ class AuthService with ChangeNotifier {
                     finalBody = _otr.processIncomingMessage(bareJid, finalBody);
                   }
 
-                  if (finalBody == null)
+                  if (finalBody == null) {
                     return; // OTR interceptor consumed the message (e.g., key exchange)
+                  }
 
                   _messageStreamController.add(
                     ChatMessage(
@@ -2139,8 +2170,9 @@ class AuthService with ChangeNotifier {
               'Authentication failed. Check your username and password.';
           conn.dispose();
           _xmppProxies[id]?.stop();
-          if (!connectionCompleter.isCompleted)
+          if (!connectionCompleter.isCompleted) {
             connectionCompleter.completeError(Exception(_lastDiagnostic));
+          }
         } else if (state ==
             xmpp.XmppConnectionState.AuthenticationNotSupported) {
           _xmppConnecting = false;
@@ -2148,16 +2180,18 @@ class AuthService with ChangeNotifier {
               'Server does not support any compatible authentication method.';
           conn.dispose();
           _xmppProxies[id]?.stop();
-          if (!connectionCompleter.isCompleted)
+          if (!connectionCompleter.isCompleted) {
             connectionCompleter.completeError(Exception(_lastDiagnostic));
+          }
         } else if (state == xmpp.XmppConnectionState.StartTlsFailed) {
           _xmppConnecting = false;
           _lastDiagnostic =
               'TLS handshake failed. The server may not support secure connections on this port.';
           conn.dispose();
           _xmppProxies[id]?.stop();
-          if (!connectionCompleter.isCompleted)
+          if (!connectionCompleter.isCompleted) {
             connectionCompleter.completeError(Exception(_lastDiagnostic));
+          }
         } else if (state == xmpp.XmppConnectionState.Closed ||
             state == xmpp.XmppConnectionState.ForcefullyClosed) {
           _xmppConnecting = false;
@@ -2167,8 +2201,9 @@ class AuthService with ChangeNotifier {
                 : 'Connection closed before authentication completed.';
             conn.dispose();
             _xmppProxies[id]?.stop();
-            if (!connectionCompleter.isCompleted)
+            if (!connectionCompleter.isCompleted) {
               connectionCompleter.completeError(Exception(_lastDiagnostic));
+            }
           }
         }
       }, onError: _handleXmppStreamError);
@@ -2827,8 +2862,9 @@ class AuthService with ChangeNotifier {
     String roomJid,
   ) async {
     final conn = _xmppConnections[accountId];
-    if (conn == null)
+    if (conn == null) {
       return {'jid': roomJid, 'name': roomJid, 'description': ''};
+    }
     final id = 'roominfo_${DateTime.now().millisecondsSinceEpoch}';
     final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
     iq.toJid = xmpp.Jid.fromFullJid(roomJid);
@@ -3158,8 +3194,9 @@ class AuthService with ChangeNotifier {
 
     for (final acc in accountGroups.keys) {
       final conn = _xmppConnections[acc];
-      if (conn == null || conn.state != xmpp.XmppConnectionState.Ready)
+      if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
         continue;
+      }
 
       try {
         final id = 'pub_bm_${DateTime.now().millisecondsSinceEpoch}';
@@ -3369,6 +3406,9 @@ class AuthService with ChangeNotifier {
   }
 
   Future<String> testSocketConnection(String host, int port) async {
+    if (kIsWeb) {
+      return 'Web: Socket probe not available — use WebSocket URL instead';
+    }
     try {
       final socket = await Socket.connect(
         host,

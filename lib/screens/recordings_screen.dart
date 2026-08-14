@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:archive/archive_io.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:intl/intl.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:share_plus/share_plus.dart';
@@ -60,6 +61,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   Future<void> _loadRecordings() async {
     setState(() => _isLoading = true);
     try {
+      if (kIsWeb) { if (mounted) setState(() => _isLoading = false); return; }
       final docsDir = await getApplicationDocumentsDirectory();
       final exportDir = Directory('${docsDir.path}/GibberExport/Calls');
 
@@ -132,7 +134,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     final dir = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Choose export folder');
     if (dir == null) return;
     try {
-      final dest = File('$dir/${file.path.split(Platform.pathSeparator).last}');
+      final dest = File('$dir/${file.path.split(RegExp(r'[/\\]')).last}');
       await file.copy(dest.path);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -162,6 +164,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
 
     setState(() => _isExporting = true);
     try {
+      if (kIsWeb) { setState(() => _isExporting = false); return; }
       final tmp = await getTemporaryDirectory();
       final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
       final zipPath = '${tmp.path}/gibber_recordings_$stamp.zip';
@@ -225,7 +228,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   String _displayName(File file) {
-    final filename = file.path.split(Platform.pathSeparator).last;
+    final filename = file.path.split(RegExp(r'[/\\]')).last;
     if (filename.startsWith('call_') && (filename.endsWith('.mp4') || filename.endsWith('.aac') || filename.endsWith('.m4a'))) {
       final parts = filename.split('_');
       if (parts.length >= 3) return 'Call with ${parts[1]}';

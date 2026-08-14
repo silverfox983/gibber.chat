@@ -63,4 +63,5 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+    implementation("io.github.webrtc-sdk:android:144.7559.01")
 }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/chat_models.dart';
 import '../services/auth_service.dart';
-import './room_affiliation_screen.dart';
 
 class RoomSettingsScreen extends StatefulWidget {
   final Conversation room;
@@ -211,7 +211,7 @@ class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
               side: BorderSide(color: theme.colorScheme.primary),
             ),
             onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => RoomAffiliationScreen(room: widget.room)));
+               context.goNamed('roomAffiliation', extra: {'room': widget.room});
             },
           ),
           const SizedBox(height: 32),

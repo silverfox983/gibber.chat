@@ -887,7 +887,7 @@ class _FeedScreenState extends State<FeedScreen>
                       final uploadService = auth.activeUploadService;
                       if (uploadService != null) {
                         final file = File(_attachedImageUrl!);
-                        final fileName = file.path.split(Platform.pathSeparator).last;
+                        final fileName = file.path.split(RegExp(r'[/\\]')).last;
                         final size = await file.length();
                         final contentType = 'image/${fileName.split('.').last.toLowerCase()}';
                         final slot = await uploadService.requestUploadSlot(fileName, size, contentType: contentType);

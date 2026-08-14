@@ -14,7 +14,7 @@ class AppStatusTrayService with TrayListener, WindowListener {
   AuthService? _authService;
 
   Future<void> init(AuthService authService) async {
-    if (_initialized || !(Platform.isWindows || Platform.isLinux)) return;
+    if (_initialized || kIsWeb || !(Platform.isWindows || Platform.isLinux)) return;
     
     _authService = authService;
     _initialized = true;

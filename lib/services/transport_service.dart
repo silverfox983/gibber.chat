@@ -67,7 +67,7 @@ class TransportService {
     final Set<String> emitted = {};
 
     // helper to add without duplicates
-    void _emit(TransportNode node) {
+    void emit(TransportNode node) {
       if (!emitted.contains(node.jid)) {
         emitted.add(node.jid);
         gateways.add(node);
@@ -76,7 +76,7 @@ class TransportService {
     }
 
     // helper to probe a single JID for gateway identity
-    Future<void> _probeService(String serviceJid, int currentDepth) async {
+    Future<void> probeService(String serviceJid, int currentDepth) async {
       if (seen.contains(serviceJid) && currentDepth > 0) return;
       seen.add(serviceJid);
 
@@ -131,7 +131,7 @@ class TransportService {
 
           if (cat == 'gateway' || hasGatewayFeature) {
             isGateway = true;
-            _emit(TransportNode(jid: serviceJid, name: name, type: type ?? 'unknown'));
+            emit(TransportNode(jid: serviceJid, name: name, type: type ?? 'unknown'));
             debugPrint('Found Gateway: $name ($serviceJid) type=$type');
           } 
           
@@ -149,7 +149,7 @@ class TransportService {
           debugPrint('T_PROBE: Got ${subItems.length} items from $serviceJid');
           for (int i = 0; i < subItems.length; i += 10) {
             final chunk = subItems.skip(i).take(10);
-            await Future.wait(chunk.map((jid) => _probeService(jid, currentDepth + 1)));
+            await Future.wait(chunk.map((jid) => probeService(jid, currentDepth + 1)));
           }
         }
       } catch (e, stack) {
@@ -157,7 +157,7 @@ class TransportService {
       }
     }
 
-    await _probeService(domain, 0);
+    await probeService(domain, 0);
     return gateways;
   }
 

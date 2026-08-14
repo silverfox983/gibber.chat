@@ -22,3 +22,19 @@ class InviteResult {
     return null;
   }
 }
+
+enum RegistrationStatus { success, userExists, networkError, validationError, unsupported }
+
+class RegistrationResult {
+  final RegistrationStatus status;
+  final String? jid;
+  final String? message;
+
+  const RegistrationResult({
+    required this.status,
+    this.jid,
+    this.message,
+  });
+
+  bool get isOk => status == RegistrationStatus.success;
+}

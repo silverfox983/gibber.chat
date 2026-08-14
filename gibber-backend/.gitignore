@@ -1,0 +1,5 @@
+.DS_Store
+*.db
+data/
+prosody_data/
+build/

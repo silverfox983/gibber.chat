@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'dart:typed_data';
 import '../services/auth_service.dart';
 import '../services/avatar_cache_service.dart';
 import '../providers/chat_provider.dart';
 import '../models/chat_models.dart';
-import './add_contact_screen.dart';
-import './contact_profile_screen.dart';
 import 'dart:ui';
 
 class ContactsScreen extends StatefulWidget {
@@ -91,7 +90,7 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                   child: IconButton(
                     icon: Icon(Icons.person_add_alt_1_rounded, color: Theme.of(context).colorScheme.onPrimary),
                     onPressed: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AddContactScreen()));
+                      context.goNamed('addContact');
                     },
                   ),
                 ),
@@ -536,12 +535,9 @@ class _ContactTile extends StatelessWidget {
      );
   }
 
-  void _showContactDetails(BuildContext context, Contact contact, AuthService auth) {
-     Navigator.push(
-       context,
-       MaterialPageRoute(builder: (context) => ContactProfileScreen(contact: contact)),
-     );
-  }
+   void _showContactDetails(BuildContext context, Contact contact, AuthService auth) {
+      context.goNamed('contactProfile', extra: {'contact': contact});
+   }
 }
 
 class _AvatarView extends StatelessWidget {

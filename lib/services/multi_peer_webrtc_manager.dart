@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'web_audio_effects_stub.dart' if (dart.library.html) 'web_audio_effects_service.dart';
 
 typedef OnLocalStream = void Function(MediaStream stream);
 typedef OnRemoteStreamAdded = void Function(String peerId, MediaStream stream);
@@ -102,6 +103,17 @@ class MultiPeerWebRTCManager {
     try {
       _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
       debugPrint('MultiPeer: User media obtained successfully! Tracks: ${_localStream!.getTracks().length}');
+
+      // Web: Route audio through Web Audio effects processor
+      if (kIsWeb) {
+        try {
+          _localStream = WebAudioEffectsService.instance.processMediaStream(_localStream!);
+          debugPrint('MultiPeer: Audio stream processed through Web Audio effects');
+        } catch (e) {
+          debugPrint('MultiPeer: Web Audio effects processing failed: $e');
+        }
+      }
+
       return isVideo ? _localStream!.getVideoTracks().isNotEmpty : true;
     } catch (e) {
       debugPrint('MultiPeer: Failed to get local stream: $e');

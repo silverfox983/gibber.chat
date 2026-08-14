@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
-import './create_room_screen.dart';
-import './room_info_screen.dart';
 
 class RoomDiscoveryScreen extends StatefulWidget {
   const RoomDiscoveryScreen({super.key});
@@ -310,15 +309,7 @@ class _RoomDiscoveryScreenState extends State<RoomDiscoveryScreen> {
                         final authService = Provider.of<AuthService>(context, listen: false);
                         final accountId = authService.activeAccountId;
                         if (accountId != null) {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => RoomInfoScreen(
-                                room: room,
-                                accountId: accountId,
-                              ),
-                            ),
-                          );
+                          context.goNamed('roomInfo', extra: {'room': room, 'accountId': accountId!});
                         }
                       },
                       child: Padding(
@@ -428,10 +419,7 @@ class _RoomDiscoveryScreenState extends State<RoomDiscoveryScreen> {
       floatingActionButton: FloatingActionButton.extended(
         heroTag: null,
         onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const CreateRoomScreen()),
-          );
+          context.goNamed('createRoom');
         },
         backgroundColor: theme.colorScheme.tertiary,
         foregroundColor: theme.colorScheme.onTertiary,
