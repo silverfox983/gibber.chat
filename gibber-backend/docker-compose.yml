@@ -36,6 +36,7 @@ services:
       - GIBBER_USE_DOCKER=1
       - GIBBER_DOCKER_CONTAINER=gibber_xmpp
       - GIBBER_PROSODYCTL_PATH=prosodyctl
+      - GIBBER_PROSODY_URL=http://prosody:5280
     depends_on:
       - prosody
     networks:

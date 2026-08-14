@@ -273,8 +273,13 @@ class _LoginScreenState extends State<LoginScreen> {
               _jidController.clear();
               _passController.clear();
             } else if (val != null) {
-              final acc = savedAccounts.firstWhere((a) => a.fullJid == val);
-              _jidController.text = acc.user;
+              final acc = savedAccounts.cast<SavedAccount?>().firstWhere(
+                (a) => a?.fullJid == val,
+                orElse: () => null,
+              );
+              if (acc != null) {
+                _jidController.text = acc.user;
+              }
             }
           },
         ),

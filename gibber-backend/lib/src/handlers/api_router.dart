@@ -51,6 +51,7 @@ class ApiRouter {
   final Router _router = Router();
 
   void _setupRoutes() {
+    _router.get('/config', _handleConfig);
     _router.post('/register', _handleRegister);
     _router.post('/register/check', _handleCheckUser);
     _router.get('/entitlements/<jid>', _handleGetEntitlement);
@@ -423,6 +424,16 @@ class ApiRouter {
         headers: _jsonHeaders,
       );
     }
+  }
+
+  Future<Response> _handleConfig(Request request) async {
+    return Response.ok(
+      jsonEncode({
+        'captchaEnabled': captchaService.enabled,
+        'domain': xmppRegistrar.domain,
+      }),
+      headers: _jsonHeaders,
+    );
   }
 
   Future<Response> _handleHealth(Request request) async {

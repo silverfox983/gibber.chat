@@ -107,11 +107,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return valid;
   }
 
-  Future<void> _checkUsername() async {
+  Future<bool> _checkUsername() async {
     final username = _usernameController.text.trim();
     if (username.length < 3 || !RegExp(r'^[a-zA-Z0-9._-]+$').hasMatch(username)) {
       if (mounted) setState(() { _usernameAvailable = false; _checkingUsername = false; });
-      return;
+      return false;
     }
 
     setState(() { _checkingUsername = true; _usernameAvailable = false; });
@@ -133,6 +133,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         }
       });
     }
+    return available;
   }
 
   Timer? _debounceTimer;
@@ -146,10 +147,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _handleRegister() async {
     if (!_validate()) return;
-    if (kIsWeb && _captchaToken == null) {
+    final backendConfig = Provider.of<BackendConfig>(context, listen: false);
+    if (kIsWeb && backendConfig.captchaEnabled && _captchaToken == null) {
       setState(() => _generalError = 'Please complete the captcha verification.');
       return;
     }
+
+    if (_checkingUsername) {
+      _debounceTimer?.cancel();
+      await _checkUsername();
+      if (!mounted) return;
+    }
+
     if (!_usernameAvailable) {
       setState(() => _usernameError = 'Username is already taken.');
       return;
@@ -164,8 +173,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
     const domain = 'gibberapp.online';
-
-    final backendConfig = Provider.of<BackendConfig>(context, listen: false);
 
     final result = await RegistrationService.registerViaBackend(
       apiUrl: backendConfig.apiUrl,
@@ -236,13 +243,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final backendConfig = Provider.of<BackendConfig>(context);
+    final showCaptcha = kIsWeb && backendConfig.captchaEnabled;
 
-    final form = _buildForm(isDark);
+    final form = _buildForm(isDark, showCaptcha);
 
     return AuthLayout(form: form);
   }
 
-  Widget _buildForm(bool isDark) {
+  Widget _buildForm(bool isDark, bool showCaptcha) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -321,7 +330,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
         const SizedBox(height: 16),
 
-        if (kIsWeb) ...[
+        if (showCaptcha) ...[
           Center(
             child: TurnstileWebWidget(
               siteKey: _turnstileSiteKey,
