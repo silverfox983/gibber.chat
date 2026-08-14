@@ -22,7 +22,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _domainController = TextEditingController(text: 'gibber.chat');
+  final _domainController = TextEditingController(text: 'gibberapp.online');
 
   bool _isRegistering = false;
   bool _obscurePassword = true;
@@ -121,7 +121,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _handleRegister() async {
     if (!_validate()) return;
-    if (!_usernameAvailable && _domainController.text.trim() == 'gibber.chat') {
+    if (!_usernameAvailable && _domainController.text.trim() == 'gibberapp.online') {
       setState(() => _usernameError = 'Username is already taken.');
       return;
     }
@@ -137,7 +137,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final jid = '$username@$domain';
 
     final backendConfig = Provider.of<BackendConfig>(context, listen: false);
-    final isGibberDomain = domain == 'gibber.chat';
+    final isGibberDomain = domain == 'gibberapp.online';
 
     RegistrationResult result;
 
@@ -152,7 +152,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         if (mounted) {
           setState(() {
             _isRegistering = false;
-            _generalError = 'Registration on external servers is not supported in browser. Use gibber.chat or the desktop app.';
+            _generalError = 'Registration on external servers is not supported in browser. Use gibberapp.online or the desktop app.';
           });
         }
         return;
@@ -363,7 +363,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _debounceUsernameCheck() {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 600), () {
-      if (_domainController.text.trim() == 'gibber.chat' && mounted) {
+      if (_domainController.text.trim() == 'gibberapp.online' && mounted) {
         _checkUsername();
       }
     });
@@ -381,7 +381,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         fillColor: Colors.white.withValues(alpha: 0.1),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.5), width: 1.5)),
-        helperText: 'gibber.chat for instant signup. Others require in-band registration.',
+        helperText: 'gibberapp.online for instant signup. Others require in-band registration.',
         helperStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 11),
         contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
       ),

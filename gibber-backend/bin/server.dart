@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:args/args.dart';
 import 'package:shelf/shelf.dart' as shelf;
@@ -9,6 +10,70 @@ import 'package:gibber_backend/src/services/database_service.dart';
 import 'package:gibber_backend/src/services/xmpp_registrar.dart';
 import 'package:gibber_backend/src/services/miner_pool_service.dart';
 import 'package:gibber_backend/src/services/entitlement_service.dart';
+
+Future<shelf.Response> _proxyToProsody(shelf.Request request, String prosodyUrl, String domain) async {
+  final client = HttpClient();
+  try {
+    final path = request.requestedUri.path;
+    final queryString = request.requestedUri.query.isEmpty ? '' : '?${request.requestedUri.query}';
+    final proxiedUrl = Uri.parse('$prosodyUrl$path$queryString');
+
+    late HttpClientRequest proxyRequest;
+    switch (request.method) {
+      case 'GET':
+        proxyRequest = await client.getUrl(proxiedUrl);
+      case 'POST':
+        proxyRequest = await client.postUrl(proxiedUrl);
+      case 'PUT':
+        proxyRequest = await client.putUrl(proxiedUrl);
+      case 'DELETE':
+        proxyRequest = await client.deleteUrl(proxiedUrl);
+      case 'OPTIONS':
+        client.close();
+        return shelf.Response.ok('', headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Max-Age': '86400',
+        });
+      default:
+        client.close();
+        return shelf.Response(405);
+    }
+
+    request.headers.forEach((name, values) {
+      if (name.toLowerCase() != 'host' && name.toLowerCase() != 'transfer-encoding') {
+        proxyRequest.headers.set(name, values);
+      }
+    });
+    proxyRequest.headers.set('Host', domain);
+
+    final body = await request.read().toList();
+    if (body.isNotEmpty) {
+      proxyRequest.write(body.expand((chunk) => chunk));
+    }
+
+    final proxyResponse = await proxyRequest.close();
+    final responseHeaders = <String, String>{};
+    proxyResponse.headers.forEach((name, values) {
+      final lower = name.toLowerCase();
+      if (lower != 'transfer-encoding' && lower != 'content-length') {
+        responseHeaders[name] = values.join(', ');
+      }
+    });
+
+    final responseBody = await proxyResponse.fold<List<int>>([], (prev, element) => prev..addAll(element));
+    client.close();
+
+    return shelf.Response(proxyResponse.statusCode, headers: responseHeaders, body: responseBody);
+  } catch (e) {
+    client.close(force: true);
+    return shelf.Response.internalServerError(
+      body: jsonEncode({'error': 'Prosody proxy error: $e'}),
+      headers: {'Content-Type': 'application/json'},
+    );
+  }
+}
 
 void main(List<String> args) async {
   final parser = ArgParser()
@@ -36,6 +101,7 @@ void main(List<String> args) async {
   final adminKey = result['admin-key'] as String;
   final resetDb = result['reset-db'] as bool;
   final webDir = result['web-dir'] as String;
+  final prosodyUrl = result['prosody-url'] as String;
 
   final db = DatabaseService(dbPath);
   await db.initialize(reset: resetDb);
@@ -44,7 +110,6 @@ void main(List<String> args) async {
   final mode = modeStr == 'http' ? RegistrationMode.http
       : modeStr == 'internal' ? RegistrationMode.internal
       : RegistrationMode.prosodyctl;
-  final prosodyUrl = result['prosody-url'] as String;
 
   final xmppRegistrar = XmppRegistrar(
     configPath: configPath,
@@ -71,6 +136,8 @@ void main(List<String> args) async {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Key',
   });
 
+  final xmppProxyPaths = ['/xmpp-websocket', '/xmpp-websocket/', '/http-bind', '/http-bind/'];
+
   shelf.Handler handler;
   if (webDir.isNotEmpty && Directory(webDir).existsSync()) {
     final staticHandler = createStaticHandler(
@@ -85,6 +152,12 @@ void main(List<String> args) async {
         .addMiddleware(shelf.logRequests())
         .addMiddleware(corsMiddleware)
         .addHandler((request) async {
+          final path = request.requestedUri.path;
+
+          if (xmppProxyPaths.any((p) => path.startsWith(p))) {
+            return _proxyToProsody(request, prosodyUrl, xmppRegistrar.domain);
+          }
+
           final apiResponse = await apiRouter.handler(request);
           if (apiResponse.statusCode != 404) {
             return apiResponse;
@@ -109,13 +182,22 @@ void main(List<String> args) async {
     handler = const shelf.Pipeline()
         .addMiddleware(shelf.logRequests())
         .addMiddleware(corsMiddleware)
-        .addHandler(apiRouter.handler);
+        .addHandler((request) async {
+          final path = request.requestedUri.path;
+
+          if (xmppProxyPaths.any((p) => path.startsWith(p))) {
+            return _proxyToProsody(request, prosodyUrl, xmppRegistrar.domain);
+          }
+
+          return apiRouter.handler(request);
+        });
   }
 
   final server = await io.serve(handler, host, port);
   print('Gibber backend running on http://${server.address.host}:${server.port}');
   print('  XMPP domain: ${xmppRegistrar.domain}');
   print('  Database: $dbPath');
+  print('  Prosody proxy: $prosodyUrl');
   if (webDir.isNotEmpty) {
     print('  Web dir: $webDir');
   }

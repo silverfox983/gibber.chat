@@ -113,7 +113,7 @@ class Entitlement {
 
 class EntitlementService extends ChangeNotifier {
   Entitlement _entitlement = Entitlement(tier: UserTier.free);
-  String _backendUrl = 'https://api.gibber.chat';
+  String _backendUrl = 'https://gibberapp.online';
   bool _isLoading = false;
   String _error = '';
 

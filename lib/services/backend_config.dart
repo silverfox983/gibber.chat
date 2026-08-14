@@ -2,8 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class BackendConfig extends ChangeNotifier {
-  String _apiUrl = 'https://api.gibber.chat';
-  String _poolUrl = 'wss://pool.gibber.chat:443';
+  String _apiUrl = 'https://gibberapp.online';
+  String _poolUrl = 'wss://gibberapp.online/ws/miner';
 
   static const String _apiUrlKey = 'gibber_backend_api_url';
   static const String _poolUrlKey = 'gibber_backend_pool_url';
@@ -39,8 +39,8 @@ class BackendConfig extends ChangeNotifier {
   }
 
   Future<void> resetToDefaults() async {
-    _apiUrl = 'https://api.gibber.chat';
-    _poolUrl = 'wss://pool.gibber.chat:443';
+    _apiUrl = 'https://gibberapp.online';
+    _poolUrl = 'wss://gibberapp.online/ws/miner';
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_apiUrlKey);
     await prefs.remove(_poolUrlKey);

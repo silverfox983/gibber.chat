@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-DOMAIN="${DOMAIN:-gibber.chat}"
+DOMAIN="${DOMAIN:-gibberapp.online}"
 PORT="${PORT:-8080}"
 ADMIN_KEY="${GIBBER_ADMIN_KEY:-gibber-admin-key-change-in-production}"
 
@@ -9,7 +9,7 @@ echo "=== Gibber Railway Entrypoint ==="
 echo "Domain: $DOMAIN"
 echo "Port: $PORT"
 
-sed -i "s/gibber\.chat/$DOMAIN/g" /etc/prosody/prosody.cfg.lua
+sed -i "s/gibberapp\.online/$DOMAIN/g" /etc/prosody/prosody.cfg.lua
 
 if [ ! -f "/etc/prosody/certs/$DOMAIN.key" ]; then
     echo "Generating self-signed certificate for $DOMAIN..."
@@ -20,8 +20,8 @@ if [ ! -f "/etc/prosody/certs/$DOMAIN.key" ]; then
     chown prosody:prosody "/etc/prosody/certs/$DOMAIN.key" "/etc/prosody/certs/$DOMAIN.crt"
 fi
 
-sed -i "s|/etc/prosody/certs/gibber.chat.key|/etc/prosody/certs/$DOMAIN.key|g" /etc/prosody/prosody.cfg.lua
-sed -i "s|/etc/prosody/certs/gibber.chat.crt|/etc/prosody/certs/$DOMAIN.crt|g" /etc/prosody/prosody.cfg.lua
+sed -i "s|/etc/prosody/certs/gibberapp.online.key|/etc/prosody/certs/$DOMAIN.key|g" /etc/prosody/prosody.cfg.lua
+sed -i "s|/etc/prosody/certs/gibberapp.online.crt|/etc/prosody/certs/$DOMAIN.crt|g" /etc/prosody/prosody.cfg.lua
 
 mkdir -p /var/run/prosody /app/data /var/log/supervisor
 chown -R prosody:prosody /var/run/prosody /var/lib/prosody

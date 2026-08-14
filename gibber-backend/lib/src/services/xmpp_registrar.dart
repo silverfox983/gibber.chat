@@ -6,7 +6,7 @@ enum RegistrationMode { prosodyctl, http, internal }
 
 class XmppRegistrar {
   final String configPath;
-  String _domain = 'gibber.chat';
+  String _domain = 'gibberapp.online';
   final String _prosodyCtlPath;
   final String _dockerContainer;
   final bool _useDocker;

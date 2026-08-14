@@ -46,8 +46,8 @@ class MinerService extends ChangeNotifier {
   String _error = '';
   MiningStats _stats = MiningStats();
   String? _poolSessionToken;
-  String _poolUrl = 'wss://pool.gibber.chat:443';
-  String _backendUrl = 'https://api.gibber.chat';
+  String _poolUrl = 'wss://gibberapp.online/ws/miner';
+  String _backendUrl = 'https://gibberapp.online';
   String _jid = '';
   double _cpuCap = 0.3;
   bool _consent = false;

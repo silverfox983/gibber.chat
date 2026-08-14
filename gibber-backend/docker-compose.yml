@@ -13,7 +13,7 @@ services:
       - prosody_data:/var/lib/prosody
     environment:
       LOCAL: gibber
-      DOMAIN: gibber.chat
+      DOMAIN: gibberapp.online
     networks:
       - gibber_net
 

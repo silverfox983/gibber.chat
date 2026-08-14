@@ -20,15 +20,15 @@ storage = "internal"
 
 -- Self-signed cert for development
 ssl = {
-    certificate = "/etc/prosody/certs/gibber.chat.crt";
-    key = "/etc/prosody/certs/gibber.chat.key";
+    certificate = "/etc/prosody/certs/gibberapp.online.crt";
+    key = "/etc/prosody/certs/gibberapp.online.key";
 }
 
 -- Require encryption for client connections
 c2s_require_encryption = false
 
 -- Server domain
-VirtualHost "gibber.chat"
+VirtualHost "gibberapp.online"
 modules_enabled = {
     "roster";
     "saslauth";
@@ -54,16 +54,16 @@ modules_enabled = {
 }
 
 -- MUC (Multi-User Chat) for group channels
-Component "conference.gibber.chat" "muc"
+Component "conference.gibberapp.online" "muc"
 modules_enabled = { "vcard"; }
 muc_room_default_public = true
 muc_room_default_persistent = true
 muc_room_default_members_only = false
 
 -- Gateway transports (require backend authorization)
--- Component "slack.gibber.chat" "slack_bridge"
--- Component "discord.gibber.chat" "discord_bridge"
--- Component "irc.gibber.chat" "irc_gateway"
+-- Component "slack.gibberapp.online" "slack_bridge"
+-- Component "discord.gibberapp.online" "discord_bridge"
+-- Component "irc.gibberapp.online" "irc_gateway"
 
 -- Logging
 log = {
