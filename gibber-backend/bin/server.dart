@@ -90,9 +90,66 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
   WebSocket.connect(wsUrl, headers: {'Host': domain}, protocols: ['xmpp']).then((prosodyWs) {
     print('XMPP WS proxy: Connected to Prosody');
 
+    bool firstServerPacketTransformed = false;
+
     prosodyWs.listen(
       (data) {
-        webSocket.sink.add(data);
+        if (data is String) {
+          String content = data;
+
+          // Strip Stream Management features (xmpp_stone counting bug)
+          if (content.contains('urn:xmpp:sm:')) {
+            content = content.replaceAll(RegExp(r'<sm xmlns=.urn:xmpp:sm:[23].[^>]*/>'), '');
+            content = content.replaceAll(RegExp(r'<sm xmlns=.urn:xmpp:sm:[23].[^>]*>.*?</sm>', dotAll: true), '');
+          }
+
+          // Transform stream features for xmpp_stone compatibility (SASL1 only)
+          if (!firstServerPacketTransformed && content.contains('<stream:features')) {
+            print('XMPP WS proxy: Transforming stream features for SASL1 compatibility');
+
+            // 1. Strip STARTTLS (connection is already secure via WSS/proxy)
+            content = content.replaceFirst(RegExp(r'<starttls[^>]*>.*?</starttls>', dotAll: true), '');
+            content = content.replaceFirst(RegExp(r'<starttls[^>]*/>'), '');
+
+            // 2. Remove SASL2 inline features that xmpp_stone can't negotiate
+            content = content.replaceFirst(RegExp(r'<inline[^>]*>.*?</inline>', dotAll: true), '');
+
+            // 3. Remove SASL2 <authentication> block (xmpp_stone only supports SASL1)
+            if (content.contains(RegExp(r'<authentication xmlns=.urn:xmpp:sasl:2.', dotAll: true))) {
+              // Extract mechanism names from SASL2 block to merge into SASL1
+              final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
+                  .allMatches(content)
+                  .map((m) => m.group(1)!)
+                  .toSet();
+
+              // Remove the entire SASL2 <authentication> block
+              content = content.replaceFirst(RegExp(r'<authentication xmlns=.urn:xmpp:sasl:2.>.*?</authentication>', dotAll: true), '');
+
+              // If no <mechanisms> block exists, inject one with the extracted mechanisms + PLAIN
+              if (!content.contains('<mechanisms')) {
+                final mechs = sasl2Mechs.toList()..add('PLAIN');
+                final mechsXml = mechs.map((m) => '<mechanism>$m</mechanism>').join('');
+                final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>$mechsXml</mechanisms>";
+                content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
+              }
+            }
+
+            // 4. Ensure PLAIN mechanism is available for xmpp_stone SASL1 auth
+            if (content.contains('<mechanisms') && !content.contains('<mechanism>PLAIN</mechanism>')) {
+              content = content.replaceFirst(
+                RegExp(r"<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>"),
+                "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><mechanism>PLAIN</mechanism>",
+              );
+            }
+
+            firstServerPacketTransformed = true;
+            print('XMPP WS proxy: Stream features transformed successfully');
+          }
+
+          webSocket.sink.add(content);
+        } else {
+          webSocket.sink.add(data);
+        }
       },
       onDone: () {
         print('XMPP WS proxy: Prosody closed connection');
