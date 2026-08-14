@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:args/args.dart';
@@ -87,6 +88,12 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
 
   print('XMPP WS proxy: Connecting to Prosody at $wsUrl (Host: $domain)');
 
+  // Buffer for <close> frames from Prosody. Prosody sometimes sends <close>
+  // before <failure> on auth errors. We buffer <close> briefly so the <failure>
+  // reaches the client first, allowing xmpp_stone to detect auth failures.
+  String? bufferedClose;
+  Timer? closeTimer;
+
   WebSocket.connect(wsUrl, headers: {'Host': domain}, protocols: ['xmpp']).then((prosodyWs) {
     print('XMPP WS proxy: Connected to Prosody');
 
@@ -139,17 +146,50 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
             print('XMPP WS proxy: Transformed stream features to client: ${transformedPreview.replaceAll('\n', ' ')}');
           }
 
-          webSocket.sink.add(content);
+          // If Prosody sends a <close> frame, buffer it so any subsequent
+          // <failure> frames get forwarded to the client first.
+          // Prosody sometimes sends <close> before <failure> on auth errors.
+          if (content.contains('<close') && content.contains('urn:ietf:params:xml:ns:xmpp-framing')) {
+            print('XMPP WS proxy: Buffering <close> frame from Prosody');
+            if (content.contains('<failure')) {
+              webSocket.sink.add(content);
+            } else {
+              bufferedClose = content;
+              closeTimer?.cancel();
+              closeTimer = Timer(const Duration(milliseconds: 200), () {
+                if (bufferedClose != null) {
+                  print('XMPP WS proxy: Forwarding buffered <close> (no <failure> followed)');
+                  webSocket.sink.add(bufferedClose!);
+                  bufferedClose = null;
+                }
+              });
+            }
+          } else {
+            webSocket.sink.add(content);
+            if (content.contains('<failure') && bufferedClose != null) {
+              print('XMPP WS proxy: Forwarding buffered <close> after <failure>');
+              webSocket.sink.add(bufferedClose!);
+              bufferedClose = null;
+              closeTimer?.cancel();
+            }
+          }
         } else {
           webSocket.sink.add(data);
         }
       },
       onDone: () {
         print('XMPP WS proxy: Prosody closed connection');
+        if (bufferedClose != null) {
+          print('XMPP WS proxy: Forwarding buffered <close> on Prosody disconnect');
+          webSocket.sink.add(bufferedClose!);
+          bufferedClose = null;
+        }
+        closeTimer?.cancel();
         webSocket.sink.close();
       },
       onError: (e) {
         print('XMPP WS proxy: Prosody error: $e');
+        closeTimer?.cancel();
         webSocket.sink.close();
       },
       cancelOnError: false,
@@ -165,16 +205,19 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
       },
       onDone: () {
         print('XMPP WS proxy: Client closed connection');
+        closeTimer?.cancel();
         prosodyWs.close();
       },
       onError: (e) {
         print('XMPP WS proxy: Client error: $e');
+        closeTimer?.cancel();
         prosodyWs.close();
       },
       cancelOnError: false,
     );
   }).catchError((e) {
     print('XMPP WS proxy: Failed to connect to Prosody at $wsUrl: $e');
+    closeTimer?.cancel();
     webSocket.sink.close();
   });
 }
