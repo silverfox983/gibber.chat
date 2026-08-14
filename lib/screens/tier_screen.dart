@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/entitlement_service.dart';
 import '../services/backend_config.dart';
+import '../services/subscription_service.dart';
 
 class TierScreen extends StatefulWidget {
   const TierScreen({super.key});
@@ -14,6 +16,16 @@ class TierScreen extends StatefulWidget {
 class _TierScreenState extends State<TierScreen> {
   final _codeController = TextEditingController();
   bool _redeeming = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final sub = Provider.of<SubscriptionService>(context, listen: false);
+      sub.setBackendUrl(Provider.of<BackendConfig>(context, listen: false).apiUrl);
+      sub.fetchPricing();
+    });
+  }
 
   @override
   void dispose() {
@@ -31,13 +43,21 @@ class _TierScreenState extends State<TierScreen> {
         backgroundColor: theme.scaffoldBackgroundColor,
         elevation: 0,
       ),
-      body: Consumer2<EntitlementService, BackendConfig>(
-        builder: (context, entitlement, backendConfig, _) {
+      body: Consumer3<EntitlementService, BackendConfig, SubscriptionService>(
+        builder: (context, entitlement, backendConfig, subscription, _) {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
               _buildCurrentTierCard(theme, entitlement),
               const SizedBox(height: 16),
+              if (entitlement.currentTier == UserTier.free) ...[
+                _buildUpgradeCard(theme, subscription, entitlement),
+                const SizedBox(height: 16),
+              ],
+              if (entitlement.currentTier != UserTier.free) ...[
+                _buildManageSubscriptionCard(theme, subscription, entitlement),
+                const SizedBox(height: 16),
+              ],
               _buildTierComparisonCard(theme, entitlement),
               const SizedBox(height: 16),
               _buildSupportCard(theme),
@@ -128,6 +148,172 @@ class _TierScreenState extends State<TierScreen> {
     );
   }
 
+  Widget _buildUpgradeCard(ThemeData theme, SubscriptionService subscription, EntitlementService entitlement) {
+    final proTier = subscription.proTier;
+    final ultimateTier = subscription.ultimateTier;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('UPGRADE', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+          const SizedBox(height: 12),
+          if (proTier != null) ...[
+            _buildUpgradeRow(theme, proTier, Colors.purpleAccent, entitlement, subscription),
+            const SizedBox(height: 10),
+          ],
+          if (ultimateTier != null) ...[
+            _buildUpgradeRow(theme, ultimateTier, Colors.amber, entitlement, subscription),
+          ],
+          if (proTier == null && ultimateTier == null && subscription.isLoading)
+            const Center(child: CircularProgressIndicator()),
+          if (proTier == null && ultimateTier == null && !subscription.isLoading)
+            Text('Pricing unavailable', style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUpgradeRow(ThemeData theme, PricingTier tier, Color color, EntitlementService entitlement, SubscriptionService subscription) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(children: [
+        Expanded(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(tier.name, style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: color)),
+            const SizedBox(height: 2),
+            Text('\$${tier.price.toStringAsFixed(2)}/${tier.interval}',
+                style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
+          ],
+        )),
+        if (subscription.stripeEnabled)
+          Padding(
+            padding: const EdgeInsets.only(left: 6),
+            child: FilledButton(
+              onPressed: () => _handleSubscribe(tier.id, 'stripe', entitlement),
+              style: FilledButton.styleFrom(backgroundColor: color, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+              child: Text('Card', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
+            ),
+          ),
+        if (subscription.btcpayEnabled)
+          Padding(
+            padding: const EdgeInsets.only(left: 6),
+            child: OutlinedButton(
+              onPressed: () => _handleSubscribe(tier.id, 'btcpay', entitlement),
+              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), side: BorderSide(color: color)),
+              child: Text('Crypto', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+            ),
+          ),
+      ]),
+    );
+  }
+
+  Future<void> _handleSubscribe(String tierId, String method, EntitlementService entitlement) async {
+    final subscription = Provider.of<SubscriptionService>(context, listen: false);
+    final jid = entitlement.entitlement.additionalProtocols.isEmpty ? 'user@gibberapp.online' : '';
+
+    String? url;
+    if (method == 'stripe') {
+      url = await subscription.createStripeCheckout(jid.isEmpty ? 'user@gibberapp.online' : jid, tierId);
+    } else {
+      url = await subscription.createBtcpayInvoice(jid.isEmpty ? 'user@gibberapp.online' : jid, tierId);
+    }
+
+    if (url != null && mounted) {
+      final uri = Uri.tryParse(url);
+      if (uri != null && await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open payment page'), backgroundColor: Colors.red),
+        );
+      }
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(subscription.error.isNotEmpty ? subscription.error : 'Payment failed'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Widget _buildManageSubscriptionCard(ThemeData theme, SubscriptionService subscription, EntitlementService entitlement) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.credit_card_rounded, size: 20, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Text('MANAGE SUBSCRIPTION', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+          ]),
+          const SizedBox(height: 12),
+          Text(
+            entitlement.currentTier == UserTier.pro ? 'Pro plan — \$9.99/month' : 'Ultimate plan — \$19.99/month',
+            style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+          if (entitlement.entitlement.expiresAt != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Renews: ${_formatDate(entitlement.entitlement.expiresAt!)}',
+              style: GoogleFonts.inter(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ],
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: () => _handleCancelSubscription(entitlement),
+            style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
+            child: Text('Cancel Subscription', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleCancelSubscription(EntitlementService entitlement) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Cancel Subscription?', style: GoogleFonts.inter(fontWeight: FontWeight.w800)),
+        content: Text('Your subscription will remain active until the end of your billing period. After that, you\'ll revert to the Free tier.', style: GoogleFonts.inter()),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Keep', style: GoogleFonts.inter())),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text('Cancel Sub', style: GoogleFonts.inter(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final subscription = Provider.of<SubscriptionService>(context, listen: false);
+    final jid = 'user@gibberapp.online';
+    final success = await subscription.cancelSubscription(jid);
+    if (!mounted) return;
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Subscription cancellation requested.'), backgroundColor: Colors.orange),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(subscription.error.isNotEmpty ? subscription.error : 'Failed to cancel'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   Widget _buildUsageRow(ThemeData theme, IconData icon, String label, int used, int? limit, String unit) {
     final isUnlimited = limit == null;
     final progress = isUnlimited ? 0.0 : (limit == 0 ? 1.0 : (used / limit).clamp(0.0, 1.0));
@@ -157,9 +343,9 @@ class _TierScreenState extends State<TierScreen> {
     final tiers = [
       (UserTier.free, 'Free', Icons.person_rounded, theme.colorScheme.onSurfaceVariant,
         ['Gibber protocol only', '30 min transcription/mo', '10 AI queries/mo', '4-person calls']),
-      (UserTier.pro, 'Pro', Icons.star_rounded, Colors.purpleAccent,
+      (UserTier.pro, 'Pro — \$9.99/mo', Icons.star_rounded, Colors.purpleAccent,
         ['Gibber + Slack + Discord + IRC', '300 min transcription/mo', '100 AI queries/mo', '10-person calls']),
-      (UserTier.ultimate, 'Ultimate', Icons.workspace_premium_rounded, Colors.amber,
+      (UserTier.ultimate, 'Ultimate — \$19.99/mo', Icons.workspace_premium_rounded, Colors.amber,
         ['All protocols', 'Unlimited transcription', 'Unlimited AI', 'Unlimited calls']),
     ];
 
@@ -179,8 +365,7 @@ class _TierScreenState extends State<TierScreen> {
             Row(children: [
               Icon(icon, size: 18, color: color),
               const SizedBox(width: 8),
-              Text(name, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: color)),
-              const Spacer(),
+              Expanded(child: Text(name, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: color))),
               if (entitlement.currentTier == tier)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

@@ -15,7 +15,7 @@ class CaptchaService {
     try {
       final client = HttpClient();
       final request = await client.postUrl(Uri.parse('https://challenges.cloudflare.com/turnstile/v0/siteverify'));
-      request.headers.contentType = ContentType.formUrlEncoded;
+      request.headers.contentType = ContentType('application', 'x-www-form-urlencoded');
       final body = 'secret=${Uri.encodeQueryComponent(_secretKey)}'
           '&response=${Uri.encodeQueryComponent(token)}'
           '${remoteIp != null ? '&remoteip=${Uri.encodeQueryComponent(remoteIp)}' : ''}';

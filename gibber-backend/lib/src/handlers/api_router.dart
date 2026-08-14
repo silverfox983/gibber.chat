@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:gibber_backend/src/services/database_service.dart';
@@ -7,6 +8,7 @@ import 'package:gibber_backend/src/services/miner_pool_service.dart';
 import 'package:gibber_backend/src/services/entitlement_service.dart';
 import 'package:gibber_backend/src/services/captcha_service.dart';
 import 'package:gibber_backend/src/services/rate_limiter.dart';
+import 'package:gibber_backend/src/services/payment_service.dart';
 
 extension _RequestIp on Request {
   String? get ip {
@@ -26,6 +28,7 @@ class ApiRouter {
   final XmppRegistrar xmppRegistrar;
   final MinerPoolService minerPool;
   final BackendEntitlementService entitlementService;
+  final PaymentService paymentService;
   final String adminApiKey;
   final CaptchaService captchaService;
   final RateLimiter _registerLimiter = RateLimiter(maxRequests: 3, window: Duration(hours: 1));
@@ -36,6 +39,7 @@ class ApiRouter {
     required this.xmppRegistrar,
     required this.minerPool,
     required this.entitlementService,
+    required this.paymentService,
     this.adminApiKey = 'gibber-admin-key',
     CaptchaService? captchaService,
   }) : captchaService = captchaService ?? CaptchaService() {
@@ -57,6 +61,13 @@ class ApiRouter {
     _router.post('/miner/submit', _handleMinerSubmit);
     _router.post('/miner/heartbeat', _handleMinerHeartbeat);
     _router.get('/miner/stats/<jid>', _handleMinerStats);
+    _router.get('/pricing', _handlePricing);
+    _router.post('/payments/stripe/checkout', _handleStripeCheckout);
+    _router.post('/payments/btcpay/invoice', _handleBtcpayInvoice);
+    _router.post('/payments/stripe/webhook', _handleStripeWebhook);
+    _router.post('/payments/btcpay/webhook', _handleBtcpayWebhook);
+    _router.get('/subscription/<jid>', _handleGetSubscription);
+    _router.post('/subscription/<jid>/cancel', _handleCancelSubscription);
     _router.post('/codes', _handleGenerateCode);
     _router.get('/codes', _handleListCodes);
     _router.get('/health', _handleHealth);
@@ -423,6 +434,174 @@ class ApiRouter {
       }),
       headers: _jsonHeaders,
     );
+  }
+
+  Future<Response> _handlePricing(Request request) async {
+    try {
+      final pricing = await paymentService.getPricing();
+      return Response.ok(
+        jsonEncode(pricing),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleStripeCheckout(Request request) async {
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final jid = body['jid'] as String?;
+      final tier = body['tier'] as String?;
+
+      if (jid == null || tier == null) {
+        return Response.badRequest(
+          body: jsonEncode({'error': 'jid and tier are required'}),
+          headers: _jsonHeaders,
+        );
+      }
+
+      if (!paymentService.stripeEnabled) {
+        return Response(503, body: jsonEncode({'error': 'Stripe is not configured'}), headers: _jsonHeaders);
+      }
+
+      final session = await paymentService.createStripeCheckoutSession(jid, tier);
+      return Response.ok(
+        jsonEncode(session),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleBtcpayInvoice(Request request) async {
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final jid = body['jid'] as String?;
+      final tier = body['tier'] as String?;
+
+      if (jid == null || tier == null) {
+        return Response.badRequest(
+          body: jsonEncode({'error': 'jid and tier are required'}),
+          headers: _jsonHeaders,
+        );
+      }
+
+      if (!paymentService.btcpayEnabled) {
+        return Response(503, body: jsonEncode({'error': 'BTCPay Server is not configured'}), headers: _jsonHeaders);
+      }
+
+      final invoice = await paymentService.createBtcpayInvoice(jid, tier);
+      return Response.ok(
+        jsonEncode(invoice),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleStripeWebhook(Request request) async {
+    try {
+      final body = await request.readAsString();
+      final event = jsonDecode(body) as Map<String, dynamic>;
+      await paymentService.handleStripeWebhook(event);
+      return Response.ok(
+        jsonEncode({'received': true}),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleBtcpayWebhook(Request request) async {
+    try {
+      final body = await request.readAsString();
+      final event = jsonDecode(body) as Map<String, dynamic>;
+      await paymentService.handleBtcpayWebhook(event);
+      return Response.ok(
+        jsonEncode({'received': true}),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleGetSubscription(Request request, String jid) async {
+    try {
+      final subscription = await paymentService.getActiveSubscription(jid);
+      final payments = await paymentService.getPaymentHistory(jid);
+      final entitlement = await entitlementService.getEntitlement(jid);
+      return Response.ok(
+        jsonEncode({
+          'subscription': subscription?.toJson(),
+          'payments': payments.map((p) => p.toJson()).toList(),
+          'entitlement': entitlement.toJson(),
+        }),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleCancelSubscription(Request request, String jid) async {
+    try {
+      final subscription = await paymentService.getActiveSubscription(jid);
+      if (subscription == null) {
+        return Response(404, body: jsonEncode({'error': 'No active subscription found'}), headers: _jsonHeaders);
+      }
+      if (subscription.provider == 'stripe' && paymentService.stripeEnabled) {
+        final client = HttpClient();
+        try {
+          final url = Uri.parse('https://api.stripe.com/v1/subscriptions/${subscription.providerId}');
+          final req = await client.deleteUrl(url);
+          req.headers.set('Authorization', 'Bearer ${paymentService.stripeSecretKey}');
+          final resp = await req.close();
+          await resp.drain<void>();
+          client.close();
+          if (resp.statusCode == 200) {
+            return Response.ok(
+              jsonEncode({'cancelled': true}),
+              headers: _jsonHeaders,
+            );
+          }
+        } catch (_) {
+          client.close(force: true);
+        }
+      }
+      await paymentService.cancelSubscription(subscription.providerId);
+      return Response.ok(
+        jsonEncode({'cancelled': true}),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
   }
 
   static const _jsonHeaders = {'Content-Type': 'application/json'};

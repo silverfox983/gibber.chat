@@ -19,6 +19,8 @@ class DatabaseService {
         db.execute('DROP TABLE IF EXISTS entitlements');
         db.execute('DROP TABLE IF EXISTS redemption_codes');
         db.execute('DROP TABLE IF EXISTS gateway_authorizations');
+        db.execute('DROP TABLE IF EXISTS subscriptions');
+        db.execute('DROP TABLE IF EXISTS payments');
       } catch (_) {}
     }
 
@@ -85,11 +87,46 @@ class DatabaseService {
       )
     ''');
 
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        id TEXT PRIMARY KEY,
+        jid TEXT NOT NULL,
+        tier TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
+        current_period_start TEXT,
+        current_period_end TEXT,
+        cancel_at TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (jid) REFERENCES users(jid)
+      )
+    ''');
+
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS payments (
+        id TEXT PRIMARY KEY,
+        jid TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        provider_payment_id TEXT NOT NULL,
+        tier TEXT NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'USD',
+        status TEXT DEFAULT 'pending',
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (jid) REFERENCES users(jid)
+      )
+    ''');
+
     db.execute('CREATE INDEX IF NOT EXISTS idx_users_jid ON users(jid)');
     db.execute('CREATE INDEX IF NOT EXISTS idx_miner_sessions_token ON miner_sessions(session_token)');
     db.execute('CREATE INDEX IF NOT EXISTS idx_miner_sessions_jid ON miner_sessions(jid)');
     db.execute('CREATE INDEX IF NOT EXISTS idx_entitlements_jid ON entitlements(jid)');
     db.execute('CREATE INDEX IF NOT EXISTS idx_gateway_auth_jid_proto ON gateway_authorizations(jid, protocol)');
+    db.execute('CREATE INDEX IF NOT EXISTS idx_subscriptions_jid ON subscriptions(jid)');
+    db.execute('CREATE INDEX IF NOT EXISTS idx_subscriptions_provider_id ON subscriptions(provider_id)');
+    db.execute('CREATE INDEX IF NOT EXISTS idx_payments_jid ON payments(jid)');
+    db.execute('CREATE INDEX IF NOT EXISTS idx_payments_provider_payment_id ON payments(provider_payment_id)');
   }
 
   void dispose() {
