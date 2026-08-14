@@ -81,6 +81,7 @@ class Connection {
 
   bool inlineBound = false;
   bool resourceBound = false;
+  bool _authFailed = false;
 
   final StreamController<AbstractStanza?> _inStanzaStreamController =
       StreamController.broadcast();
@@ -198,6 +199,7 @@ class Connection {
 
   Future<void> openSocket() async {
     connectionNegotatiorManager.init();
+    _authFailed = false;
     setState(XmppConnectionState.SocketOpening);
     try {
       var socket = xmppSocket.createSocket();
@@ -236,7 +238,6 @@ class Connection {
       throw Exception('Closing is not possible during this state');
     }
     if (state != XmppConnectionState.Closed &&
-        state != XmppConnectionState.ForcefullyClosed &&
         state != XmppConnectionState.Closing) {
       if (_socket != null) {
         try {
@@ -411,7 +412,13 @@ class Connection {
   void _processState(XmppConnectionState state) {
     if (state == XmppConnectionState.Authenticated) {
       authenticated = true;
+      _authFailed = false;
       _openStream();
+    } else if (state == XmppConnectionState.AuthenticationFailure) {
+      authenticated = false;
+      inlineBound = false;
+      resourceBound = false;
+      _authFailed = true;
     } else if (state == XmppConnectionState.Closed ||
         state == XmppConnectionState.ForcefullyClosed) {
       authenticated = false;
@@ -505,7 +512,8 @@ class Connection {
     if (state == XmppConnectionState.WouldLikeToOpen) {
       setState(XmppConnectionState.Closed);
       connect();
-    } else if (state == XmppConnectionState.Closing ||
+    } else if (_authFailed ||
+        state == XmppConnectionState.Closing ||
         state == XmppConnectionState.AuthenticationFailure ||
         state == XmppConnectionState.Authenticating ||
         state == XmppConnectionState.Authenticated) {
