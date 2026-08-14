@@ -40,7 +40,7 @@ stdout_logfile_maxbytes=0
 redirect_stderr=true
 
 [program:gibber-backend]
-command=/app/bin/server --host 0.0.0.0 --port ${PORT} --db-path /app/data/gibber_backend.db --config /etc/prosody/prosody.cfg.lua --mode internal
+command=/app/bin/server --host 0.0.0.0 --port ${PORT} --db-path /app/data/gibber_backend.db --config /etc/prosody/prosody.cfg.lua --mode internal --web-dir /app/web
 environment=GIBBER_ADMIN_KEY="${ADMIN_KEY}",DOMAIN="${DOMAIN}"
 autostart=true
 autorestart=true

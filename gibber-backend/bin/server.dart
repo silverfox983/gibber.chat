@@ -3,6 +3,7 @@ import 'package:args/args.dart';
 import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_cors_headers/shelf_cors_headers.dart';
+import 'package:shelf_static/shelf_static.dart';
 import 'package:gibber_backend/src/handlers/api_router.dart';
 import 'package:gibber_backend/src/services/database_service.dart';
 import 'package:gibber_backend/src/services/xmpp_registrar.dart';
@@ -20,6 +21,7 @@ void main(List<String> args) async {
     ..addFlag('use-docker', defaultsTo: Platform.environment['GIBBER_USE_DOCKER'] == '1')
     ..addOption('mode', defaultsTo: Platform.environment['GIBBER_REGISTRATION_MODE'] ?? 'prosodyctl', allowed: ['prosodyctl', 'http', 'internal'])
     ..addOption('prosody-url', defaultsTo: Platform.environment['GIBBER_PROSODY_URL'] ?? 'http://localhost:5280')
+    ..addOption('web-dir', defaultsTo: Platform.environment['GIBBER_WEB_DIR'] ?? '')
     ..addOption('admin-key', defaultsTo: Platform.environment['GIBBER_ADMIN_KEY'] ?? 'gibber-admin-key')
     ..addFlag('reset-db', abbr: 'r', defaultsTo: false);
 
@@ -33,6 +35,7 @@ void main(List<String> args) async {
   final useDocker = result['use-docker'] as bool;
   final adminKey = result['admin-key'] as String;
   final resetDb = result['reset-db'] as bool;
+  final webDir = result['web-dir'] as String;
 
   final db = DatabaseService(dbPath);
   await db.initialize(reset: resetDb);
@@ -62,17 +65,58 @@ void main(List<String> args) async {
     adminApiKey: adminKey,
   );
 
-  final handler = const shelf.Pipeline()
-      .addMiddleware(shelf.logRequests())
-      .addMiddleware(corsHeaders(headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Key',
-      }))
-      .addHandler(apiRouter.handler);
+  final corsMiddleware = corsHeaders(headers: {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Key',
+  });
+
+  shelf.Handler handler;
+  if (webDir.isNotEmpty && Directory(webDir).existsSync()) {
+    final staticHandler = createStaticHandler(
+      webDir,
+      defaultDocument: 'index.html',
+    );
+
+    final indexFile = File('$webDir/index.html');
+    final indexBytes = indexFile.existsSync() ? indexFile.readAsStringSync() : '';
+
+    handler = const shelf.Pipeline()
+        .addMiddleware(shelf.logRequests())
+        .addMiddleware(corsMiddleware)
+        .addHandler((request) async {
+          final apiResponse = await apiRouter.handler(request);
+          if (apiResponse.statusCode != 404) {
+            return apiResponse;
+          }
+          if (request.method == 'GET') {
+            final staticResponse = await staticHandler(request);
+            if (staticResponse.statusCode == 200) {
+              return staticResponse;
+            }
+            if (indexBytes.isNotEmpty) {
+              return shelf.Response.ok(
+                indexBytes,
+                headers: {'Content-Type': 'text/html; charset=utf-8'},
+              );
+            }
+          }
+          return apiResponse;
+        });
+
+    print('Serving web frontend from: $webDir');
+  } else {
+    handler = const shelf.Pipeline()
+        .addMiddleware(shelf.logRequests())
+        .addMiddleware(corsMiddleware)
+        .addHandler(apiRouter.handler);
+  }
 
   final server = await io.serve(handler, host, port);
   print('Gibber backend running on http://${server.address.host}:${server.port}');
   print('  XMPP domain: ${xmppRegistrar.domain}');
   print('  Database: $dbPath');
+  if (webDir.isNotEmpty) {
+    print('  Web dir: $webDir');
+  }
 }
