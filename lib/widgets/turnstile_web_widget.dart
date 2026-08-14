@@ -58,6 +58,8 @@ class _TurnstileWebWidgetState extends State<TurnstileWebWidget> {
     final iframe = html.IFrameElement()
       ..width = '300'
       ..height = '65'
+      ..style.width = '300px'
+      ..style.height = '65px'
       ..style.border = 'none'
       ..style.overflow = 'hidden'
       ..srcdoc = '''

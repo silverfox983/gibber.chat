@@ -5,6 +5,8 @@ import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_cors_headers/shelf_cors_headers.dart';
 import 'package:shelf_static/shelf_static.dart';
+import 'package:shelf_web_socket/shelf_web_socket.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:gibber_backend/src/handlers/api_router.dart';
 import 'package:gibber_backend/src/services/database_service.dart';
 import 'package:gibber_backend/src/services/xmpp_registrar.dart';
@@ -75,6 +77,46 @@ Future<shelf.Response> _proxyToProsody(shelf.Request request, String prosodyUrl,
       headers: {'Content-Type': 'application/json'},
     );
   }
+}
+
+void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String domain) {
+  final prosodyUri = Uri.parse(prosodyUrl);
+  final wsScheme = prosodyUri.scheme == 'https' ? 'wss' : 'ws';
+  final wsPort = prosodyUri.port;
+  final wsUrl = '$wsScheme://${prosodyUri.host}:${wsPort > 0 ? wsPort : (prosodyUri.scheme == 'https' ? 5281 : 5280)}/xmpp-websocket';
+
+  WebSocket.connect(wsUrl, headers: {'Host': domain}).then((prosodyWs) {
+    prosodyWs.listen(
+      (data) {
+        webSocket.sink.add(data);
+      },
+      onDone: () {
+        webSocket.sink.close();
+      },
+      onError: (e) {
+        print('XMPP WS proxy: Prosody error: $e');
+        webSocket.sink.close();
+      },
+      cancelOnError: false,
+    );
+
+    webSocket.stream.listen(
+      (data) {
+        prosodyWs.add(data);
+      },
+      onDone: () {
+        prosodyWs.close();
+      },
+      onError: (e) {
+        print('XMPP WS proxy: Client error: $e');
+        prosodyWs.close();
+      },
+      cancelOnError: false,
+    );
+  }).catchError((e) {
+    print('XMPP WS proxy: Failed to connect to Prosody: $e');
+    webSocket.sink.close();
+  });
 }
 
 void main(List<String> args) async {
@@ -169,7 +211,12 @@ void main(List<String> args) async {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Key',
   });
 
-  final xmppProxyPaths = ['/xmpp-websocket', '/xmpp-websocket/', '/http-bind', '/http-bind/'];
+  final xmppWsHandler = webSocketHandler((webSocket, _) {
+    _handleXmppWebSocket(webSocket, prosodyUrl, xmppRegistrar.domain);
+  });
+
+  final xmppProxyPaths = {'/xmpp-websocket', '/xmpp-websocket/', '/http-bind', '/http-bind/'};
+  final xmppWsPaths = {'/xmpp-websocket', '/xmpp-websocket/'};
 
   const assetExtensions = {
     '.js', '.mjs', '.wasm', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg',
@@ -200,7 +247,14 @@ void main(List<String> args) async {
         .addHandler((request) async {
           final path = request.requestedUri.path;
 
-          if (xmppProxyPaths.any((p) => path.startsWith(p))) {
+          if (xmppWsPaths.contains(path)) {
+            final upgrade = request.headers['upgrade'];
+            if (upgrade != null && upgrade.toLowerCase() == 'websocket') {
+              return xmppWsHandler(request);
+            }
+          }
+
+          if (xmppProxyPaths.any((p) => path == p || path.startsWith('$p/') )) {
             return _proxyToProsody(request, prosodyUrl, xmppRegistrar.domain);
           }
 
@@ -231,7 +285,14 @@ void main(List<String> args) async {
         .addHandler((request) async {
           final path = request.requestedUri.path;
 
-          if (xmppProxyPaths.any((p) => path.startsWith(p))) {
+          if (xmppWsPaths.contains(path)) {
+            final upgrade = request.headers['upgrade'];
+            if (upgrade != null && upgrade.toLowerCase() == 'websocket') {
+              return xmppWsHandler(request);
+            }
+          }
+
+          if (xmppProxyPaths.any((p) => path == p || path.startsWith('$p/') )) {
             return _proxyToProsody(request, prosodyUrl, xmppRegistrar.domain);
           }
 
