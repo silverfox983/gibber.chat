@@ -130,10 +130,14 @@ class XmppRegistrar {
 
   Future<XmppRegistrationResult> _registerViaProsodyCtl(String username, String password, String domain, String jid) async {
     try {
+      print('XmppRegistrar: Running prosodyctl register $username $domain');
       final result = await _runProsodyCtl(['register', username, domain, password]);
+
+      print('XmppRegistrar: prosodyctl register exitCode=${result.exitCode}, stdout=${result.stdout.toString().trim()}, stderr=${result.stderr.toString().trim()}');
 
       if (result.exitCode == 0) {
         final exists = await _userExistsProsodyCtl(username, domain);
+        print('XmppRegistrar: Post-registration user exists check: $exists');
         if (exists) {
           return XmppRegistrationResult(
             success: true,
@@ -141,6 +145,7 @@ class XmppRegistrar {
             message: 'Registration successful',
           );
         }
+        print('XmppRegistrar: WARNING - prosodyctl register succeeded (exit 0) but user not found');
         return XmppRegistrationResult(
           success: false,
           jid: jid,
@@ -163,6 +168,7 @@ class XmppRegistrar {
         message: 'Registration failed: $stderr',
       );
     } catch (e) {
+      print('XmppRegistrar: Exception during prosodyctl register: $e');
       return XmppRegistrationResult(
         success: false,
         jid: jid,
@@ -204,9 +210,12 @@ class XmppRegistrar {
   Future<bool> _userExistsProsodyCtl(String username, String domain) async {
     try {
       final result = await _runProsodyCtl(['user', 'exists', username, domain]);
-      return result.exitCode == 0 &&
-          result.stdout.toString().trim().toLowerCase().contains('true');
-    } catch (_) {
+      final stdout = result.stdout.toString().trim().toLowerCase();
+      final exists = result.exitCode == 0 && stdout.contains('true');
+      print('XmppRegistrar: prosodyctl user exists $username $domain → exitCode=${result.exitCode}, stdout=$stdout, result=$exists');
+      return exists;
+    } catch (e) {
+      print('XmppRegistrar: prosodyctl user exists exception: $e');
       return false;
     }
   }
@@ -276,11 +285,16 @@ class XmppRegistrar {
 
   Future<ProcessResult> _runProsodyCtl(List<String> args) async {
     if (_useDocker) {
-      return Process.run(
-        'docker',
-        ['exec', _dockerContainer, _prosodyCtlPath, ...args],
-      );
+      final fullArgs = ['exec', _dockerContainer, _prosodyCtlPath, ...args];
+      print('XmppRegistrar: Running: docker ${fullArgs.join(' ')}');
+      final result = await Process.run('docker', fullArgs);
+      print('XmppRegistrar: docker exec result: exitCode=${result.exitCode}');
+      if (result.stderr.toString().trim().isNotEmpty) {
+        print('XmppRegistrar: stderr: ${result.stderr.toString().trim()}');
+      }
+      return result;
     }
+    print('XmppRegistrar: Running: $_prosodyCtlPath ${args.join(' ')}');
     return Process.run(_prosodyCtlPath, args);
   }
 

@@ -79,6 +79,7 @@ class ApiRouter {
     try {
       final clientIp = request.ip ?? 'unknown';
       if (!_registerLimiter.allow(clientIp)) {
+        print('Registration rate limited for IP: $clientIp');
         return Response(429, body: jsonEncode({'error': 'Too many registration attempts. Please try again later.'}), headers: _jsonHeaders);
       }
 
@@ -88,11 +89,15 @@ class ApiRouter {
       final host = body['host'] as String?;
       final captchaToken = body['captchaToken'] as String?;
 
+      print('Registration request: username=$username, host=$host, ip=$clientIp, captchaEnabled=${captchaService.enabled}, hasCaptchaToken=${captchaToken != null}');
+
       if (captchaService.enabled && (captchaToken == null || captchaToken.isEmpty)) {
+        print('Registration rejected: captcha required but no token provided');
         return Response(403, body: jsonEncode({'error': 'Captcha verification required'}), headers: _jsonHeaders);
       }
 
       if (captchaService.enabled && !await captchaService.verifyToken(captchaToken!, remoteIp: clientIp)) {
+        print('Registration rejected: captcha verification failed');
         return Response(403, body: jsonEncode({'error': 'Captcha verification failed'}), headers: _jsonHeaders);
       }
 
@@ -110,7 +115,9 @@ class ApiRouter {
         );
       }
 
+      print('Calling xmppRegistrar.register(username=$username, host=$host)');
       final result = await xmppRegistrar.register(username, password, host: host);
+      print('Registration result: success=${result.success}, jid=${result.jid}, message=${result.message}');
 
       if (result.success) {
         return Response.ok(
@@ -125,6 +132,7 @@ class ApiRouter {
         );
       }
     } catch (e) {
+      print('Registration error: $e');
       return Response.internalServerError(
         body: jsonEncode({'error': e.toString()}),
         headers: _jsonHeaders,
