@@ -189,7 +189,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           user: username,
           domain: domain,
           pass: password,
-          port: 5222,
+          port: kIsWeb ? 443 : 5222,
           host: domain,
         );
 
@@ -197,7 +197,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           SavedAccount(
             user: username,
             domain: domain,
-            port: 5222,
+            port: kIsWeb ? 443 : 5222,
             host: domain,
             protocol: 'XMPP',
           ),

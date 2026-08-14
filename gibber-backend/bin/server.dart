@@ -163,6 +163,19 @@ void main(List<String> args) async {
 
   final xmppProxyPaths = ['/xmpp-websocket', '/xmpp-websocket/', '/http-bind', '/http-bind/'];
 
+  const assetExtensions = {
+    '.js', '.mjs', '.wasm', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg',
+    '.ico', '.json', '.woff2', '.woff', '.ttf', '.eot', '.otf', '.map',
+    '.mp3', '.wav', '.ogg', '.webm', '.mp4', '.webp', '.pdf', '.zip',
+  };
+
+  bool isAssetRequest(String path) {
+    final lastDot = path.lastIndexOf('.');
+    if (lastDot == -1) return false;
+    final ext = path.substring(lastDot).toLowerCase();
+    return assetExtensions.contains(ext);
+  }
+
   shelf.Handler handler;
   if (webDir.isNotEmpty && Directory(webDir).existsSync()) {
     final staticHandler = createStaticHandler(
@@ -192,7 +205,7 @@ void main(List<String> args) async {
             if (staticResponse.statusCode == 200) {
               return staticResponse;
             }
-            if (indexBytes.isNotEmpty) {
+            if (indexBytes.isNotEmpty && !isAssetRequest(path)) {
               return shelf.Response.ok(
                 indexBytes,
                 headers: {'Content-Type': 'text/html; charset=utf-8'},

@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
@@ -18,7 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _jidController = TextEditingController();
   final TextEditingController _passController = TextEditingController();
   final TextEditingController _portController = TextEditingController(
-    text: '5222',
+    text: kIsWeb ? '443' : '5222',
   );
   final TextEditingController _hostController = TextEditingController();
 

@@ -840,9 +840,9 @@ class AuthService with ChangeNotifier {
       late final xmpp.XmppAccountSettings accountSettings;
 
       if (kIsWeb) {
-        // Web: connect directly via WebSocket, no proxy
+        // Web: connect directly via WebSocket via reverse proxy (port 443)
         final wsHost = host ?? domain;
-        final wsPort = port;
+        const wsPort = 443;
         final wsPath = configData?.wsPath ?? '/xmpp-websocket';
         accountSettings = xmpp.XmppAccountSettings(
           jid.fullJid ?? fullJidStr,
