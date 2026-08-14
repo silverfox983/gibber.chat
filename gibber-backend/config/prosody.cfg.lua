@@ -16,11 +16,7 @@ registration_throttle_max = 3
 registration_throttle_period = 60
 
 -- Storage backend
-storage = "sql"
-sql = {
-    driver = "SQLite3";
-    database = "/var/lib/prosody/prosody.db";
-}
+storage = "internal"
 
 -- Self-signed cert for development
 ssl = {
@@ -41,7 +37,6 @@ modules_enabled = {
     "disco";
     "carbons";
     "mam";
-    "pubsub";
     "private";
     "vcard";
     "register";
@@ -60,13 +55,10 @@ modules_enabled = {
 
 -- MUC (Multi-User Chat) for group channels
 Component "conference.gibber.chat" "muc"
-modules_enabled = { "muc_mam"; }
+modules_enabled = { "vcard"; }
 muc_room_default_public = true
 muc_room_default_persistent = true
 muc_room_default_members_only = false
-
--- PubSub for Spaces/Communities
-Component "pubsub.gibber.chat" "pubsub"
 
 -- Gateway transports (require backend authorization)
 -- Component "slack.gibber.chat" "slack_bridge"

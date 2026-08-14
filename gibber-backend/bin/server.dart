@@ -18,6 +18,8 @@ void main(List<String> args) async {
     ..addOption('prosody-ctl', defaultsTo: Platform.environment['GIBBER_PROSODYCTL_PATH'] ?? 'prosodyctl')
     ..addOption('docker-container', defaultsTo: Platform.environment['GIBBER_DOCKER_CONTAINER'] ?? 'gibber_xmpp')
     ..addFlag('use-docker', defaultsTo: Platform.environment['GIBBER_USE_DOCKER'] == '1')
+    ..addOption('mode', defaultsTo: Platform.environment['GIBBER_REGISTRATION_MODE'] ?? 'prosodyctl', allowed: ['prosodyctl', 'http', 'internal'])
+    ..addOption('prosody-url', defaultsTo: Platform.environment['GIBBER_PROSODY_URL'] ?? 'http://localhost:5280')
     ..addOption('admin-key', defaultsTo: Platform.environment['GIBBER_ADMIN_KEY'] ?? 'gibber-admin-key')
     ..addFlag('reset-db', abbr: 'r', defaultsTo: false);
 
@@ -35,11 +37,19 @@ void main(List<String> args) async {
   final db = DatabaseService(dbPath);
   await db.initialize(reset: resetDb);
 
+  final modeStr = result['mode'] as String;
+  final mode = modeStr == 'http' ? RegistrationMode.http
+      : modeStr == 'internal' ? RegistrationMode.internal
+      : RegistrationMode.prosodyctl;
+  final prosodyUrl = result['prosody-url'] as String;
+
   final xmppRegistrar = XmppRegistrar(
     configPath: configPath,
     prosodyCtlPath: prosodyCtlPath,
     dockerContainer: dockerContainer,
     useDocker: useDocker,
+    mode: mode,
+    prosodyHttpUrl: prosodyUrl,
   );
   final minerPool = MinerPoolService(db: db);
   final entitlementSvc = BackendEntitlementService(db: db);

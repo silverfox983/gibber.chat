@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.vscode
+build
+*.md
+.flutter-plugins
+.flutter-plugins-dependencies
+.dart_tool
+.packages
+pubspec.lock
+!gibber-backend/pubspec.lock
