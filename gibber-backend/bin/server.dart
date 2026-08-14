@@ -98,13 +98,6 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
           final preview = content.length > 300 ? '${content.substring(0, 300)}...' : content;
           print('XMPP WS proxy: [S->C] ${preview.replaceAll('\n', ' ')}');
 
-          // Always strip Stream Management (urn:xmpp:sm:2 and urn:xmpp:sm:3)
-          // xmpp_stone has a <r/> loop bug when SM is enabled
-          if (content.contains('urn:xmpp:sm:')) {
-            content = content.replaceAll(RegExp('<sm xmlns=[\'"]urn:xmpp:sm:[23][\'"][^>]*/>'), '');
-            content = content.replaceAll(RegExp('<sm xmlns=[\'"]urn:xmpp:sm:[23][\'"][^>]*>.*?</sm>', dotAll: true), '');
-          }
-
           // Transform ALL stream:features packets for xmpp_stone compatibility
           // xmpp_stone processes every stream:features it receives, including
           // post-auth features after SASL re-open
@@ -115,10 +108,8 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
             content = content.replaceAll(RegExp(r'<starttls[^>]*>.*?</starttls>', dotAll: true), '');
             content = content.replaceAll(RegExp(r'<starttls[^>]*/>'), '');
 
-            // 2. Remove SASL2 inline features that xmpp_stone can't negotiate
-            content = content.replaceAll(RegExp(r'<inline[^>]*>.*?</inline>', dotAll: true), '');
-
-            // 3. Remove SASL2 <authentication> block (xmpp_stone only supports SASL1)
+            // 2. Strip SASL2 <authentication> block (SASL2 support in progress;
+            //    fall back to SASL1 <mechanisms> for now)
             if (content.contains(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"]', dotAll: true))) {
               final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
                   .allMatches(content)
@@ -135,7 +126,7 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
               }
             }
 
-            // 4. Ensure PLAIN mechanism is available for xmpp_stone SASL1 auth
+            // 3. Ensure PLAIN mechanism is available for xmpp_stone SASL1 auth
             if (content.contains('<mechanisms') && !content.contains('<mechanism>PLAIN</mechanism>')) {
               content = content.replaceFirst(
                 RegExp("<mechanisms xmlns=['\"]urn:ietf:params:xml:ns:xmpp-sasl['\"]>"),

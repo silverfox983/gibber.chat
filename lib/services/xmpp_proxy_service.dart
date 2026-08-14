@@ -69,13 +69,6 @@ class XmppProxyService {
           String content = String.fromCharCodes(data);
           bool modified = false;
 
-          // 0. Strip Stream Management to prevent xmpp_stone counting bug
-          if (content.contains('urn:xmpp:sm:')) {
-            content = content.replaceAll(RegExp('<sm xmlns=[\'"]urn:xmpp:sm:[23][\'"][^>]*/>'), '');
-            content = content.replaceAll(RegExp('<sm xmlns=[\'"]urn:xmpp:sm:[23][\'"][^>]*>.*?</sm>', dotAll: true), '');
-            modified = true;
-          }
-
           // FEATURE TRANSFORMER: Transform ALL stream:features packets
           // xmpp_stone processes every stream:features it receives, including
           // post-auth features after SASL re-open. We must transform them all.
@@ -86,10 +79,8 @@ class XmppProxyService {
              content = content.replaceAll(RegExp(r'<starttls[^>]*>.*?</starttls>', dotAll: true), '');
              content = content.replaceAll(RegExp(r'<starttls[^>]*/>'), '');
 
-             // 2. Remove SASL2 inline features that xmpp_stone doesn't support
-             content = content.replaceAll(RegExp(r'<inline[^>]*>.*?</inline>', dotAll: true), '');
-             
-             // 3. Remove SASL2 <authentication> block (xmpp_stone only supports SASL1)
+             // 2. Strip SASL2 <authentication> block (SASL2 support is in progress;
+             //    fall back to SASL1 <mechanisms> for now)
              if (content.contains(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"]', dotAll: true))) {
                final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
                    .allMatches(content)
@@ -106,7 +97,7 @@ class XmppProxyService {
                }
              }
              
-             // 4. Ensure PLAIN mechanism is available for xmpp_stone SASL1 auth
+             // 3. Ensure PLAIN mechanism is available for xmpp_stone SASL1 auth
              if (content.contains('<mechanisms') && !content.contains('<mechanism>PLAIN</mechanism>')) {
                content = content.replaceFirst(
                  RegExp("<mechanisms xmlns=['\"]urn:ietf:params:xml:ns:xmpp-sasl['\"]>"),
@@ -115,7 +106,7 @@ class XmppProxyService {
              }
              
               modified = true;
-              debugPrint('Proxy: Transformation successful. Preserved server mechanisms, removed SASL2 inline features.');
+              debugPrint('Proxy: Transformation successful.');
           }
 
           if (modified) {

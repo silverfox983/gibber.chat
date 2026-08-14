@@ -887,9 +887,9 @@ class AuthService with ChangeNotifier {
         'XMPP: Preparing connection for ${jid.fullJid} (Domain: ${jid.domain}, Pass Length: ${pass.length})',
       );
 
-      // FORCE disable Stream Management to prevent xmpp_stone <r/> loop bug
-      accountSettings.ackEnabled = false;
-      accountSettings.smResumable = false;
+      // Stream Management: enabled by default (xmpp_stone SM bug is fixed in local fork)
+      accountSettings.ackEnabled = true;
+      accountSettings.smResumable = true;
 
       if (configData != null) {
         if (configData.reconnectionTimeout != null) {

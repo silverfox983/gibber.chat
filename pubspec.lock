@@ -1676,10 +1676,9 @@ packages:
   xmpp_stone:
     dependency: "direct main"
     description:
-      name: xmpp_stone
-      sha256: "3e6caf91d32f56b0de686a6992d22ed508240d80fbfb3861e6261e97f5810741"
-      url: "https://pub.dev"
-    source: hosted
+      path: "packages/xmpp_stone"
+      relative: true
+    source: path
     version: "0.4.4-dev.7"
   yaml:
     dependency: transitive

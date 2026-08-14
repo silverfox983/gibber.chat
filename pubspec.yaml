@@ -72,6 +72,8 @@ flutter:
 
 dependency_overrides:
   intl: ^0.20.2
+  xmpp_stone:
+    path: packages/xmpp_stone
 
 flutter_launcher_icons:
   android: true
