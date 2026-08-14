@@ -526,9 +526,9 @@ class _LoginScreenState extends State<LoginScreen> {
               color: Colors.white.withValues(alpha: 0.6),
               size: 18,
             ),
-            label: Text(
-              'External Server Registration (XEP-0401)',
-              style: TextStyle(
+              label: Text(
+                'External Server Registration',
+                style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.6),
                 fontSize: 12,
                 fontWeight: FontWeight.w500,

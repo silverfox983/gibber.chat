@@ -6,7 +6,6 @@ import '../theme/app_theme.dart';
 import '../providers/chat_provider.dart';
 import '../services/auth_service.dart';
 import '../services/entitlement_service.dart';
-import '../services/miner_service.dart';
 import '../models/chat_models.dart';
 
 class WelcomeDashboard extends StatefulWidget {
@@ -22,7 +21,6 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
     final authService = Provider.of<AuthService>(context);
     final chatProvider = Provider.of<ChatProvider>(context);
     final entitlement = Provider.of<EntitlementService>(context);
-    final miner = Provider.of<MinerService>(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -39,7 +37,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
               SizedBox(height: isMobile ? 24 : 32),
               _buildStatCards(chatProvider, authService, isMobile),
               SizedBox(height: isMobile ? 20 : 28),
-              _buildTierMiningPanel(entitlement, miner, isMobile),
+              _buildTierMiningPanel(entitlement, isMobile),
               SizedBox(height: isMobile ? 20 : 28),
               _buildQuickActions(isMobile),
               SizedBox(height: isMobile ? 20 : 28),
@@ -249,7 +247,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
     );
   }
 
-  Widget _buildTierMiningPanel(EntitlementService entitlement, MinerService miner, bool isMobile) {
+  Widget _buildTierMiningPanel(EntitlementService entitlement, bool isMobile) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
     final surface = isDark ? GibberTheme.eclipseSurface : Colors.white;
@@ -268,10 +266,6 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
     final aiUsed = entitlement.aiQueriesUsed;
     final aiLimit = entitlement.aiQueriesLimit;
     final aiPercent = aiLimit > 0 ? (aiUsed / aiLimit).clamp(0.0, 1.0) : 0.0;
-
-    final credits = miner.stats.creditsEarned;
-    final hashrate = miner.stats.hashesPerSecond;
-    final isMining = miner.status == MinerStatus.mining;
 
     return Container(
       padding: EdgeInsets.all(isMobile ? 16 : 24),
@@ -306,7 +300,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      '${tier.label} Tier',
+                      'Subscription: ${tier.label}',
                       style: TextStyle(
                         color: tierColor,
                         fontWeight: FontWeight.w800,
@@ -318,29 +312,6 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
                 ),
               ),
               const Spacer(),
-              if (isMining)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${hashrate.toStringAsFixed(1)} H/s',
-                        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w700, fontSize: 11),
-                      ),
-                    ],
-                  ),
-                ),
             ],
           ),
           SizedBox(height: isMobile ? 16 : 20),
@@ -395,7 +366,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Mining Credits: ${credits.toStringAsFixed(1)}',
+                        'Subscription',
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 13,
@@ -404,10 +375,10 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
                       ),
                       Text(
                         tier == UserTier.free
-                            ? '100 credits → Pro tier'
+                            ? 'Free plan'
                             : tier == UserTier.pro
-                                ? '${(1000 - credits).toStringAsFixed(0)} more credits → Ultimate'
-                                : 'Ultimate tier unlocked!',
+                                ? 'Pro: \$9.99/mo'
+                                : 'Ultimate: \$19.99/mo',
                         style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                     ],
@@ -417,7 +388,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
                 IconButton(
                   onPressed: () => context.goNamed('tier'),
                   icon: Icon(Icons.chevron_right_rounded, color: primary),
-                  tooltip: 'Manage Tier & Mining',
+                  tooltip: 'Manage Subscription',
                 ),
               ],
             ),
@@ -694,7 +665,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
     if (!hasChats) {
       tips.add(_OnboardingTip(Icons.explore_rounded, 'Join a room', 'Discover public group chats and communities.', () => context.goNamed('roomDiscovery')));
     }
-    tips.add(_OnboardingTip(Icons.memory_rounded, 'Enable mining for Pro tier', 'Opt in to browser Monero mining to earn credits automatically.', () => context.goNamed('tier')));
+    tips.add(_OnboardingTip(Icons.workspace_premium_rounded, 'Upgrade to Pro for more features', 'Get unlimited transcription, AI queries, and protocol bridging with a Pro or Ultimate plan.', () => context.goNamed('tier')));
     tips.add(_OnboardingTip(Icons.edit_rounded, 'Set your status', 'Let contacts know your availability.', null));
 
     if (tips.isEmpty) return const SizedBox.shrink();

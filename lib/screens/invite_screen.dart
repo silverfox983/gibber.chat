@@ -60,7 +60,7 @@ class _InviteScreenState extends State<InviteScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
-            'Failed to generate invite. Your server may not support XEP-0401.',
+            'Failed to generate invite. Your server may not support invitations.',
           ),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),

@@ -80,7 +80,7 @@ class _OmemoTrustDialogState extends State<OmemoTrustDialog> {
       title: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('OMEMO Device Security'),
+          const Text('Device Security'),
           const SizedBox(height: 4),
           Text(
             'Managing identity for ${widget.chatName}',

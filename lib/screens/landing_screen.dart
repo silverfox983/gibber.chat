@@ -109,7 +109,7 @@ class _LandingScreenState extends State<LandingScreen>
           if (!isMobile) ...[
             _navLink('Features', 700),
             _navLink('Tiers', 1400),
-            _navLink('Mining', 2100),
+            _navLink('Support', 2100),
             _navLink('Security', 2800),
           ],
           const SizedBox(width: 16),
@@ -239,7 +239,7 @@ class _LandingScreenState extends State<LandingScreen>
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'Open Source & Self-Hosted',
+                    'Private & Secure',
                     style: TextStyle(
                       color: primary,
                       fontWeight: FontWeight.w700,
@@ -253,7 +253,7 @@ class _LandingScreenState extends State<LandingScreen>
           ),
           const SizedBox(height: 28),
           Text(
-            'Secure, Decentralized\nCommunication',
+            'Secure Communication',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: isMobile ? 32 : 56,
@@ -265,9 +265,9 @@ class _LandingScreenState extends State<LandingScreen>
           ),
           const SizedBox(height: 20),
           Text(
-            'Browser-native XMPP with on-device AI transcription,\n'
-            'encrypted voice/video calls, and Monero mining\n'
-            'that unlocks Pro features automatically.',
+            'Browser-native secure messaging with on-device AI transcription,\n'
+            'encrypted voice/video calls, and protocol bridging\n'
+            'for Slack, Discord, and more.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: isMobile ? 15 : 18,
@@ -363,7 +363,7 @@ class _LandingScreenState extends State<LandingScreen>
                       const SizedBox(height: 8),
                       _mockBubble('Yes, joining in 5 min', isLeft: false, isDark: isDark),
                       const SizedBox(height: 8),
-                      _mockBubble('Great! I\'ll share the notes via OMEMO 🔒', isLeft: true, isDark: isDark),
+                      _mockBubble('Great! I\'ll share the notes securely 🔒', isLeft: true, isDark: isDark),
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -411,12 +411,12 @@ class _LandingScreenState extends State<LandingScreen>
   Widget _buildFeatures(bool isDark, bool isMobile) {
     final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
     final features = [
-      _FeatureData(Icons.lock_outline_rounded, 'End-to-End Encryption', 'OMEMO (Signal Protocol) protects every message and call. Your data never leaves your device.', primary),
+      _FeatureData(Icons.lock_outline_rounded, 'End-to-End Encryption', 'Military-grade encryption protects every message and call. Your data never leaves your device.', primary),
       _FeatureData(Icons.mic_rounded, 'Live AI Transcription', 'On-device Whisper WASM transcribes voice calls in real time. No cloud, no data leaks.', primary),
       _FeatureData(Icons.smart_toy_rounded, 'On-Device AI Assistant', 'Local LLM via WebGPU summarizes calls, extracts action items, and drafts follow-ups — all privately.', primary),
-      _FeatureData(Icons.compare_arrows_rounded, 'Multi-Protocol Gateway', 'XMPP, Slack, Discord, IRC, Teams, Matrix, Telegram, SMS — one inbox, every network.', primary),
-      _FeatureData(Icons.videocam_rounded, 'Encrypted Voice & Video', 'WebRTC calls with live captions, call recording, and OMEMO verification — no Zoom.', primary),
-      _FeatureData(Icons.memory_rounded, 'Browser Crypto Mining', 'Opt-in Monero WASM mining earns credits that auto-unlock Pro and Ultimate tiers. No credit card needed.', primary),
+      _FeatureData(Icons.compare_arrows_rounded, 'Protocol Gateway', 'Gibber, Slack, Discord, IRC, Teams, Matrix, Telegram, SMS — one inbox, every network.', primary),
+      _FeatureData(Icons.videocam_rounded, 'Encrypted Voice & Video', 'WebRTC calls with live captions, call recording, and identity verification — no Zoom.', primary),
+      _FeatureData(Icons.cloud_off_rounded, 'Zero-Knowledge Architecture', 'All processing happens on your device. No cloud servers ever see your messages or calls.', primary),
     ];
 
     return _sectionWrapper(
@@ -482,9 +482,9 @@ class _LandingScreenState extends State<LandingScreen>
     final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
     final secondary = isDark ? const Color(0xFF06B6D4) : const Color(0xFF10B981);
     final steps = [
-      _StepData('1', 'Create Account', 'Sign up for free with any XMPP server — or self-host your own. No credit card, no tracking.', Icons.person_add_rounded, primary),
-      _StepData('2', 'Opt Into Mining', 'Enable browser Monero mining to earn credits. You control the CPU throttle. Everything runs locally.', Icons.memory_rounded, secondary),
-      _StepData('3', 'Unlock Tiers', 'Credits automatically upgrade you to Pro (100 credits) or Ultimate (1000 credits). Or use a redemption code.', Icons.verified_rounded, primary),
+      _StepData('1', 'Create Account', 'Sign up for free — no credit card needed. Start messaging securely right away.', Icons.person_add_rounded, primary),
+      _StepData('2', 'Connect & Communicate', 'Message, call, and transcribe — all encrypted and processed on your device.', Icons.chat_rounded, secondary),
+      _StepData('3', 'Upgrade When Ready', 'Go Pro or Ultimate for protocol bridging, unlimited AI, and more. Pay monthly or with crypto.', Icons.verified_rounded, primary),
     ];
 
     return _sectionWrapper(
@@ -554,23 +554,23 @@ class _LandingScreenState extends State<LandingScreen>
         '\$0',
         'Forever free',
         const Color(0xFF6B7280),
-        ['XMPP messaging & calls', '1:1 encrypted chat', '30 min transcription/mo', '10 AI queries/mo', '4-person group calls', '30-day history'],
+        ['Gibber messaging & calls', '1:1 encrypted chat', '30 min transcription/mo', '10 AI queries/mo', '4-person group calls', '30-day history'],
         [],
         ['Slack, Discord, IRC', 'Teams, Matrix, Telegram, SMS', 'Unlimited transcription', 'Unlimited AI queries', '10+ person group calls', 'Unlimited history'],
       ),
       _TierData(
         'Pro',
-        '100 credits',
-        'Via mining or code',
+        '\$9.99/mo',
+        'Cancel anytime',
         primary,
-        ['XMPP messaging & calls', '1:1 encrypted chat', '300 min transcription/mo', '100 AI queries/mo', '10-person group calls', '365-day history', 'Slack, Discord, IRC'],
+        ['Gibber messaging & calls', '1:1 encrypted chat', '300 min transcription/mo', '100 AI queries/mo', '10-person group calls', '365-day history', 'Slack, Discord, IRC'],
         ['Teams, Matrix, Telegram, SMS', 'Unlimited transcription', 'Unlimited AI queries'],
         [],
       ),
       _TierData(
         'Ultimate',
-        '1,000 credits',
-        'Via mining or code',
+        '\$19.99/mo',
+        'Cancel anytime',
         const Color(0xFF8B5CF6),
         ['Everything in Pro, plus:', 'Teams, Matrix, Telegram, SMS', 'Unlimited transcription', 'Unlimited AI queries', 'Unlimited group calls', 'Unlimited history', 'Priority support'],
         [],
@@ -579,8 +579,8 @@ class _LandingScreenState extends State<LandingScreen>
     ];
 
     return _sectionWrapper(
-      label: 'TIERS',
-      title: 'Pay with hashpower, not credit cards',
+      label: 'PRICING',
+      title: 'Simple, transparent pricing',
       isDark: isDark,
       isMobile: isMobile,
       child: isMobile
@@ -687,7 +687,7 @@ class _LandingScreenState extends State<LandingScreen>
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
                 child: Text(
-                  isUltimate ? 'Start Mining for Ultimate' : 'Start Mining for Pro',
+                  isUltimate ? 'Upgrade to Ultimate' : 'Upgrade to Pro',
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
                 ),
               ),
@@ -701,78 +701,58 @@ class _LandingScreenState extends State<LandingScreen>
     final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
     final surface = isDark ? GibberTheme.eclipseSurface : Colors.white;
 
-    final miningContent = Container(
+    final content = Container(
       padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
         color: surface.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: primary.withValues(alpha: 0.15)),
       ),
-      child: isMobile
-          ? Column(children: [
-              _miningFlowStep(Icons.memory_rounded, 'CPU Cycles', 'Your browser allocates\nidle CPU power', primary),
-              const SizedBox(height: 12),
-              Icon(Icons.arrow_downward_rounded, color: primary.withValues(alpha: 0.5)),
-              const SizedBox(height: 12),
-              _miningFlowStep(Icons.calculate_rounded, 'Monero WASM', 'XMRig compiled to\nWebAssembly mines XMR', primary),
-              const SizedBox(height: 12),
-              Icon(Icons.arrow_downward_rounded, color: primary.withValues(alpha: 0.5)),
-              const SizedBox(height: 12),
-              _miningFlowStep(Icons.stars_rounded, 'Credits Earned', 'Hashes convert to credits\n100 = Pro, 1000 = Ultimate', primary),
-            ])
-          : Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _miningFlowStep(Icons.memory_rounded, 'CPU Cycles', 'Your browser allocates\nidle CPU power', primary),
-                const SizedBox(width: 32),
-                Icon(Icons.arrow_forward_rounded, color: primary.withValues(alpha: 0.5), size: 28),
-                const SizedBox(width: 32),
-                _miningFlowStep(Icons.calculate_rounded, 'Monero WASM', 'XMRig compiled to\nWebAssembly mines XMR', primary),
-                const SizedBox(width: 32),
-                Icon(Icons.arrow_forward_rounded, color: primary.withValues(alpha: 0.5), size: 28),
-                const SizedBox(width: 32),
-                _miningFlowStep(Icons.stars_rounded, 'Credits Earned', 'Hashes convert to credits\n100 = Pro, 1000 = Ultimate', primary),
-              ],
+      child: Column(
+        children: [
+          Icon(Icons.volunteer_activism_rounded, color: primary, size: 40),
+          const SizedBox(height: 16),
+          Text(
+            'Support Gibber with Your Browser',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: isMobile ? 18 : 22,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Free users can opt in to donate idle CPU power to mine cryptocurrency.\n'
+            'This helps fund development and server costs — no reward is earned.\n'
+            'You control the CPU throttle and can stop at any time.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: isMobile ? 14 : 16,
+              height: 1.6,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
     );
 
     return _sectionWrapper(
-      label: 'MINING',
-      title: 'Your browser is your wallet',
+      label: 'SUPPORT US',
+      title: 'Help build the future of private communication',
       isDark: isDark,
       isMobile: isMobile,
-      child: miningContent,
-    );
-  }
-
-  Widget _miningFlowStep(IconData icon, String title, String desc, Color color) {
-    return Container(
-      width: 200,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.15)),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 32),
-          const SizedBox(height: 12),
-          Text(title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: Theme.of(context).colorScheme.onSurface)),
-          const SizedBox(height: 6),
-          Text(desc, textAlign: TextAlign.center, style: TextStyle(fontSize: 13, height: 1.4, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-        ],
-      ),
+      child: content,
     );
   }
 
   Widget _buildSecurity(bool isDark, bool isMobile) {
     final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
     final points = [
-      ('OMEMO Encryption', 'Signal Protocol-based double ratchet for every 1:1 and group message.'),
-      ('On-Device Processing', 'Whisper WASM, local LLM, and Monero mining all run in-browser. Zero cloud dependency.'),
-      ('Self-Hosted Backend', 'Dart shelf server + Prosody XMPP + Docker Compose. You own the infrastructure.'),
-      ('Open Source', 'Full source available. Audit it, fork it, self-host it. No vendor lock-in.'),
+      ('End-to-End Encryption', 'Military-grade encryption protects every 1:1 and group message. Only you and your contacts can read them.'),
+      ('On-Device Processing', 'Whisper WASM and local LLM run entirely in your browser. Zero cloud dependency.'),
+      ('Private Infrastructure', 'Secure server infrastructure with full encryption. Your data stays yours.'),
+      ('Transparent & Auditable', 'Our encryption protocols are built on proven standards. No backdoors, no compromises.'),
     ];
 
     return _sectionWrapper(
@@ -833,7 +813,7 @@ class _LandingScreenState extends State<LandingScreen>
             ],
           ),
           Text(
-            'Secure, decentralized communication for everyone.',
+            'Secure communication for everyone.',
             style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
           Row(

@@ -181,7 +181,7 @@ class _DialerWidgetState extends State<DialerWidget> {
                               Text(
                                 callProvider.isSipRegistered
                                     ? 'SIP REGISTERED'
-                                    : 'XMPP P-PSTN',
+                                    : 'PSTN',
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w900,

@@ -2556,7 +2556,7 @@ class _CreatePostDialogState extends State<CreatePostDialog>
       // For now, store the local path as a placeholder. In production,
       // upload via XEP-0363 HTTP File Upload and replace with the URL.
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Image selected. HTTP upload (XEP-0363) will attach it on publish.')),
+        const SnackBar(content: Text('Image selected. It will be attached on publish.')),
       );
       setState(() => _attachedImageUrl = file.path);
     } catch (e) {

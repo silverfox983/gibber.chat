@@ -416,7 +416,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ListTile(
                           leading: Icon(Icons.security_rounded, color: Theme.of(context).colorScheme.primary),
                           title: const Text('Security & Privacy', style: TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: const Text('OMEMO keys, blocking, and history'),
+                          subtitle: const Text('Encryption keys, blocking, and history'),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () {
                             context.goNamed('security');

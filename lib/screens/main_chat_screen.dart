@@ -1089,20 +1089,20 @@ class _MainChatScreenState extends State<MainChatScreen> {
                                               ).colorScheme.primary;
                                               statusIcon =
                                                   Icons.security_rounded;
-                                              statusText = 'OMEMO ENCRYPTED';
+                                              statusText = 'ENCRYPTED';
                                               break;
                                             case 2:
                                               statusColor = Colors.red;
                                               statusIcon =
                                                   Icons.gpp_bad_rounded;
-                                              statusText = 'OMEMO DISTRUSTED';
+                                              statusText = 'UNVERIFIED';
                                               break;
                                             case 0:
                                             default:
                                               statusColor = Colors.orange;
                                               statusIcon =
                                                   Icons.gpp_maybe_rounded;
-                                              statusText = 'OMEMO UNVERIFIED';
+                                              statusText = 'UNVERIFIED';
                                               break;
                                           }
 
@@ -1212,7 +1212,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     icon: Icon(icon, color: color),
                     tooltip: isEnabled
                         ? 'Identity Trust & Encryption'
-                        : 'Enable OMEMO',
+                        : 'Enable Encryption',
                     onPressed: () {
                       if (isEnabled) {
                         showDialog(

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../services/entitlement_service.dart';
-import '../services/miner_service.dart';
 import '../services/backend_config.dart';
 
 class TierScreen extends StatefulWidget {
@@ -28,12 +27,12 @@ class _TierScreenState extends State<TierScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('Tier & Mining', style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18)),
+        title: Text('Subscription', style: GoogleFonts.inter(fontWeight: FontWeight.w900, fontSize: 18)),
         backgroundColor: theme.scaffoldBackgroundColor,
         elevation: 0,
       ),
-      body: Consumer3<EntitlementService, MinerService, BackendConfig>(
-        builder: (context, entitlement, miner, backendConfig, _) {
+      body: Consumer2<EntitlementService, BackendConfig>(
+        builder: (context, entitlement, backendConfig, _) {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -41,7 +40,7 @@ class _TierScreenState extends State<TierScreen> {
               const SizedBox(height: 16),
               _buildTierComparisonCard(theme, entitlement),
               const SizedBox(height: 16),
-              _buildMiningCard(theme, miner),
+              _buildSupportCard(theme),
               const SizedBox(height: 16),
               _buildRedeemCard(theme, entitlement),
               const SizedBox(height: 16),
@@ -157,9 +156,9 @@ class _TierScreenState extends State<TierScreen> {
   Widget _buildTierComparisonCard(ThemeData theme, EntitlementService entitlement) {
     final tiers = [
       (UserTier.free, 'Free', Icons.person_rounded, theme.colorScheme.onSurfaceVariant,
-        ['XMPP only', '30 min transcription/mo', '10 AI queries/mo', '4-person calls']),
+        ['Gibber protocol only', '30 min transcription/mo', '10 AI queries/mo', '4-person calls']),
       (UserTier.pro, 'Pro', Icons.star_rounded, Colors.purpleAccent,
-        ['XMPP + Slack + Discord + IRC', '300 min transcription/mo', '100 AI queries/mo', '10-person calls']),
+        ['Gibber + Slack + Discord + IRC', '300 min transcription/mo', '100 AI queries/mo', '10-person calls']),
       (UserTier.ultimate, 'Ultimate', Icons.workspace_premium_rounded, Colors.amber,
         ['All protocols', 'Unlimited transcription', 'Unlimited AI', 'Unlimited calls']),
     ];
@@ -200,115 +199,29 @@ class _TierScreenState extends State<TierScreen> {
     );
   }
 
-  Widget _buildMiningCard(ThemeData theme, MinerService miner) {
-    final isMining = miner.status == MinerStatus.mining;
-    final isPaused = miner.status == MinerStatus.paused;
-    final isActive = isMining || isPaused;
-
+  Widget _buildSupportCard(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isActive ? Colors.green.withValues(alpha: 0.5) : theme.colorScheme.outline,
-          width: isActive ? 1.5 : 1,
-        ),
+        border: Border.all(color: theme.colorScheme.outline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(isMining ? Icons.memory_rounded : Icons.memory_outlined, size: 20, color: isActive ? Colors.green : theme.colorScheme.onSurfaceVariant),
+            Icon(Icons.favorite_rounded, size: 20, color: theme.colorScheme.primary),
             const SizedBox(width: 8),
-            Text('CREDIT MINING', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: isMining ? Colors.green.withValues(alpha: 0.15)
-                    : isPaused ? Colors.orange.withValues(alpha: 0.15)
-                    : theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                isMining ? 'Mining' : isPaused ? 'Paused' : 'Stopped',
-                style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700,
-                  color: isMining ? Colors.green : isPaused ? Colors.orange : theme.colorScheme.onSurfaceVariant),
-              ),
-            ),
-          ]),
-          if (isActive) ...[
-            const SizedBox(height: 12),
-            Row(children: [
-              _statChip('${miner.stats.hashesPerSecond.toStringAsFixed(1)} H/s', Icons.speed_rounded, theme),
-              const SizedBox(width: 8),
-              _statChip('${miner.stats.creditsEarned.toStringAsFixed(2)} credits', Icons.monetization_on_rounded, theme),
-              const SizedBox(width: 8),
-              _statChip(_formatDuration(miner.stats.uptime), Icons.timer_rounded, theme),
-            ]),
-            const SizedBox(height: 8),
-            Row(children: [
-              Text('Next tier: ${miner.nextTierProgress}', style: GoogleFonts.inter(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
-            ]),
-          ],
-          if (miner.error.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(miner.error, style: GoogleFonts.inter(fontSize: 12, color: theme.colorScheme.error)),
-          ],
-          const SizedBox(height: 12),
-          Row(children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: () => _toggleMining(miner),
-                icon: Icon(isActive ? Icons.stop_rounded : Icons.play_arrow_rounded, size: 18),
-                label: Text(isActive ? 'Stop' : 'Start', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
-                style: FilledButton.styleFrom(
-                  backgroundColor: isActive ? Colors.red.shade700 : Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ),
+            Text('SUPPORT GIBBER', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
           ]),
           const SizedBox(height: 12),
-          Row(children: [
-            Text('Consent', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-            const Spacer(),
-            Switch(
-              value: miner.consent,
-              onChanged: (v) => miner.setConsent(v),
-              activeTrackColor: Colors.green,
-            ),
-          ]),
-          const SizedBox(height: 8),
-          Row(children: [
-            Text('CPU Cap: ${(miner.cpuCap * 100).toInt()}%', style: GoogleFonts.inter(fontSize: 12)),
-            const SizedBox(width: 8),
-            Expanded(child: Slider(
-              value: miner.cpuCap,
-              min: 0.1,
-              max: 0.8,
-              divisions: 7,
-              onChanged: (v) => miner.setCpuCap(v),
-            )),
-          ]),
+          Text(
+            'Free users can donate idle CPU power to support development. Opt in from Settings.',
+            style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
+          ),
         ],
       ),
-    );
-  }
-
-  Widget _statChip(String text, IconData icon, ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 14, color: theme.colorScheme.onSurfaceVariant),
-        const SizedBox(width: 4),
-        Text(text, style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600)),
-      ]),
     );
   }
 
@@ -380,46 +293,12 @@ class _TierScreenState extends State<TierScreen> {
     }
   }
 
-  Future<void> _toggleMining(MinerService miner) async {
-    if (miner.status == MinerStatus.mining || miner.status == MinerStatus.paused) {
-      await miner.stopMining();
-    } else {
-      if (!miner.consent) {
-        final granted = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Mining Consent'),
-            content: const Text(
-              'Gibber will use your browser to mine Monero (XMR) to fund development and unlock higher tiers.\n\n'
-              'You can adjust CPU usage and stop at any time.\n\n'
-              'Do you consent?',
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Decline')),
-              FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Consent')),
-            ],
-          ),
-        );
-        if (granted != true) return;
-        await miner.setConsent(true);
-      }
-      await miner.startMining();
-    }
-  }
-
   String _formatDate(DateTime dt) {
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
   }
 
-  String _formatDuration(Duration d) {
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60);
-    return '${h}h ${m}m';
-  }
-
   Widget _buildBackendSettingsCard(ThemeData theme, BackendConfig config) {
     final apiController = TextEditingController(text: config.apiUrl);
-    final poolController = TextEditingController(text: config.poolUrl);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -440,7 +319,6 @@ class _TierScreenState extends State<TierScreen> {
               onPressed: () async {
                 await config.resetToDefaults();
                 apiController.text = config.apiUrl;
-                poolController.text = config.poolUrl;
               },
               child: Text('Reset', style: GoogleFonts.inter(fontSize: 12)),
             ),
@@ -458,20 +336,6 @@ class _TierScreenState extends State<TierScreen> {
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
             ),
             onSubmitted: (v) => config.setApiUrl(v.trim()),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: poolController,
-            style: GoogleFonts.inter(fontSize: 13),
-            decoration: InputDecoration(
-              labelText: 'Mining Pool URL',
-              labelStyle: GoogleFonts.inter(fontSize: 12),
-              filled: true,
-              fillColor: theme.colorScheme.surfaceContainerHighest,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-            ),
-            onSubmitted: (v) => config.setPoolUrl(v.trim()),
           ),
         ],
       ),

@@ -45,7 +45,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
 
   void _submit() {
     if (!_isValidJid) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a valid XMPP JID (user@domain.com)')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a valid address (user@domain.com)')));
       return;
     }
 
@@ -93,7 +93,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
                 ),
                 const SizedBox(height: 16),
                 Text('New Contact', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onPrimary)),
-                Text('Send a subscription request to their XMPP address', style: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.8))),
+                Text('Send a subscription request to their address', style: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.8))),
               ],
             ),
           ),
@@ -104,7 +104,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('XMPP ADDRESS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+                  Text('ADDRESS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
                   const SizedBox(height: 12),
                   Container(
                     decoration: BoxDecoration(

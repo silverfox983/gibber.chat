@@ -134,7 +134,7 @@ class _TransportsScreenState extends State<TransportsScreen> {
       case 'whatsapp':
         return _GatewayMeta(Icons.chat_rounded, const Color(0xFF25D366), 'WhatsApp');
       case 'xmpp':
-        return _GatewayMeta(Icons.hub_rounded, const Color(0xFF006EFF), 'XMPP');
+        return _GatewayMeta(Icons.hub_rounded, const Color(0xFF006EFF), 'Gibber');
       case 'mattermost':
         return _GatewayMeta(Icons.grid_view_rounded, const Color(0xFF0058CC), 'Mattermost');
       case 'slack':
@@ -162,7 +162,7 @@ class _TransportsScreenState extends State<TransportsScreen> {
           content: Text(
             '$protocol is available on the ${neededTier.label} tier.\n'
             'You are currently on the ${currentTier.label} tier.\n\n'
-            'Mine credits to upgrade, or enter a redemption code.',
+            'Upgrade your plan, or enter a redemption code.',
           ),
           actions: [
             TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('Cancel')),

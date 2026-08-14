@@ -60,7 +60,7 @@ class _SpaceInviteDialogState extends State<SpaceInviteDialog> {
           Text('Invite Member', style: GoogleFonts.inter(
               fontWeight: FontWeight.w900, fontSize: 20)),
           const SizedBox(height: 4),
-          Text('Invite someone to this space by their XMPP address.',
+          Text('Invite someone to this space by their address.',
               style: GoogleFonts.inter(fontSize: 13,
                   color: theme.colorScheme.onSurfaceVariant)),
           const SizedBox(height: 20),

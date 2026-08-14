@@ -27,7 +27,7 @@ class SecuritySettingsScreen extends StatelessWidget {
           _buildMyFingerprintCard(context, authService),
           
           const SizedBox(height: 32),
-          _buildSectionHeader(context, 'OMEMO DEVICE KEY MANAGEMENT'),
+          _buildSectionHeader(context, 'DEVICE KEY MANAGEMENT'),
           const SizedBox(height: 16),
           _buildDeviceKeyManagementCard(context, authService),
           
@@ -37,7 +37,7 @@ class SecuritySettingsScreen extends StatelessWidget {
           _buildPrivacyOptions(context, authService),
           
           const SizedBox(height: 32),
-          _buildSectionHeader(context, 'BLOCK LIST MANAGEMENT (XEP-0191)'),
+          _buildSectionHeader(context, 'BLOCK LIST MANAGEMENT'),
           const SizedBox(height: 16),
           _buildBlockListCard(context, authService),
         ],
@@ -72,7 +72,7 @@ class SecuritySettingsScreen extends StatelessWidget {
             children: [
               Icon(Icons.fingerprint_rounded, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 12),
-              const Text('Your OMEMO Identity', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const Text('Your Encryption Identity', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             ],
           ),
           const SizedBox(height: 16),
@@ -144,7 +144,7 @@ class SecuritySettingsScreen extends StatelessWidget {
           const Divider(height: 1),
           ListTile(
             leading: const Icon(Icons.phonelink_erase_rounded, color: Colors.redAccent),
-            title: const Text('Reset OMEMO Identity', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
+             title: const Text('Reset Encryption Identity', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
             subtitle: const Text('Generate new keys (Recommended if device is compromised)'),
             onTap: () {
                _showResetWarning(context, authService);
@@ -224,7 +224,7 @@ class SecuritySettingsScreen extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Reset Identity?'),
-        content: const Text('This will delete your current OMEMO keys and generate new ones. Your contacts will see a "New Device" warning. This action cannot be undone.'),
+        content: const Text('This will delete your current encryption keys and generate new ones. Your contacts will see a "New Device" warning. This action cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
           TextButton(

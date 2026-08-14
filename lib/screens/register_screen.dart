@@ -381,7 +381,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         fillColor: Colors.white.withValues(alpha: 0.1),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.5), width: 1.5)),
-        helperText: 'gibberapp.online for instant signup. Others require in-band registration.',
+        helperText: 'gibberapp.online for instant signup. Other servers may not be supported.',
         helperStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 11),
         contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
       ),

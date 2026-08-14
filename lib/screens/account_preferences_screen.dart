@@ -76,7 +76,7 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
                     acc.displayName ?? acc.user,
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
-                  subtitle: Text('XMPP • ${acc.fullJid}', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
+                  subtitle: Text('Gibber • ${acc.fullJid}', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
                   trailing: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
@@ -535,7 +535,7 @@ class _AccountEditorScreenState extends State<AccountEditorScreen> {
               children: [
                 SwitchListTile(
                   title: const Text('Acknowledge Streams', style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: const Text('Ensure zero message loss (XEP-0198)'),
+                  subtitle: const Text('Ensure zero message loss'),
                   value: _ackEnabled, 
                   onChanged: (v) => setState(() => _ackEnabled = v),
                   activeThumbColor: Theme.of(context).colorScheme.primary,
