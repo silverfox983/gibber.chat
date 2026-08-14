@@ -102,7 +102,8 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
           // xmpp_stone processes every stream:features it receives, including
           // post-auth features after SASL re-open
           if (content.contains('<stream:features') || content.contains('<features xmlns')) {
-            print('XMPP WS proxy: Transforming stream features for SASL1 compatibility');
+            final originalPreview = content.length > 500 ? '${content.substring(0, 500)}...' : content;
+            print('XMPP WS proxy: Original stream features from Prosody: ${originalPreview.replaceAll('\n', ' ')}');
 
             // 1. Strip STARTTLS (connection is already secure via WSS/proxy)
             content = content.replaceAll(RegExp(r'<starttls[^>]*>.*?</starttls>', dotAll: true), '');
@@ -134,7 +135,8 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
               );
             }
 
-            print('XMPP WS proxy: Stream features transformed successfully');
+            final transformedPreview = content.length > 500 ? '${content.substring(0, 500)}...' : content;
+            print('XMPP WS proxy: Transformed stream features to client: ${transformedPreview.replaceAll('\n', ' ')}');
           }
 
           webSocket.sink.add(content);

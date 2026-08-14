@@ -73,8 +73,9 @@ class XmppProxyService {
           // xmpp_stone processes every stream:features it receives, including
           // post-auth features after SASL re-open. We must transform them all.
           if (content.contains('<stream:features')) {
-             debugPrint('Proxy: Intercepted server features. Performing compatibility transformation...');
-             
+             final originalPreview = content.length > 500 ? '${content.substring(0, 500)}...' : content;
+             debugPrint('Proxy: Original stream features from server: ${originalPreview.replaceAll('\n', ' ')}');
+              
              // 1. Strip STARTTLS (Offloaded to Proxy - we already handle TLS)
              content = content.replaceAll(RegExp(r'<starttls[^>]*>.*?</starttls>', dotAll: true), '');
              content = content.replaceAll(RegExp(r'<starttls[^>]*/>'), '');
@@ -82,32 +83,33 @@ class XmppProxyService {
              // 2. Strip SASL2 <authentication> block (SASL2 support is in progress;
              //    fall back to SASL1 <mechanisms> for now)
              if (content.contains(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"]', dotAll: true))) {
-               final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
-                   .allMatches(content)
-                   .map((m) => m.group(1)!)
-                   .toSet();
-               
-               content = content.replaceAll(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"][^>]*>.*?</authentication>', dotAll: true), '');
-               
-               if (!content.contains('<mechanisms')) {
-                 final mechs = sasl2Mechs.toList()..add('PLAIN');
-                 final mechsXml = mechs.map((m) => '<mechanism>$m</mechanism>').join('');
-                 final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>$mechsXml</mechanisms>";
-                 content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
-               }
+                final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
+                    .allMatches(content)
+                    .map((m) => m.group(1)!)
+                    .toSet();
+                
+                content = content.replaceAll(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"][^>]*>.*?</authentication>', dotAll: true), '');
+                
+                if (!content.contains('<mechanisms')) {
+                  final mechs = sasl2Mechs.toList()..add('PLAIN');
+                  final mechsXml = mechs.map((m) => '<mechanism>$m</mechanism>').join('');
+                  final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>$mechsXml</mechanisms>";
+                  content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
+                }
              }
-             
+              
              // 3. Ensure PLAIN mechanism is available for xmpp_stone SASL1 auth
              if (content.contains('<mechanisms') && !content.contains('<mechanism>PLAIN</mechanism>')) {
-               content = content.replaceFirst(
-                 RegExp("<mechanisms xmlns=['\"]urn:ietf:params:xml:ns:xmpp-sasl['\"]>"),
-                 "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><mechanism>PLAIN</mechanism>",
-               );
+                content = content.replaceFirst(
+                  RegExp("<mechanisms xmlns=['\"]urn:ietf:params:xml:ns:xmpp-sasl['\"]>"),
+                  "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><mechanism>PLAIN</mechanism>",
+                );
              }
-             
+              
               modified = true;
-              debugPrint('Proxy: Transformation successful.');
-          }
+              final transformedPreview = content.length > 500 ? '${content.substring(0, 500)}...' : content;
+              debugPrint('Proxy: Transformed stream features to client: ${transformedPreview.replaceAll('\n', ' ')}');
+           }
 
           if (modified) {
             finalData = Uint8List.fromList(utf8.encode(content));

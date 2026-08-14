@@ -27,6 +27,11 @@ ssl = {
 -- Require encryption for client connections
 c2s_require_encryption = false
 
+-- Allow PLAIN auth over unencrypted connections (needed because the WS proxy
+-- strips STARTTLS, so web clients always connect "unencrypted" from Prosody's
+-- perspective even though the WSS connection is TLS-terminated at the reverse proxy)
+allow_unencrypted_plain_auth = true
+
 -- S2S federation: allow encrypted connections and accept self-signed certs
 -- These MUST be global settings (not per-VirtualHost) to affect outbound S2S
 s2s_require_encryption = false

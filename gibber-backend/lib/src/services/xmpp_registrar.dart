@@ -133,10 +133,18 @@ class XmppRegistrar {
       final result = await _runProsodyCtl(['register', username, domain, password]);
 
       if (result.exitCode == 0) {
+        final exists = await _userExistsProsodyCtl(username, domain);
+        if (exists) {
+          return XmppRegistrationResult(
+            success: true,
+            jid: jid,
+            message: 'Registration successful',
+          );
+        }
         return XmppRegistrationResult(
-          success: true,
+          success: false,
           jid: jid,
-          message: 'Registration successful',
+          message: 'Registration command succeeded but user was not found. The XMPP server may not be running.',
         );
       }
 
