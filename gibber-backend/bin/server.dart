@@ -85,12 +85,17 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
   final wsPort = prosodyUri.port;
   final wsUrl = '$wsScheme://${prosodyUri.host}:${wsPort > 0 ? wsPort : (prosodyUri.scheme == 'https' ? 5281 : 5280)}/xmpp-websocket';
 
-  WebSocket.connect(wsUrl, headers: {'Host': domain}).then((prosodyWs) {
+  print('XMPP WS proxy: Connecting to Prosody at $wsUrl (Host: $domain)');
+
+  WebSocket.connect(wsUrl, headers: {'Host': domain}, protocols: ['xmpp']).then((prosodyWs) {
+    print('XMPP WS proxy: Connected to Prosody');
+
     prosodyWs.listen(
       (data) {
         webSocket.sink.add(data);
       },
       onDone: () {
+        print('XMPP WS proxy: Prosody closed connection');
         webSocket.sink.close();
       },
       onError: (e) {
@@ -105,6 +110,7 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
         prosodyWs.add(data);
       },
       onDone: () {
+        print('XMPP WS proxy: Client closed connection');
         prosodyWs.close();
       },
       onError: (e) {
@@ -114,7 +120,7 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
       cancelOnError: false,
     );
   }).catchError((e) {
-    print('XMPP WS proxy: Failed to connect to Prosody: $e');
+    print('XMPP WS proxy: Failed to connect to Prosody at $wsUrl: $e');
     webSocket.sink.close();
   });
 }
@@ -211,9 +217,12 @@ void main(List<String> args) async {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Key',
   });
 
-  final xmppWsHandler = webSocketHandler((webSocket, _) {
-    _handleXmppWebSocket(webSocket, prosodyUrl, xmppRegistrar.domain);
-  });
+  final xmppWsHandler = webSocketHandler(
+    (webSocket, _) {
+      _handleXmppWebSocket(webSocket, prosodyUrl, xmppRegistrar.domain);
+    },
+    protocols: ['xmpp'],
+  );
 
   final xmppProxyPaths = {'/xmpp-websocket', '/xmpp-websocket/', '/http-bind', '/http-bind/'};
   final xmppWsPaths = {'/xmpp-websocket', '/xmpp-websocket/'};
