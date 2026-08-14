@@ -12,76 +12,119 @@ void main() {
     );
   }
 
-  testWidgets('LoginScreen displays correctly', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      ChangeNotifierProvider(
-        create: (_) => AuthService(),
-        child: const MaterialApp(home: LoginScreen()),
-      ),
-    );
+  testWidgets('LoginScreen displays all required UI elements', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(buildTestApp());
+    await tester.pumpAndSettle();
 
     expect(find.text('Gibber'), findsOneWidget);
-    expect(find.text('Multi-protocol Chat Client'), findsOneWidget);
-    expect(find.textContaining('your-username'), findsOneWidget);
-    expect(find.text('5222'), findsOneWidget);
-    await tester.pumpWidget(buildTestApp());
-    await tester.pump();
-
-    // Verify basic elements are present
-    expect(find.text('XMPP ID (user@domain)'), findsOneWidget);
+    expect(find.text('Secure Communication'), findsOneWidget);
+    expect(find.text('Username'), findsOneWidget);
     expect(find.text('Password'), findsOneWidget);
-    expect(find.text('Port'), findsOneWidget);
-
-    // Verify primary action is present
-    expect(find.text('Connect Now'), findsOneWidget);
+    expect(find.text('Keep me logged in'), findsOneWidget);
+    expect(find.text("Don't have an account?"), findsOneWidget);
   });
 
-  testWidgets('Protocol detection works for XMPP addresses', (
+  testWidgets('LoginScreen shows SnackBar error when submitting empty fields', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(
-      ChangeNotifierProvider(
-        create: (_) => AuthService(),
-        child: const MaterialApp(home: LoginScreen()),
-      ),
-    );
-
-    // Find the XMPP address text field by its current placeholder text and enter a new value
-    final addressField = find.widgetWithText(TextField, 'your-username@domain.com');
-    expect(addressField, findsOneWidget);
-
-    await tester.enterText(addressField, 'test@example.com');
     await tester.pumpWidget(buildTestApp());
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    // Enter an XMPP-like address
-    await tester.enterText(find.byType(TextField).first, 'test@example.com');
-    await tester.pump();
+    final signInButton = find.byType(ElevatedButton);
+    await tester.ensureVisible(signInButton);
+    await tester.pumpAndSettle();
+    await tester.tap(signInButton);
+    await tester.pumpAndSettle();
 
-    expect(true, isTrue);
+    expect(find.text('Please enter your username.'), findsOneWidget);
   });
 
-  testWidgets('Protocol detection works for IRC addresses', (
+  testWidgets('LoginScreen shows SnackBar error when password is empty', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(
-      ChangeNotifierProvider(
-        create: (_) => AuthService(),
-        child: const MaterialApp(home: LoginScreen()),
-      ),
-    );
-
-    final addressField = find.widgetWithText(TextField, 'your-username@domain.com');
-    expect(addressField, findsOneWidget);
-
-    await tester.enterText(addressField, 'irc.libera.chat');
     await tester.pumpWidget(buildTestApp());
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    // Enter an IRC-like address
-    await tester.enterText(find.byType(TextField).first, 'irc.example.com');
-    await tester.pump();
+    final usernameField = find.widgetWithText(TextField, 'Username');
+    await tester.enterText(usernameField, 'testuser');
+    await tester.pumpAndSettle();
 
-    expect(true, isTrue);
+    final signInButton = find.byType(ElevatedButton);
+    await tester.ensureVisible(signInButton);
+    await tester.pumpAndSettle();
+    await tester.tap(signInButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Please enter your password.'), findsOneWidget);
+  });
+
+  testWidgets('LoginScreen shows SnackBar error for invalid username with spaces', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(buildTestApp());
+    await tester.pumpAndSettle();
+
+    final usernameField = find.widgetWithText(TextField, 'Username');
+    await tester.enterText(usernameField, 'invalid user');
+    await tester.pumpAndSettle();
+
+    final signInButton = find.byType(ElevatedButton);
+    await tester.ensureVisible(signInButton);
+    await tester.pumpAndSettle();
+    await tester.tap(signInButton);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('invalid characters'), findsOneWidget);
+  });
+
+  testWidgets('LoginScreen accepts valid username input', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(buildTestApp());
+    await tester.pumpAndSettle();
+
+    final usernameField = find.widgetWithText(TextField, 'Username');
+    expect(usernameField, findsOneWidget);
+
+    await tester.enterText(usernameField, 'testuser');
+    await tester.pumpAndSettle();
+
+    final passwordField = find.widgetWithText(TextField, 'Password');
+    expect(passwordField, findsOneWidget);
+
+    await tester.enterText(passwordField, 'testpassword123');
+    await tester.pumpAndSettle();
+
+    expect(find.text('testuser'), findsOneWidget);
+  });
+
+  testWidgets('LoginScreen has Create Account link', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(buildTestApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create Account'), findsOneWidget);
+  });
+
+  testWidgets('LoginScreen keep-me-logged-in checkbox toggles', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(buildTestApp());
+    await tester.pumpAndSettle();
+
+    final checkbox = find.byType(Checkbox);
+    expect(checkbox, findsOneWidget);
+
+    Checkbox widget = tester.widget(checkbox);
+    expect(widget.value, true);
+
+    await tester.tap(checkbox);
+    await tester.pumpAndSettle();
+
+    widget = tester.widget(checkbox);
+    expect(widget.value, false);
   });
 }

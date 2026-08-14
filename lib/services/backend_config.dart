@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -7,6 +8,9 @@ class BackendConfig extends ChangeNotifier {
 
   static const String _apiUrlKey = 'gibber_backend_api_url';
   static const String _poolUrlKey = 'gibber_backend_pool_url';
+
+  final Completer<void> _ready = Completer<void>();
+  Future<void> get ready => _ready.future;
 
   String get apiUrl => _apiUrl;
   String get poolUrl => _poolUrl;
@@ -21,6 +25,7 @@ class BackendConfig extends ChangeNotifier {
     final pool = prefs.getString(_poolUrlKey);
     if (api != null) _apiUrl = api;
     if (pool != null) _poolUrl = pool;
+    _ready.complete();
     notifyListeners();
   }
 

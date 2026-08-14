@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -495,6 +496,14 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+    final validChars = RegExp(r'^[a-zA-Z0-9._\-@]+$');
+    if (!validChars.hasMatch(input)) {
+      _showLoginError(
+        'Username contains invalid characters. Only letters, numbers, dots, hyphens, and underscores are allowed.',
+      );
+      return;
+    }
+
     String user;
     String domain;
 
@@ -529,7 +538,7 @@ class _LoginScreenState extends State<LoginScreen> {
         domain: domain,
         pass: _passController.text,
         port: port,
-      );
+      ).timeout(const Duration(seconds: 30));
 
       if (_rememberMe) {
         await authService.saveAccount(
@@ -549,6 +558,12 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         Navigator.pop(context);
       }
+    } on TimeoutException {
+      if (mounted) {
+        _showLoginError(
+          'Connection timed out. The server may be unreachable or your network may be slow. Please try again.',
+        );
+      }
     } catch (e) {
       if (mounted) {
         final errorStr = e.toString();
@@ -561,16 +576,33 @@ class _LoginScreenState extends State<LoginScreen> {
             errorStr.contains('HandshakeException') ||
             errorStr.contains('CERTIFICATE_VERIFY_FAILED') ||
             errorStr.contains('TLS');
+        final bool isAuthError =
+            errorStr.contains('Authentication failed') ||
+            errorStr.contains('not-authorized') ||
+            errorStr.contains('sasl');
 
         String errorMessage = errorStr.replaceAll('Exception: ', '');
+        String actionHint = '';
+
         if (isSocketError) {
           errorMessage =
               'Could not reach the server. Please check your network connection.';
+          actionHint = ' Check your internet connection and try again.';
         } else if (isTlsError) {
           errorMessage =
               'Secure connection failed. Server certificate could not be verified.';
+          actionHint = ' This may be a server configuration issue.';
+        } else if (isAuthError) {
+          errorMessage =
+              'Authentication failed. Please check your username and password.';
+          actionHint = ' Make sure your credentials are correct.';
         } else if (errorStr.contains('Null check')) {
           errorMessage = 'Connection failed unexpectedly.';
+        } else if (errorStr.contains('forcefully closed') ||
+            errorStr.contains('Connection closed')) {
+          errorMessage =
+              'The server closed the connection before login completed.';
+          actionHint = ' The server may not support this client. Try a different port.';
         }
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -585,7 +617,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Login failed: $errorMessage',
+                    'Login failed: $errorMessage$actionHint',
                     maxLines: 4,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -594,6 +626,11 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             duration: const Duration(seconds: 12),
             backgroundColor: Theme.of(context).colorScheme.error,
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: Colors.white,
+              onPressed: () => _handleLogin(authService),
+            ),
           ),
         );
       }

@@ -77,29 +77,57 @@ class XmppProxyService {
             modified = true;
           }
 
-          // FEATURE TRANSFORMER: Handle STARTTLS and SASL PLAIN-Injection
+          // FEATURE TRANSFORMER: Handle STARTTLS and SASL compatibility
           if (!firstServerPacketTransformed) {
             if (content.contains('<stream:features')) {
-               debugPrint('Proxy: Intercepted server features. Performing PLAIN-Injection for universal compatibility...');
+               debugPrint('Proxy: Intercepted server features. Performing compatibility transformation...');
                
-               // 1. Strip STARTTLS (Offloaded to Proxy)
+               // 1. Strip STARTTLS (Offloaded to Proxy - we already handle TLS)
                content = content.replaceFirst(RegExp(r'<starttls[^>]*>.*?</starttls>', dotAll: true), '');
                content = content.replaceFirst(RegExp(r'<starttls[^>]*/>'), '');
 
-               // 2. SASL PLAIN-Injection (The "Ultimate Overload")
-               // We replace ALL authentication/mechanisms blocks with a single clean SASL 1 block
-               final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><mechanism>PLAIN</mechanism><mechanism>SCRAM-SHA-1</mechanism></mechanisms>";
+               // 2. Remove SASL2 inline features that xmpp_stone doesn't support
+               //    (bind2, sm, etc.) but preserve the authentication mechanisms.
+               //    Strip <inline> children inside <authentication> which reference
+               //    features xmpp_stone can't negotiate via SASL2.
+               content = content.replaceFirst(RegExp(r'<inline[^>]*>.*?</inline>', dotAll: true), '');
                
-                // Wipe SASL 2 (urn:xmpp:sasl:2) and legacy mechanisms
-                content = content.replaceFirst(RegExp(r'<authentication xmlns=.urn:xmpp:sasl:2.>(.*?)</authentication>', dotAll: true), '');
-                content = content.replaceFirst(RegExp(r'<mechanisms[^>]*>.*?</mechanisms>', dotAll: true), '');
-                
-                // Inject clean mechanisms
-                content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
-                
+               // 3. If SASL2 <authentication> block remains after stripping <inline>,
+               //    also remove it since xmpp_stone only supports SASL1 auth flow.
+               //    We keep the server's original <mechanisms> block intact so that
+               //    SCRAM-SHA-256, SCRAM-SHA-512, etc. are preserved.
+               if (content.contains(RegExp(r'<authentication xmlns=.urn:xmpp:sasl:2.', dotAll: true))) {
+                 // Extract mechanism names from SASL2 <authentication> block to merge
+                 final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
+                     .allMatches(content)
+                     .map((m) => m.group(1)!)
+                     .toSet();
+                 
+                 // Remove the entire SASL2 <authentication> block
+                 content = content.replaceFirst(RegExp(r'<authentication xmlns=.urn:xmpp:sasl:2.>.*?</authentication>', dotAll: true), '');
+                 
+                 // If no <mechanisms> block exists, inject one with the extracted mechanisms
+                 // plus PLAIN (needed for xmpp_stone SASL1 flow)
+                 if (!content.contains('<mechanisms')) {
+                   final mechs = sasl2Mechs.toList()..add('PLAIN');
+                   final mechsXml = mechs.map((m) => '<mechanism>$m</mechanism>').join('');
+                   final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>$mechsXml</mechanisms>";
+                   content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
+                 }
+               }
+               
+               // 4. Ensure PLAIN mechanism is available for xmpp_stone SASL1 auth
+               //    (xmpp_stone requires PLAIN or SCRAM-SHA-1 at minimum)
+               if (content.contains('<mechanisms') && !content.contains('<mechanism>PLAIN</mechanism>')) {
+                 content = content.replaceFirst(
+                   RegExp(r"<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>"),
+                   "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><mechanism>PLAIN</mechanism>",
+                 );
+               }
+               
                 modified = true;
                 firstServerPacketTransformed = true;
-                debugPrint('Proxy: Transformation successful. FORCE-INJECTED SASL mechanisms.');
+                debugPrint('Proxy: Transformation successful. Preserved server mechanisms, removed SASL2 inline features.');
             }
           }
 
@@ -168,8 +196,9 @@ class XmppProxyService {
     debugPrint('Proxy: Starting Parallel Happy-Eyeballs probe on: $targets');
     
     final completer = Completer<Socket>();
+    int totalAttempts = 0;
     int failedCount = 0;
-    final totalAttempts = targets.length * 3;
+    final pendingFutures = <Future>[];
 
     void reportFailure(String target, int port, dynamic error) {
       debugPrint('Proxy: [Probe Failure] $target:$port -> $error');
@@ -183,7 +212,8 @@ class XmppProxyService {
       debugPrint('Proxy: [Probe Queue] $target (Paths: 5222, 5223, 443)');
       
       // Path A: STARTTLS (5222) - HIGH PRIORITY
-      _tryConnectAndHandshakeAsync(target, 5222, initialPacket).then((s) {
+      totalAttempts++;
+      final futureA = _tryConnectAndHandshakeAsync(target, 5222, initialPacket).then((s) {
         if (!completer.isCompleted) {
           debugPrint('Proxy: [Probe Winner] $target:5222 (STARTTLS)');
           completer.complete(s);
@@ -194,10 +224,12 @@ class XmppProxyService {
         debugPrint('Proxy: [Probe Fail Trace] $target:5222 -> $e');
         reportFailure(target, 5222, e);
       });
+      pendingFutures.add(futureA);
 
       // Path B: Direct TLS (5223)
-      Future.delayed(const Duration(milliseconds: 100)).then((_) {
-        _tryDirectTLSAsync(target, 5223, initialPacket).then((s) {
+      totalAttempts++;
+      final futureB = Future.delayed(const Duration(milliseconds: 100)).then((_) {
+        return _tryDirectTLSAsync(target, 5223, initialPacket).then((s) {
           if (!completer.isCompleted) {
              debugPrint('Proxy: [Probe Winner] $target:5223 (Direct TLS)');
              completer.complete(s);
@@ -209,10 +241,12 @@ class XmppProxyService {
           reportFailure(target, 5223, e);
         });
       });
+      pendingFutures.add(futureB);
 
       // Path C: Direct TLS (443)
-      Future.delayed(const Duration(milliseconds: 300)).then((_) {
-        _tryDirectTLSAsync(target, 443, initialPacket).then((s) {
+      totalAttempts++;
+      final futureC = Future.delayed(const Duration(milliseconds: 300)).then((_) {
+        return _tryDirectTLSAsync(target, 443, initialPacket).then((s) {
           if (!completer.isCompleted) {
             debugPrint('Proxy: [Probe Winner] $target:443 (Direct TLS)');
             completer.complete(s);
@@ -224,7 +258,12 @@ class XmppProxyService {
           reportFailure(target, 443, e);
         });
       });
+      pendingFutures.add(futureC);
     }
+
+    // Wait for all probes to finish before declaring total failure
+    // This prevents premature completeError when staggered probes haven't started yet
+    Future.wait(pendingFutures).catchError((_) {});
 
     return await completer.future.timeout(const Duration(seconds: 45));
   }

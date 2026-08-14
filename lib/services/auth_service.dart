@@ -862,8 +862,7 @@ class AuthService with ChangeNotifier {
         _xmppProxies[id] = proxy;
 
         final proxyTargetHost = host ?? domain;
-        final proxyTargetPort =
-            (domain == 'jabb3r.org' || domain == 'jabb3r.info') ? 5222 : port;
+        final proxyTargetPort = port;
 
         final localPort = await proxy.start(
           proxyTargetHost,

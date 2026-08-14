@@ -99,6 +99,7 @@ class _ChatAppState extends State<ChatApp> {
     try {
       _errorSource = 'BackendConfig';
       _backendConfig = BackendConfig();
+      await _backendConfig!.ready;
 
       _errorSource = 'AuthService';
       _authService = AuthService();
