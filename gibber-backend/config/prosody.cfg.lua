@@ -27,8 +27,9 @@ ssl = {
 -- Require encryption for client connections
 c2s_require_encryption = false
 
--- Allow self-signed certs for S2S federation (development)
-s2s_allow_encrypted = true
+-- S2S federation: allow encrypted connections and accept self-signed certs
+-- These MUST be global settings (not per-VirtualHost) to affect outbound S2S
+s2s_require_encryption = false
 s2s_secure_auth = false
 
 -- Server domain
