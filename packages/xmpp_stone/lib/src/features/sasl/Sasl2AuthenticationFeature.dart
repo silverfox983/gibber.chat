@@ -76,6 +76,7 @@ class Sasl2AuthenticationFeature extends Negotiator {
             _connection.fullJidRetrieved(result.bindJid!);
           }
         } else {
+          _connection.reconnectionManager?.close();
           _connection.setState(XmppConnectionState.AuthenticationFailure);
           _connection.errorMessage = result.message;
           _connection.close();

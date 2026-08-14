@@ -356,7 +356,8 @@ class Connection {
     return state != XmppConnectionState.Closed &&
         state != XmppConnectionState.ForcefullyClosed &&
         state != XmppConnectionState.Closing &&
-        state != XmppConnectionState.SocketOpening;
+        state != XmppConnectionState.SocketOpening &&
+        state != XmppConnectionState.AuthenticationFailure;
   }
 
   void write(message) {
@@ -482,10 +483,11 @@ class Connection {
     if (state == XmppConnectionState.WouldLikeToOpen) {
       setState(XmppConnectionState.Closed);
       connect();
-    } else if (state != XmppConnectionState.Closing) {
-      setState(XmppConnectionState.ForcefullyClosed);
-    } else {
+    } else if (state == XmppConnectionState.Closing ||
+        state == XmppConnectionState.AuthenticationFailure) {
       setState(XmppConnectionState.Closed);
+    } else {
+      setState(XmppConnectionState.ForcefullyClosed);
     }
   }
 

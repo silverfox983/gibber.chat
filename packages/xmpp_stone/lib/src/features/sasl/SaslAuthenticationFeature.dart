@@ -67,6 +67,7 @@ class SaslAuthenticationFeature extends Negotiator {
         if (result.successful) {
           _connection.setState(XmppConnectionState.Authenticated);
         } else {
+          _connection.reconnectionManager?.close();
           _connection.setState(XmppConnectionState.AuthenticationFailure);
           _connection.errorMessage = result.message;
           _connection.close();
