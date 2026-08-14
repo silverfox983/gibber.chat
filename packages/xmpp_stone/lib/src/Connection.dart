@@ -506,7 +506,9 @@ class Connection {
       setState(XmppConnectionState.Closed);
       connect();
     } else if (state == XmppConnectionState.Closing ||
-        state == XmppConnectionState.AuthenticationFailure) {
+        state == XmppConnectionState.AuthenticationFailure ||
+        state == XmppConnectionState.Authenticating ||
+        state == XmppConnectionState.Authenticated) {
       setState(XmppConnectionState.Closed);
     } else {
       setState(XmppConnectionState.ForcefullyClosed);
