@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
@@ -10,6 +9,10 @@ import '../services/registration_service.dart';
 import '../services/backend_config.dart';
 import '../models/registration_models.dart';
 import '../models/chat_models.dart';
+import '../widgets/auth/auth_layout.dart';
+import '../widgets/auth/auth_text_field.dart';
+import '../widgets/auth/auth_button.dart';
+import '../widgets/auth/password_strength_bar.dart';
 import '../widgets/turnstile_web_widget_stub.dart'
     if (dart.library.html) '../widgets/turnstile_web_widget.dart';
 
@@ -24,8 +27,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final FocusNode _passFocusNode = FocusNode();
+  final FocusNode _confirmFocusNode = FocusNode();
 
   bool _isRegistering = false;
+  String? _registerStatus;
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   String? _usernameError;
@@ -34,6 +40,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _generalError;
   bool _usernameAvailable = false;
   bool _checkingUsername = false;
+  bool _termsAccepted = false;
   String? _captchaToken;
 
   static const String _turnstileSiteKey = '0x4AAAAAAEPu7u6fV3cTv5Q6';
@@ -44,6 +51,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _usernameController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _passFocusNode.dispose();
+    _confirmFocusNode.dispose();
     super.dispose();
   }
 
@@ -64,29 +73,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final confirm = _confirmPasswordController.text;
 
     if (username.isEmpty) {
-      setState(() => _usernameError = 'Username is required.');
+      _usernameError = 'Username is required.';
       valid = false;
     } else if (username.length < 3) {
-      setState(() => _usernameError = 'Username must be at least 3 characters.');
+      _usernameError = 'Username must be at least 3 characters.';
       valid = false;
     } else if (!RegExp(r'^[a-zA-Z0-9._-]+$').hasMatch(username)) {
-      setState(() => _usernameError = 'Only letters, numbers, dots, hyphens, and underscores.');
+      _usernameError = 'Only letters, numbers, dots, hyphens, and underscores.';
       valid = false;
     }
 
     if (password.isEmpty) {
-      setState(() => _passwordError = 'Password is required.');
+      _passwordError = 'Password is required.';
       valid = false;
     } else if (password.length < 8) {
-      setState(() => _passwordError = 'Password must be at least 8 characters.');
+      _passwordError = 'Password must be at least 8 characters.';
       valid = false;
     }
 
     if (confirm.isEmpty) {
-      setState(() => _confirmError = 'Please confirm your password.');
+      _confirmError = 'Please confirm your password.';
       valid = false;
     } else if (password != confirm) {
-      setState(() => _confirmError = 'Passwords do not match.');
+      _confirmError = 'Passwords do not match.';
+      valid = false;
+    }
+
+    if (!_termsAccepted) {
+      _generalError = 'You must accept the Terms of Service.';
       valid = false;
     }
 
@@ -121,6 +135,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  Timer? _debounceTimer;
+
+  void _debounceUsernameCheck() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) _checkUsername();
+    });
+  }
+
   Future<void> _handleRegister() async {
     if (!_validate()) return;
     if (kIsWeb && _captchaToken == null) {
@@ -135,12 +158,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() {
       _isRegistering = true;
       _generalError = null;
+      _registerStatus = 'Creating account...';
     });
 
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
     const domain = 'gibberapp.online';
-    final jid = '$username@$domain';
 
     final backendConfig = Provider.of<BackendConfig>(context, listen: false);
 
@@ -154,6 +177,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!mounted) return;
 
     if (result.isOk) {
+      setState(() => _registerStatus = 'Account created. Connecting...');
+
       final authService = Provider.of<AuthService>(context, listen: false);
 
       try {
@@ -175,16 +200,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
 
         if (mounted) {
+          setState(() => _registerStatus = 'Connected. Redirecting...');
           context.go('/app');
         }
       } catch (e) {
         if (mounted) {
-          setState(() => _isRegistering = false);
+          setState(() { _isRegistering = false; _registerStatus = null; });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Account created! Please sign in manually: $jid'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 8),
+              content: Text('Account created! Please sign in manually.'),
+              backgroundColor: Colors.green.shade700,
+              duration: const Duration(seconds: 6),
               action: SnackBarAction(
                 label: 'SIGN IN',
                 textColor: Colors.white,
@@ -198,6 +224,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } else {
       setState(() {
         _isRegistering = false;
+        _registerStatus = null;
         if (result.status == RegistrationStatus.captchaFailed) {
           _captchaToken = null;
         }
@@ -209,302 +236,273 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Container(
-        decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildLogo(),
-                  const SizedBox(height: 32),
-                  _buildCard(primary, isDark),
-                  const SizedBox(height: 24),
-                  _buildSignInLink(primary),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+    final form = _buildForm(isDark);
+
+    return AuthLayout(form: form);
   }
 
-  Widget _buildLogo() {
+  Widget _buildForm(bool isDark) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: 0.15),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
-              ),
-            ],
+        Text(
+          'Create your account',
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.5,
+            color: isDark ? Colors.white : const Color(0xFF111827),
           ),
-          child: Image.asset('assets/logo.png', width: 72, height: 72, fit: BoxFit.contain),
         ),
-        const SizedBox(height: 20),
-        const Text(
-          'Create Account',
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -0.5),
-        ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         Text(
           'Sign up for free — no credit card needed',
-          style: TextStyle(fontSize: 15, color: Colors.white.withValues(alpha: 0.8), fontWeight: FontWeight.w500),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCard(Color primary, bool isDark) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(28),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          padding: const EdgeInsets.all(28),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 30, offset: const Offset(0, 15)),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildUsernameField(primary),
-              const SizedBox(height: 16),
-              _buildPasswordField(),
-              const SizedBox(height: 16),
-              _buildConfirmField(),
-              if (kIsWeb) ...[
-                const SizedBox(height: 16),
-                Center(
-                  child: TurnstileWebWidget(
-                    siteKey: _turnstileSiteKey,
-                    theme: Theme.of(context).brightness == Brightness.dark ? 'dark' : 'light',
-                    action: 'signup',
-                    onTokenReceived: (token) {
-                      setState(() => _captchaToken = token);
-                    },
-                    onTokenExpired: () {
-                      setState(() => _captchaToken = null);
-                    },
-                    onError: () {
-                      setState(() => _generalError = 'Captcha verification failed. Please try again.');
-                    },
-                  ),
-                ),
-                if (_captchaToken == null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Verifying you are human...',
-                    style: TextStyle(fontSize: 11, color: Colors.white54),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ],
-              if (_generalError != null) ...[
-                const SizedBox(height: 16),
-                _buildErrorBanner(_generalError!),
-              ],
-              const SizedBox(height: 24),
-              _buildRegisterButton(primary),
-            ],
+          style: TextStyle(
+            fontSize: 15,
+            color: isDark ? Colors.white54 : const Color(0xFF6B7280),
+            fontWeight: FontWeight.w400,
           ),
         ),
-      ),
-    );
-  }
+        const SizedBox(height: 32),
 
-  Widget _buildUsernameField(Color primary) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextField(
+        AuthTextField(
           controller: _usernameController,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 16),
-          decoration: InputDecoration(
-            labelText: 'Username',
-            labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 14),
-            prefixIcon: Icon(Icons.alternate_email, color: Colors.white.withValues(alpha: 0.7), size: 22),
-            suffixIcon: _checkingUsername
-                ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white.withValues(alpha: 0.7)))
-                : _usernameAvailable && _usernameError == null && _usernameController.text.trim().length >= 3
-                    ? Icon(Icons.check_circle_rounded, color: Colors.green.shade400, size: 22)
-                    : null,
-            filled: true,
-            fillColor: Colors.white.withValues(alpha: 0.1),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.5), width: 1.5)),
-            errorText: _usernameError,
-            errorStyle: const TextStyle(color: Colors.redAccent, fontSize: 12),
-            contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-          ),
+          label: 'Username',
+          prefixIcon: Icons.alternate_email_rounded,
+          hint: 'Choose a username',
+          domainSuffix: '@gibberapp.online',
+          errorText: _usernameError,
+          isLoading: _checkingUsername,
+          showSuccess: _usernameAvailable && _usernameError == null && _usernameController.text.trim().length >= 3,
+          keyboardType: TextInputType.emailAddress,
           onChanged: (_) {
             if (_usernameError != null) setState(() => _usernameError = null);
             _usernameAvailable = false;
             _debounceUsernameCheck();
           },
+          onSubmitted: () => _passFocusNode.requestFocus(),
+        ),
+        const SizedBox(height: 20),
+
+        AuthTextField(
+          controller: _passwordController,
+          label: 'Password',
+          prefixIcon: Icons.lock_outline_rounded,
+          hint: 'At least 8 characters',
+          obscureText: _obscurePassword,
+          isPassword: true,
+          errorText: _passwordError,
+          focusNode: _passFocusNode,
+          onTogglePassword: () => setState(() => _obscurePassword = !_obscurePassword),
+          onChanged: (_) {
+            if (_passwordError != null) setState(() => _passwordError = null);
+          },
+          onSubmitted: () => _confirmFocusNode.requestFocus(),
+        ),
+        PasswordStrengthBar(password: _passwordController.text),
+        const SizedBox(height: 20),
+
+        AuthTextField(
+          controller: _confirmPasswordController,
+          label: 'Confirm Password',
+          prefixIcon: Icons.lock_outline_rounded,
+          hint: 'Re-enter your password',
+          obscureText: _obscureConfirm,
+          isPassword: true,
+          errorText: _confirmError,
+          focusNode: _confirmFocusNode,
+          onTogglePassword: () => setState(() => _obscureConfirm = !_obscureConfirm),
+          onChanged: (_) {
+            if (_confirmError != null) setState(() => _confirmError = null);
+          },
+          onSubmitted: () => _handleRegister(),
+        ),
+        const SizedBox(height: 16),
+
+        if (kIsWeb) ...[
+          Center(
+            child: TurnstileWebWidget(
+              siteKey: _turnstileSiteKey,
+              theme: Theme.of(context).brightness == Brightness.dark ? 'dark' : 'light',
+              action: 'signup',
+              onTokenReceived: (token) {
+                setState(() => _captchaToken = token);
+              },
+              onTokenExpired: () {
+                setState(() => _captchaToken = null);
+              },
+              onError: () {
+                setState(() => _generalError = 'Captcha verification failed. Please try again.');
+              },
+            ),
+          ),
+          if (_captchaToken == null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Verifying you are human...',
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? Colors.white38 : const Color(0xFF9CA3AF),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+          const SizedBox(height: 8),
+        ],
+
+        Row(
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: Checkbox(
+                value: _termsAccepted,
+                onChanged: (val) => setState(() {
+                  _termsAccepted = val ?? false;
+                  if (_termsAccepted && _generalError == 'You must accept the Terms of Service.') {
+                    _generalError = null;
+                  }
+                }),
+                activeColor: Theme.of(context).colorScheme.primary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() {
+                  _termsAccepted = !_termsAccepted;
+                  if (_termsAccepted && _generalError == 'You must accept the Terms of Service.') {
+                    _generalError = null;
+                  }
+                }),
+                child: Text(
+                  'I agree to the Terms of Service',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.white54 : const Color(0xFF6B7280),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        if (_generalError != null) ...[
+          const SizedBox(height: 16),
+          _buildErrorBanner(_generalError!, isDark),
+        ],
+
+        if (_registerStatus != null) ...[
+          const SizedBox(height: 12),
+          _buildStatusBanner(_registerStatus!, isDark),
+        ],
+
+        const SizedBox(height: 24),
+        AuthButton(
+          label: 'Create Account',
+          isLoading: _isRegistering,
+          onPressed: () => _handleRegister(),
+        ),
+        const SizedBox(height: 20),
+
+        Center(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'Already have an account? ',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.white54 : const Color(0xFF6B7280),
+                ),
+              ),
+              TextButton(
+                onPressed: () => context.go('/login'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  'Sign In',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Timer? _debounceTimer;
-
-  void _debounceUsernameCheck() {
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 600), () {
-      if (mounted) {
-        _checkUsername();
-      }
-    });
-  }
-
-  Widget _buildPasswordField() {
-    return TextField(
-      controller: _passwordController,
-      obscureText: _obscurePassword,
-      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 16),
-      decoration: InputDecoration(
-        labelText: 'Password',
-        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 14),
-        prefixIcon: Icon(Icons.lock_outline, color: Colors.white.withValues(alpha: 0.7), size: 22),
-        suffixIcon: IconButton(
-          icon: Icon(_obscurePassword ? Icons.visibility_off_rounded : Icons.visibility_rounded, color: Colors.white.withValues(alpha: 0.7), size: 22),
-          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-        ),
-        filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.1),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.5), width: 1.5)),
-        errorText: _passwordError,
-        errorStyle: const TextStyle(color: Colors.redAccent, fontSize: 12),
-        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-      ),
-      onChanged: (_) {
-        if (_passwordError != null) setState(() => _passwordError = null);
-      },
-    );
-  }
-
-  Widget _buildConfirmField() {
-    return TextField(
-      controller: _confirmPasswordController,
-      obscureText: _obscureConfirm,
-      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 16),
-      decoration: InputDecoration(
-        labelText: 'Confirm Password',
-        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 14),
-        prefixIcon: Icon(Icons.lock_outline, color: Colors.white.withValues(alpha: 0.7), size: 22),
-        suffixIcon: IconButton(
-          icon: Icon(_obscureConfirm ? Icons.visibility_off_rounded : Icons.visibility_rounded, color: Colors.white.withValues(alpha: 0.7), size: 22),
-          onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
-        ),
-        filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.1),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.5), width: 1.5)),
-        errorText: _confirmError,
-        errorStyle: const TextStyle(color: Colors.redAccent, fontSize: 12),
-        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-      ),
-      onChanged: (_) {
-        if (_confirmError != null) setState(() => _confirmError = null);
-      },
-      onSubmitted: (_) => _handleRegister(),
-    );
-  }
-
-  Widget _buildErrorBanner(String message) {
+  Widget _buildErrorBanner(String message, bool isDark) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.error.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.error.withValues(alpha: 0.3)),
+        color: Theme.of(context).colorScheme.error.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.error.withValues(alpha: 0.3),
+        ),
       ),
       child: Row(
         children: [
-          Icon(Icons.error_outline_rounded, color: Theme.of(context).colorScheme.error, size: 18),
+          Icon(
+            Icons.error_outline_rounded,
+            color: Theme.of(context).colorScheme.error,
+            size: 18,
+          ),
           const SizedBox(width: 10),
-          Expanded(child: Text(message, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600))),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildRegisterButton(Color primary) {
+  Widget _buildStatusBanner(String message, bool isDark) {
+    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
     return Container(
-      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: primary.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 10))],
-      ),
-      child: ElevatedButton(
-        onPressed: _isRegistering ? null : _handleRegister,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: primary,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          elevation: 0,
-        ),
-        child: _isRegistering
-            ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
-            : const Text('Create Account', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, letterSpacing: 0.3)),
-      ),
-    );
-  }
-
-  Widget _buildSignInLink(Color primary) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+        color: primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: primary.withValues(alpha: 0.3)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            'Already have an account?',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.85),
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: primary,
             ),
           ),
-          const SizedBox(width: 4),
-          TextButton(
-            onPressed: () => context.go('/login'),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-            ),
-            child: const Text(
-              'Sign In',
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
               style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 15,
-                color: Colors.white,
+                color: primary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),

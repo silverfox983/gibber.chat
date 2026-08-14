@@ -1,11 +1,13 @@
 import 'dart:async';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../models/chat_models.dart';
+import '../widgets/auth/auth_layout.dart';
+import '../widgets/auth/auth_text_field.dart';
+import '../widgets/auth/auth_button.dart';
 
 class LoginScreen extends StatefulWidget {
   final bool isAddingAccount;
@@ -18,186 +20,206 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _jidController = TextEditingController();
   final TextEditingController _passController = TextEditingController();
+  final FocusNode _passFocusNode = FocusNode();
 
   bool _rememberMe = true;
+  bool _obscurePassword = true;
+  bool _isConnecting = false;
+  String? _errorMessage;
   String? _selectedAccount;
 
   @override
   void dispose() {
     _jidController.dispose();
     _passController.dispose();
+    _passFocusNode.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Container(
-        decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary),
-        child: SafeArea(
-          child: Stack(
-            children: [
-              if (widget.isAddingAccount)
-                Positioned(
-                  top: 16,
-                  left: 16,
-                  child: IconButton(
-                    icon: const Icon(
-                      Icons.arrow_back,
-                      color: Colors.white,
-                      size: 28,
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ),
-              Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 24.0,
-                    horizontal: 24.0,
-                  ),
-                  physics: const ClampingScrollPhysics(),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _buildLogo(),
-                      const SizedBox(height: 48),
-                      _buildModernCard(child: _buildUnifiedForm(authService)),
-                      const SizedBox(height: 32),
-                      _buildLoginButton(authService),
-                      if (authService.isConnecting) ...[
-                        const SizedBox(height: 16),
-                        _buildLoginProgress(authService),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    final form = _buildForm(authService, isDark);
+
+    return AuthLayout(form: form);
   }
 
-  Widget _buildLogo() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: 0.15),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Image.asset(
-            'assets/logo.png',
-            width: 84,
-            height: 84,
-            fit: BoxFit.contain,
-          ),
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          'Gibber',
-          style: TextStyle(
-            fontSize: 42,
-            letterSpacing: -1.5,
-            fontWeight: FontWeight.w900,
-            color: Colors.white,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Secure Communication',
-          style: TextStyle(
-            fontSize: 16,
-            color: Colors.white.withValues(alpha: 0.8),
-            fontWeight: FontWeight.w500,
-            letterSpacing: 0.5,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildUnifiedForm(AuthService authService) {
+  Widget _buildForm(AuthService authService, bool isDark) {
     final savedAccounts = authService.savedAccounts
         .where((a) => a.protocol == 'XMPP')
         .toList();
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        if (savedAccounts.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.only(bottom: 24.0),
-            child: _buildAccountDropdown(savedAccounts),
+        if (widget.isAddingAccount) ...[
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.pop(context),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Add Account',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : const Color(0xFF111827),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 24),
+        ] else ...[
+          Text(
+            'Welcome back',
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+              color: isDark ? Colors.white : const Color(0xFF111827),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Sign in to your Gibber account',
+            style: TextStyle(
+              fontSize: 15,
+              color: isDark ? Colors.white54 : const Color(0xFF6B7280),
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          const SizedBox(height: 32),
         ],
-        _buildTextField(
-          _jidController,
-          'Username',
-          Icons.alternate_email,
+
+        if (savedAccounts.isNotEmpty) ...[
+          _buildAccountDropdown(savedAccounts, isDark),
+          const SizedBox(height: 20),
+          Divider(color: isDark ? Colors.white12 : const Color(0xFFE5E7EB)),
+          const SizedBox(height: 20),
+        ],
+
+        AuthTextField(
+          controller: _jidController,
+          label: 'Username',
+          prefixIcon: Icons.alternate_email_rounded,
+          hint: 'Enter your username',
+          domainSuffix: '@gibberapp.online',
+          keyboardType: TextInputType.emailAddress,
+          onChanged: (_) {
+            if (_errorMessage != null) setState(() => _errorMessage = null);
+          },
+          onSubmitted: () => _passFocusNode.requestFocus(),
+        ),
+        const SizedBox(height: 20),
+
+        AuthTextField(
+          controller: _passController,
+          label: 'Password',
+          prefixIcon: Icons.lock_outline_rounded,
+          hint: 'Enter your password',
+          obscureText: _obscurePassword,
+          isPassword: true,
+          onTogglePassword: () => setState(() => _obscurePassword = !_obscurePassword),
+          focusNode: _passFocusNode,
+          onChanged: (_) {
+            if (_errorMessage != null) setState(() => _errorMessage = null);
+          },
+          onSubmitted: () => _handleLogin(authService),
         ),
         const SizedBox(height: 16),
-        _buildTextField(
-          _passController,
-          'Password',
-          Icons.lock_outline,
-          obscureText: true,
-        ),
-        const SizedBox(height: 16),
+
         Row(
           children: [
             SizedBox(
-              height: 24,
-              width: 24,
+              width: 18,
+              height: 18,
               child: Checkbox(
                 value: _rememberMe,
-                onChanged: (val) => setState(() => _rememberMe = val ?? false),
-                activeColor: Theme.of(context).colorScheme.secondary,
-                checkColor: Theme.of(context).colorScheme.onSecondary,
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.5)),
+                onChanged: (val) => setState(() => _rememberMe = val ?? true),
+                activeColor: Theme.of(context).colorScheme.primary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(4),
                 ),
               ),
             ),
-            const SizedBox(width: 12),
-            Text(
-              'Keep me logged in',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.9),
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => setState(() => _rememberMe = !_rememberMe),
+              child: Text(
+                'Keep me logged in',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark ? Colors.white54 : const Color(0xFF6B7280),
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
           ],
         ),
-        if (authService.lastDiagnostic != null) ...[
-          const SizedBox(height: 24),
-          _buildDiagnostic(authService.lastDiagnostic!),
+
+        if (_errorMessage != null) ...[
+          const SizedBox(height: 16),
+          _buildErrorBanner(_errorMessage!, isDark),
+        ],
+
+        const SizedBox(height: 24),
+        AuthButton(
+          label: 'Sign In',
+          isLoading: _isConnecting,
+          onPressed: () => _handleLogin(authService),
+        ),
+        const SizedBox(height: 24),
+
+        if (!widget.isAddingAccount) ...[
+          Center(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  "Don't have an account? ",
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDark ? Colors.white54 : const Color(0xFF6B7280),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => context.go('/register'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.primary,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text(
+                    'Create Account',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ],
     );
   }
 
-  Widget _buildAccountDropdown(List<SavedAccount> savedAccounts) {
+  Widget _buildAccountDropdown(List<SavedAccount> savedAccounts, bool isDark) {
+    final borderColor = isDark ? Colors.white24 : const Color(0xFFE5E7EB);
+    final surfaceColor = isDark ? const Color(0xFF1E293B) : const Color(0xFFF3F4F6);
+    final textColor = isDark ? Colors.white : const Color(0xFF111827);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
@@ -205,26 +227,23 @@ class _LoginScreenState extends State<LoginScreen> {
           hint: Text(
             'Switch Account',
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.8),
+              color: isDark ? Colors.white54 : const Color(0xFF6B7280),
               fontSize: 14,
               fontWeight: FontWeight.w500,
             ),
           ),
           isExpanded: true,
-          dropdownColor: Theme.of(context).colorScheme.surface,
-          icon: const Icon(
+          dropdownColor: surfaceColor,
+          icon: Icon(
             Icons.keyboard_arrow_down_rounded,
-            color: Colors.white70,
+            color: isDark ? Colors.white54 : const Color(0xFF6B7280),
           ),
           items: [
             DropdownMenuItem<String>(
               value: null,
               child: Text(
                 'Select Account',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: textColor, fontSize: 14),
               ),
             ),
             ...savedAccounts.map<DropdownMenuItem<String>>(
@@ -232,11 +251,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 value: acc.fullJid,
                 child: Text(
                   acc.fullJid,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w500),
                 ),
               ),
             ),
@@ -253,15 +268,13 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ],
           onChanged: (val) {
-            setState(() {
-              _selectedAccount = val;
-            });
+            setState(() => _selectedAccount = val);
             if (val == 'new') {
               _jidController.clear();
               _passController.clear();
             } else if (val != null) {
               final acc = savedAccounts.firstWhere((a) => a.fullJid == val);
-              _jidController.text = acc.fullJid;
+              _jidController.text = acc.user;
             }
           },
         ),
@@ -269,12 +282,12 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildDiagnostic(String message) {
+  Widget _buildErrorBanner(String message, bool isDark) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.error.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(16),
+        color: Theme.of(context).colorScheme.error.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: Theme.of(context).colorScheme.error.withValues(alpha: 0.3),
         ),
@@ -284,202 +297,16 @@ class _LoginScreenState extends State<LoginScreen> {
           Icon(
             Icons.error_outline_rounded,
             color: Theme.of(context).colorScheme.error,
-            size: 20,
+            size: 18,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModernCard({required Widget child}) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(32),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          padding: const EdgeInsets.all(32),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 30,
-                offset: const Offset(0, 15),
-              ),
-            ],
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTextField(
-    TextEditingController controller,
-    String label,
-    IconData icon, {
-    bool obscureText = false,
-  }) {
-    return TextField(
-      controller: controller,
-      obscureText: obscureText,
-      style: const TextStyle(
-        color: Colors.white,
-        fontWeight: FontWeight.w500,
-        fontSize: 16,
-      ),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(
-          color: Colors.white.withValues(alpha: 0.6),
-          fontSize: 14,
-        ),
-        prefixIcon: Icon(
-          icon,
-          color: Colors.white.withValues(alpha: 0.7),
-          size: 22,
-        ),
-        filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.1),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(
-            color: Colors.white.withValues(alpha: 0.5),
-            width: 1.5,
-          ),
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          vertical: 20,
-          horizontal: 16,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLoginButton(AuthService authService) {
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: Theme.of(
-                  context,
-                ).colorScheme.secondary.withValues(alpha: 0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: ElevatedButton(
-            onPressed: authService.isConnecting
-                ? null
-                : () => _handleLogin(authService),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.secondary,
-              foregroundColor: Theme.of(context).colorScheme.onSecondary,
-              padding: const EdgeInsets.symmetric(vertical: 22),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
-              ),
-              elevation: 0,
-            ),
-            child: authService.isConnecting
-                ? const SizedBox(
-                    height: 24,
-                    width: 24,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 3,
-                    ),
-                  )
-                : const Text(
-                    'Sign In',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              "Don't have an account?",
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.7),
-                fontSize: 14,
-              ),
-            ),
-            TextButton(
-              onPressed: () => context.go('/register'),
-              style: TextButton.styleFrom(
-                foregroundColor: Theme.of(context).colorScheme.secondary,
-              ),
-              child: const Text(
-                'Create Account',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLoginProgress(AuthService authService) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Establishing secure session...',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.9),
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.2,
-            ),
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              minHeight: 6,
-              value: authService.isConnecting ? null : 1,
-              backgroundColor: Colors.white.withValues(alpha: 0.2),
-              valueColor: AlwaysStoppedAnimation<Color>(
-                Theme.of(context).colorScheme.secondary,
               ),
             ),
           ),
@@ -492,15 +319,13 @@ class _LoginScreenState extends State<LoginScreen> {
     final input = _jidController.text.trim();
 
     if (input.isEmpty) {
-      _showLoginError('Please enter your username.');
+      setState(() => _errorMessage = 'Please enter your username.');
       return;
     }
 
     final validChars = RegExp(r'^[a-zA-Z0-9._\-@]+$');
     if (!validChars.hasMatch(input)) {
-      _showLoginError(
-        'Username contains invalid characters. Only letters, numbers, dots, hyphens, and underscores are allowed.',
-      );
+      setState(() => _errorMessage = 'Username contains invalid characters. Only letters, numbers, dots, hyphens, and underscores are allowed.');
       return;
     }
 
@@ -517,7 +342,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     if (user.isEmpty) {
-      _showLoginError('Please enter a valid username.');
+      setState(() => _errorMessage = 'Please enter a valid username.');
       return;
     }
 
@@ -526,9 +351,14 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     if (_passController.text.isEmpty) {
-      _showLoginError('Please enter your password.');
+      setState(() => _errorMessage = 'Please enter your password.');
       return;
     }
+
+    setState(() {
+      _isConnecting = true;
+      _errorMessage = null;
+    });
 
     final port = kIsWeb ? 443 : 5222;
 
@@ -560,108 +390,41 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on TimeoutException {
       if (mounted) {
-        _showLoginError(
-          'Connection timed out. The server may be unreachable or your network may be slow. Please try again.',
-        );
+        setState(() {
+          _isConnecting = false;
+          _errorMessage = 'Connection timed out. The server may be unreachable or your network may be slow.';
+        });
       }
     } catch (e) {
       if (mounted) {
         final errorStr = e.toString();
-        final bool isSocketError =
-            errorStr.contains('SocketException') ||
+        String errorMessage;
+
+        if (errorStr.contains('SocketException') ||
             errorStr.contains('Connection refused') ||
             errorStr.contains('Connection timed out') ||
-            errorStr.contains('No route to host');
-        final bool isTlsError =
-            errorStr.contains('HandshakeException') ||
+            errorStr.contains('No route to host')) {
+          errorMessage = 'Could not reach the server. Please check your network connection.';
+        } else if (errorStr.contains('HandshakeException') ||
             errorStr.contains('CERTIFICATE_VERIFY_FAILED') ||
-            errorStr.contains('TLS');
-        final bool isAuthError =
-            errorStr.contains('Authentication failed') ||
+            errorStr.contains('TLS')) {
+          errorMessage = 'Secure connection failed. Server certificate could not be verified.';
+        } else if (errorStr.contains('Authentication failed') ||
             errorStr.contains('not-authorized') ||
-            errorStr.contains('sasl');
-
-        String errorMessage = errorStr.replaceAll('Exception: ', '');
-        String actionHint = '';
-
-        if (isSocketError) {
-          errorMessage =
-              'Could not reach the server. Please check your network connection.';
-          actionHint = ' Check your internet connection and try again.';
-        } else if (isTlsError) {
-          errorMessage =
-              'Secure connection failed. Server certificate could not be verified.';
-          actionHint = ' This may be a server configuration issue.';
-        } else if (isAuthError) {
-          errorMessage =
-              'Authentication failed. Please check your username and password.';
-          actionHint = ' Make sure your credentials are correct.';
-        } else if (errorStr.contains('Null check')) {
-          errorMessage = 'Connection failed unexpectedly.';
+            errorStr.contains('sasl')) {
+          errorMessage = 'Invalid username or password.';
         } else if (errorStr.contains('forcefully closed') ||
             errorStr.contains('Connection closed')) {
-          errorMessage =
-              'The server closed the connection before login completed.';
-          actionHint = ' The server may not support this client. Try a different port.';
+          errorMessage = 'The server closed the connection before login completed.';
+        } else {
+          errorMessage = errorStr.replaceAll('Exception: ', '');
         }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Login failed: $errorMessage$actionHint',
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            duration: const Duration(seconds: 12),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            action: SnackBarAction(
-              label: 'Retry',
-              textColor: Colors.white,
-              onPressed: () => _handleLogin(authService),
-            ),
-          ),
-        );
+        setState(() {
+          _isConnecting = false;
+          _errorMessage = errorMessage;
+        });
       }
     }
-  }
-
-  void _showLoginError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(
-              Icons.warning_amber_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.orange.shade800,
-        duration: const Duration(seconds: 5),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
   }
 }
