@@ -24,7 +24,7 @@ class BindingResourceConnectionNegotiator extends Negotiator {
   @override
   bool isReady() {
     if (!super.isReady()) return false;
-    if (_connection.inlineBound) {
+    if (_connection.resourceBound) {
       state = NegotiatorState.DONE;
       return false;
     }

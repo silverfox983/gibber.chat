@@ -80,6 +80,7 @@ class Connection {
   bool authenticated = false;
 
   bool inlineBound = false;
+  bool resourceBound = false;
 
   final StreamController<AbstractStanza?> _inStanzaStreamController =
       StreamController.broadcast();
@@ -122,6 +123,7 @@ class Connection {
 
   void fullJidRetrieved(Jid jid) {
     account.resource = jid.resource;
+    resourceBound = true;
   }
 
   xmppSocket.XmppWebSocket? _socket;
@@ -250,6 +252,7 @@ class Connection {
       }
       authenticated = false;
       inlineBound = false;
+      resourceBound = false;
     }
   }
 
@@ -399,6 +402,7 @@ class Connection {
         state == XmppConnectionState.ForcefullyClosed) {
       authenticated = false;
       inlineBound = false;
+      resourceBound = false;
     }
   }
 

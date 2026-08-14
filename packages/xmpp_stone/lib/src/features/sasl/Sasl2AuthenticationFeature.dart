@@ -74,6 +74,7 @@ class Sasl2AuthenticationFeature extends Negotiator {
           _connection.setState(XmppConnectionState.Authenticated);
           if (result.bindJid != null) {
             _connection.inlineBound = true;
+            _connection.resourceBound = true;
             _connection.fullJidRetrieved(result.bindJid!);
           }
         } else {

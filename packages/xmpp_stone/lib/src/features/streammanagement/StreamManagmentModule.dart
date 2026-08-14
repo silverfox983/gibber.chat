@@ -130,9 +130,7 @@ class StreamManagementModule extends Negotiator {
   @override
   bool isReady() {
     return super.isReady() &&
-        (isResumeAvailable() ||
-            (_connection.fullJid.resource != null &&
-                _connection.fullJid.resource!.isNotEmpty));
+        (isResumeAvailable() || _connection.resourceBound);
   }
 
   void parseNonza(Nonza nonza) {
