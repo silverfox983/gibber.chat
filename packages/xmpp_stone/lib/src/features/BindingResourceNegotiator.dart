@@ -24,8 +24,7 @@ class BindingResourceConnectionNegotiator extends Negotiator {
   @override
   bool isReady() {
     if (!super.isReady()) return false;
-    if (_connection.fullJid.resource != null &&
-        _connection.fullJid.resource!.isNotEmpty) {
+    if (_connection.inlineBound) {
       state = NegotiatorState.DONE;
       return false;
     }

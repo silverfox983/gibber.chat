@@ -79,6 +79,8 @@ class Connection {
 
   bool authenticated = false;
 
+  bool inlineBound = false;
+
   final StreamController<AbstractStanza?> _inStanzaStreamController =
       StreamController.broadcast();
 
@@ -247,6 +249,7 @@ class Connection {
         }
       }
       authenticated = false;
+      inlineBound = false;
     }
   }
 
@@ -395,6 +398,7 @@ class Connection {
     } else if (state == XmppConnectionState.Closed ||
         state == XmppConnectionState.ForcefullyClosed) {
       authenticated = false;
+      inlineBound = false;
     }
   }
 
