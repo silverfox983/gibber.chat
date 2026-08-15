@@ -96,36 +96,84 @@ class XmppRegistrar {
 
   Future<XmppRegistrationResult> _registerViaInternal(String username, String password, String domain, String jid) async {
     try {
-      final dataDir = Directory('/var/lib/prosody/$domain');
-      if (!dataDir.existsSync()) {
-        dataDir.createSync(recursive: true);
+      final baseDir = '/var/lib/prosody';
+      final domainDir = Directory('$baseDir/$domain');
+      print('XmppRegistrar [internal]: Creating user $jid, domain dir: ${domainDir.path}');
+
+      if (!domainDir.existsSync()) {
+        print('XmppRegistrar [internal]: Creating domain directory ${domainDir.path}');
+        domainDir.createSync(recursive: true);
+        _makeReadable(domainDir);
       }
-      final userFile = File('${dataDir.path}/accounts/$username.dat');
+
+      final accountsDir = Directory('${domainDir.path}/accounts');
+      if (!accountsDir.existsSync()) {
+        print('XmppRegistrar [internal]: Creating accounts directory ${accountsDir.path}');
+        accountsDir.createSync(recursive: true);
+        _makeReadable(accountsDir);
+      }
+
+      final userFile = File('${accountsDir.path}/$username.dat');
       if (userFile.existsSync()) {
+        print('XmppRegistrar [internal]: User $jid already exists at ${userFile.path}');
         return XmppRegistrationResult(
           success: false,
           jid: jid,
           message: 'Username already exists',
         );
       }
-      final accountsDir = Directory('${dataDir.path}/accounts');
-      if (!accountsDir.existsSync()) {
-        accountsDir.createSync(recursive: true);
-      }
+
       final escaped = password.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
-      userFile.writeAsStringSync('return {\n\t["password"] = "$escaped";\n};\n');
+      final content = 'return {\n\t["password"] = "$escaped";\n};\n';
+      print('XmppRegistrar [internal]: Writing user file ${userFile.path}');
+      userFile.writeAsStringSync(content);
+      _makeFileReadable(userFile);
+
+      final verified = userFile.existsSync();
+      final size = verified ? userFile.lengthSync() : 0;
+      print('XmppRegistrar [internal]: User file created: exists=$verified, size=$size bytes');
+
+      if (!verified || size == 0) {
+        print('XmppRegistrar [internal]: WARNING - user file creation failed');
+        return XmppRegistrationResult(
+          success: false,
+          jid: jid,
+          message: 'Failed to create user file on disk',
+        );
+      }
+
+      print('XmppRegistrar [internal]: User $jid registered successfully');
       return XmppRegistrationResult(
         success: true,
         jid: jid,
         message: 'Registration successful',
       );
     } catch (e) {
+      print('XmppRegistrar [internal]: Exception during registration: $e');
       return XmppRegistrationResult(
         success: false,
         jid: jid,
         message: 'Internal registration failed: $e',
       );
     }
+  }
+
+  void _makeReadable(Directory dir) {
+    try {
+      final result = Process.runSync('chmod', ['a+rx', dir.path]);
+      if (result.exitCode != 0) {
+        print('XmppRegistrar [internal]: chmod a+rx failed: ${result.stderr}');
+      }
+    } catch (_) {}
+  }
+
+  void _makeFileReadable(File file) {
+    try {
+      final result = Process.runSync('chmod', ['a+r', file.path]);
+      if (result.exitCode != 0) {
+        print('XmppRegistrar [internal]: chmod a+r failed: ${result.stderr}');
+      }
+    } catch (_) {}
   }
 
   Future<XmppRegistrationResult> _registerViaProsodyCtl(String username, String password, String domain, String jid) async {
@@ -204,7 +252,9 @@ class XmppRegistrar {
 
   Future<bool> _userExistsInternal(String username, String domain) async {
     final userFile = File('/var/lib/prosody/$domain/accounts/$username.dat');
-    return userFile.existsSync();
+    final exists = userFile.existsSync();
+    print('XmppRegistrar [internal]: userExists $username@$domain → ${userFile.path} exists=$exists');
+    return exists;
   }
 
   Future<bool> _userExistsProsodyCtl(String username, String domain) async {
@@ -237,8 +287,10 @@ class XmppRegistrar {
         final userFile = File('/var/lib/prosody/$jidDomain/accounts/$username.dat');
         if (userFile.existsSync()) {
           userFile.deleteSync();
+          print('XmppRegistrar [internal]: Deleted user $username@$jidDomain');
           return true;
         }
+        print('XmppRegistrar [internal]: deleteUser failed - file not found: ${userFile.path}');
         return false;
       case RegistrationMode.prosodyctl:
         try {
@@ -270,8 +322,10 @@ class XmppRegistrar {
         if (userFile.existsSync()) {
           final escaped = newPassword.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
           userFile.writeAsStringSync('return {\n\t["password"] = "$escaped";\n};\n');
+          print('XmppRegistrar [internal]: Password changed for $username@$jidDomain');
           return true;
         }
+        print('XmppRegistrar [internal]: changePassword failed - user file not found: ${userFile.path}');
         return false;
       case RegistrationMode.prosodyctl:
         try {

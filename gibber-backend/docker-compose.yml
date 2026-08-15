@@ -26,16 +26,14 @@ services:
     volumes:
       - ./data:/app/data
       - ./config/prosody.cfg.lua:/app/config/prosody.cfg.lua:ro
-      - /var/run/docker.sock:/var/run/docker.sock
+      - prosody_data:/var/lib/prosody
     environment:
       - GIBBER_DB_PATH=/app/data/gibber_backend.db
       - GIBBER_PROSODY_CONFIG=/app/config/prosody.cfg.lua
       - GIBBER_HOST=0.0.0.0
       - GIBBER_PORT=8080
       - GIBBER_ADMIN_KEY=gibber-admin-key-change-in-production
-      - GIBBER_USE_DOCKER=1
-      - GIBBER_DOCKER_CONTAINER=gibber_xmpp
-      - GIBBER_PROSODYCTL_PATH=prosodyctl
+      - GIBBER_REGISTRATION_MODE=internal
       - GIBBER_PROSODY_URL=http://prosody:5280
     depends_on:
       - prosody
