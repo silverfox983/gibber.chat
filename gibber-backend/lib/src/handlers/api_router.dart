@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:shelf/shelf.dart';
@@ -9,6 +10,10 @@ import 'package:gibber_backend/src/services/entitlement_service.dart';
 import 'package:gibber_backend/src/services/captcha_service.dart';
 import 'package:gibber_backend/src/services/rate_limiter.dart';
 import 'package:gibber_backend/src/services/payment_service.dart';
+import 'package:gibber_backend/src/services/input_validator.dart';
+import 'package:gibber_backend/src/services/health_service.dart';
+import 'package:gibber_backend/src/services/jwt_service.dart';
+import 'package:uuid/uuid.dart';
 
 extension _RequestIp on Request {
   String? get ip {
@@ -31,8 +36,17 @@ class ApiRouter {
   final PaymentService paymentService;
   final String adminApiKey;
   final CaptchaService captchaService;
+  final HealthService healthService;
+  final JwtService? jwtService;
+  final _uuid = const Uuid();
   final RateLimiter _registerLimiter = RateLimiter(maxRequests: 3, window: Duration(hours: 1));
   final RateLimiter _checkLimiter = RateLimiter(maxRequests: 20, window: Duration(minutes: 1));
+  final RateLimiter _minerLimiter = RateLimiter(maxRequests: 30, window: Duration(minutes: 1));
+  final RateLimiter _paymentLimiter = RateLimiter(maxRequests: 10, window: Duration(minutes: 1));
+  final RateLimiter _gatewayLimiter = RateLimiter(maxRequests: 20, window: Duration(minutes: 1));
+  final RateLimiter _entitlementLimiter = RateLimiter(maxRequests: 30, window: Duration(minutes: 1));
+  final RateLimiter _redeemLimiter = RateLimiter(maxRequests: 5, window: Duration(hours: 1));
+  final RateLimiter _authLimiter = RateLimiter(maxRequests: 10, window: Duration(minutes: 1));
 
   ApiRouter({
     required this.db,
@@ -42,7 +56,10 @@ class ApiRouter {
     required this.paymentService,
     this.adminApiKey = 'gibber-admin-key',
     CaptchaService? captchaService,
-  }) : captchaService = captchaService ?? CaptchaService() {
+    JwtService? jwtService,
+  }) : captchaService = captchaService ?? CaptchaService(),
+       jwtService = jwtService,
+       healthService = HealthService(db: db, xmppRegistrar: xmppRegistrar) {
     _setupRoutes();
   }
 
@@ -52,6 +69,8 @@ class ApiRouter {
 
   void _setupRoutes() {
     _router.get('/config', _handleConfig);
+    _router.post('/auth/token', _handleAuthToken);
+    _router.post('/auth/refresh', _handleAuthRefresh);
     _router.post('/register', _handleRegister);
     _router.post('/register/check', _handleCheckUser);
     _router.get('/entitlements/<jid>', _handleGetEntitlement);
@@ -69,6 +88,8 @@ class ApiRouter {
     _router.post('/payments/btcpay/webhook', _handleBtcpayWebhook);
     _router.get('/subscription/<jid>', _handleGetSubscription);
     _router.post('/subscription/<jid>/cancel', _handleCancelSubscription);
+    _router.post('/password/change', _handlePasswordChange);
+    _router.post('/account/delete', _handleAccountDelete);
     _router.post('/codes', _handleGenerateCode);
     _router.get('/codes', _handleListCodes);
     _router.get('/health', _handleHealth);
@@ -89,6 +110,21 @@ class ApiRouter {
       final host = body['host'] as String?;
       final captchaToken = body['captchaToken'] as String?;
 
+      final usernameError = InputValidator.validateUsername(username);
+      if (usernameError != null) {
+        return Response.badRequest(body: jsonEncode({'error': usernameError}), headers: _jsonHeaders);
+      }
+
+      final passwordError = InputValidator.validatePassword(password);
+      if (passwordError != null) {
+        return Response.badRequest(body: jsonEncode({'error': passwordError}), headers: _jsonHeaders);
+      }
+
+      final hostError = InputValidator.validateHost(host);
+      if (hostError != null) {
+        return Response.badRequest(body: jsonEncode({'error': hostError}), headers: _jsonHeaders);
+      }
+
       print('Registration request: username=$username, host=$host, ip=$clientIp, captchaEnabled=${captchaService.enabled}, hasCaptchaToken=${captchaToken != null}');
 
       if (captchaService.enabled && (captchaToken == null || captchaToken.isEmpty)) {
@@ -101,22 +137,8 @@ class ApiRouter {
         return Response(403, body: jsonEncode({'error': 'Captcha verification failed'}), headers: _jsonHeaders);
       }
 
-      if (username == null || password == null) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'username and password are required'}),
-          headers: _jsonHeaders,
-        );
-      }
-
-      if (username.length < 3 || password.length < 8) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'Username must be >= 3 chars, password >= 8 chars'}),
-          headers: _jsonHeaders,
-        );
-      }
-
       print('Calling xmppRegistrar.register(username=$username, host=$host)');
-      final result = await xmppRegistrar.register(username, password, host: host);
+      final result = await xmppRegistrar.register(username!, password!, host: host);
       print('Registration result: success=${result.success}, jid=${result.jid}, message=${result.message}');
 
       if (result.success) {
@@ -151,14 +173,17 @@ class ApiRouter {
       final username = body['username'] as String?;
       final host = body['host'] as String?;
 
-      if (username == null) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'username is required'}),
-          headers: _jsonHeaders,
-        );
+      final usernameError = InputValidator.validateUsername(username);
+      if (usernameError != null) {
+        return Response.badRequest(body: jsonEncode({'error': usernameError}), headers: _jsonHeaders);
       }
 
-      final exists = await xmppRegistrar.userExists(username, host: host);
+      final hostError = InputValidator.validateHost(host);
+      if (hostError != null) {
+        return Response.badRequest(body: jsonEncode({'error': hostError}), headers: _jsonHeaders);
+      }
+
+      final exists = await xmppRegistrar.userExists(username!, host: host);
       return Response.ok(
         jsonEncode({'available': !exists}),
         headers: _jsonHeaders,
@@ -174,6 +199,14 @@ class ApiRouter {
   // Entitlements
   Future<Response> _handleGetEntitlement(Request request, String jid) async {
     try {
+      final clientIp = request.ip ?? 'unknown';
+      if (!_entitlementLimiter.allow(clientIp)) {
+        return Response(429, body: jsonEncode({'error': 'Too many requests'}), headers: _jsonHeaders);
+      }
+      final jidError = InputValidator.validateJid(jid);
+      if (jidError != null) {
+        return Response.badRequest(body: jsonEncode({'error': jidError}), headers: _jsonHeaders);
+      }
       final entitlement = await entitlementService.getEntitlement(jid);
       final hashes = await minerPool.getTotalHashes(jid);
       return Response.ok(
@@ -193,18 +226,26 @@ class ApiRouter {
 
   Future<Response> _handleRedeem(Request request) async {
     try {
+      final clientIp = request.ip ?? 'unknown';
+      if (!_redeemLimiter.allow(clientIp)) {
+        return Response(429, body: jsonEncode({'error': 'Too many redemption attempts'}), headers: _jsonHeaders);
+      }
+
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
       final code = body['code'] as String?;
       final jid = body['jid'] as String?;
 
-      if (code == null || jid == null) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'code and jid are required'}),
-          headers: _jsonHeaders,
-        );
+      final codeError = InputValidator.validateRedemptionCode(code);
+      if (codeError != null) {
+        return Response.badRequest(body: jsonEncode({'error': codeError}), headers: _jsonHeaders);
       }
 
-      final entitlement = await entitlementService.redeemCode(code, jid);
+      final jidError = InputValidator.validateJid(jid);
+      if (jidError != null) {
+        return Response.badRequest(body: jsonEncode({'error': jidError}), headers: _jsonHeaders);
+      }
+
+      final entitlement = await entitlementService.redeemCode(code!, jid!);
       return Response.ok(
         jsonEncode(entitlement.toJson()),
         headers: _jsonHeaders,
@@ -225,18 +266,26 @@ class ApiRouter {
   // Gateway Authorization
   Future<Response> _handleGatewayAuthorize(Request request) async {
     try {
+      final clientIp = request.ip ?? 'unknown';
+      if (!_gatewayLimiter.allow(clientIp)) {
+        return Response(429, body: jsonEncode({'error': 'Too many requests'}), headers: _jsonHeaders);
+      }
+
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
       final jid = body['jid'] as String?;
       final protocol = body['protocol'] as String?;
 
-      if (jid == null || protocol == null) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'jid and protocol are required'}),
-          headers: _jsonHeaders,
-        );
+      final jidError = InputValidator.validateJid(jid);
+      if (jidError != null) {
+        return Response.badRequest(body: jsonEncode({'error': jidError}), headers: _jsonHeaders);
       }
 
-      final authorized = await entitlementService.authorizeGateway(jid, protocol);
+      final protocolError = InputValidator.validateProtocol(protocol);
+      if (protocolError != null) {
+        return Response.badRequest(body: jsonEncode({'error': protocolError}), headers: _jsonHeaders);
+      }
+
+      final authorized = await entitlementService.authorizeGateway(jid!, protocol!);
       if (authorized) {
         return Response.ok(
           jsonEncode({'authorized': true, 'jid': jid, 'protocol': protocol}),
@@ -278,18 +327,26 @@ class ApiRouter {
   // Miner
   Future<Response> _handleMinerRegister(Request request) async {
     try {
+      final clientIp = request.ip ?? 'unknown';
+      if (!_minerLimiter.allow(clientIp)) {
+        return Response(429, body: jsonEncode({'error': 'Too many requests'}), headers: _jsonHeaders);
+      }
+
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
       final jid = body['jid'] as String?;
       final cpuCap = (body['cpuCap'] as num?)?.toDouble() ?? 0.3;
 
-      if (jid == null) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'jid is required'}),
-          headers: _jsonHeaders,
-        );
+      final jidError = InputValidator.validateJid(jid);
+      if (jidError != null) {
+        return Response.badRequest(body: jsonEncode({'error': jidError}), headers: _jsonHeaders);
       }
 
-      final session = await minerPool.register(jid, cpuCap: cpuCap);
+      final cpuError = InputValidator.validateCpuCap(cpuCap);
+      if (cpuError != null) {
+        return Response.badRequest(body: jsonEncode({'error': cpuError}), headers: _jsonHeaders);
+      }
+
+      final session = await minerPool.register(jid!, cpuCap: cpuCap);
       return Response.ok(
         jsonEncode({
           'sessionToken': session.sessionToken,
@@ -445,15 +502,259 @@ class ApiRouter {
   }
 
   Future<Response> _handleHealth(Request request) async {
-    return Response.ok(
-      jsonEncode({
-        'status': 'healthy',
-        'domain': xmppRegistrar.domain,
-        'timestamp': DateTime.now().toIso8601String(),
-      }),
-      headers: _jsonHeaders,
-    );
+    try {
+      final health = await healthService.checkHealth();
+      final statusCode = health['status'] == 'healthy' ? 200 : 503;
+      return Response(statusCode, body: jsonEncode(health), headers: _jsonHeaders);
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'status': 'unhealthy', 'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
   }
+
+  // JWT Auth
+  Future<Response> _handleAuthToken(Request request) async {
+    if (jwtService == null) {
+      return Response(503, body: jsonEncode({'error': 'JWT auth not configured'}), headers: _jsonHeaders);
+    }
+
+    final clientIp = request.ip ?? 'unknown';
+    if (!_authLimiter.allow(clientIp)) {
+      return Response(429, body: jsonEncode({'error': 'Too many auth attempts'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final username = body['username'] as String?;
+      final password = body['password'] as String?;
+      final host = body['host'] as String?;
+
+      final usernameError = InputValidator.validateUsername(username);
+      if (usernameError != null) {
+        return Response.badRequest(body: jsonEncode({'error': usernameError}), headers: _jsonHeaders);
+      }
+      if (password == null || password.isEmpty) {
+        return Response.badRequest(body: jsonEncode({'error': 'Password is required'}), headers: _jsonHeaders);
+      }
+
+      final domain = host ?? xmppRegistrar.domain;
+      final jid = '$username@$domain';
+
+      final verified = await _verifyXmppCredentials(username!, password, domain);
+      if (!verified) {
+        return Response(401, body: jsonEncode({'error': 'Invalid credentials'}), headers: _jsonHeaders);
+      }
+
+      final entitlement = await entitlementService.getEntitlement(jid);
+      final accessToken = jwtService!.generateToken(jid, tier: entitlement.tier);
+      final refreshToken = jwtService!.generateRefreshToken(jid);
+
+      _ensureUser(jid);
+
+      return Response.ok(
+        jsonEncode({
+          'accessToken': accessToken,
+          'refreshToken': refreshToken,
+          'jid': jid,
+          'tier': entitlement.tier,
+        }),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleAuthRefresh(Request request) async {
+    if (jwtService == null) {
+      return Response(503, body: jsonEncode({'error': 'JWT auth not configured'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final refreshToken = body['refreshToken'] as String?;
+
+      if (refreshToken == null || refreshToken.isEmpty) {
+        return Response.badRequest(body: jsonEncode({'error': 'Refresh token is required'}), headers: _jsonHeaders);
+      }
+
+      final payload = jwtService!.verifyRefreshToken(refreshToken);
+      if (payload == null) {
+        return Response(401, body: jsonEncode({'error': 'Invalid or expired refresh token'}), headers: _jsonHeaders);
+      }
+
+      final entitlement = await entitlementService.getEntitlement(payload.jid);
+      final newAccessToken = jwtService!.generateToken(payload.jid, tier: entitlement.tier);
+
+      return Response.ok(
+        jsonEncode({
+          'accessToken': newAccessToken,
+          'jid': payload.jid,
+          'tier': entitlement.tier,
+        }),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<bool> _verifyXmppCredentials(String username, String password, String domain) async {
+    final prosodyUri = Uri.parse(xmppRegistrar.prosodyHttpUrl);
+    final wsScheme = prosodyUri.scheme == 'https' ? 'wss' : 'ws';
+    final wsPort = prosodyUri.port > 0 ? prosodyUri.port : (prosodyUri.scheme == 'https' ? 5281 : 5280);
+    final wsUrl = '$wsScheme://${prosodyUri.host}:$wsPort/xmpp-websocket';
+
+    try {
+      final socket = await WebSocket.connect(wsUrl, headers: {'Host': domain}, protocols: ['xmpp']);
+      final completer = Completer<bool>();
+      bool authSent = false;
+
+      socket.listen((data) {
+        if (data is! String) return;
+        final msg = data.trim();
+        if (msg.isEmpty) return;
+
+        if (msg.contains('<stream:features') || msg.contains('<features')) {
+          if (msg.contains('<mechanisms') && !authSent) {
+            final creds = base64Encode(utf8.encode('\x00$username\x00$password'));
+            final authStanza = "<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>$creds</auth>";
+            socket.add(authStanza);
+            authSent = true;
+          }
+        } else if (msg.contains('<success')) {
+          if (!completer.isCompleted) completer.complete(true);
+        } else if (msg.contains('<failure')) {
+          if (!completer.isCompleted) completer.complete(false);
+        }
+      }, onDone: () {
+        if (!completer.isCompleted) completer.complete(false);
+      }, onError: (e) {
+        if (!completer.isCompleted) completer.complete(false);
+      });
+
+      socket.add("<open xmlns='urn:ietf:params:xml:ns:xmpp-framing' to='$domain' version='1.0'/>");
+
+      final result = await completer.future.timeout(const Duration(seconds: 10), onTimeout: () => false);
+      try { socket.add("<close xmlns='urn:ietf:params:xml:ns:xmpp-framing'/>"); } catch (_) {}
+      await socket.close();
+      return result;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<Response> _handlePasswordChange(Request request) async {
+    final authHeader = request.headers['authorization'];
+    if (jwtService != null && authHeader != null && authHeader.startsWith('Bearer ')) {
+      final token = authHeader.substring(7);
+      final payload = jwtService!.verifyToken(token);
+      if (payload == null) {
+        return Response(401, body: jsonEncode({'error': 'Invalid or expired token'}), headers: _jsonHeaders);
+      }
+    } else if (!_verifyAdminKey(request)) {
+      return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final username = body['username'] as String?;
+      final newPassword = body['newPassword'] as String?;
+      final host = body['host'] as String?;
+
+      final usernameError = InputValidator.validateUsername(username);
+      if (usernameError != null) {
+        return Response.badRequest(body: jsonEncode({'error': usernameError}), headers: _jsonHeaders);
+      }
+
+      final passwordError = InputValidator.validatePassword(newPassword);
+      if (passwordError != null) {
+        return Response.badRequest(body: jsonEncode({'error': passwordError}), headers: _jsonHeaders);
+      }
+
+      final success = await xmppRegistrar.changePassword(username!, newPassword!, host: host);
+      if (success) {
+        return Response.ok(
+          jsonEncode({'message': 'Password changed successfully'}),
+          headers: _jsonHeaders,
+        );
+      } else {
+        return Response(500, body: jsonEncode({'error': 'Failed to change password. Try again later or contact support.'}), headers: _jsonHeaders);
+      }
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  void _ensureUser(String jid) {
+    final existing = db.db.select('SELECT id FROM users WHERE jid = ?', [jid]);
+    if (existing.isEmpty) {
+      db.db.execute('INSERT INTO users (id, jid) VALUES (?, ?)', [_uuid.v4(), jid]);
+    }
+  }
+
+  Future<Response> _handleAccountDelete(Request request) async {
+    final authHeader = request.headers['authorization'];
+    String? jid;
+    if (jwtService != null && authHeader != null && authHeader.startsWith('Bearer ')) {
+      final token = authHeader.substring(7);
+      final payload = jwtService!.verifyToken(token);
+      if (payload == null) {
+        return Response(401, body: jsonEncode({'error': 'Invalid or expired token'}), headers: _jsonHeaders);
+      }
+      jid = payload.jid;
+    } else if (!_verifyAdminKey(request)) {
+      return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final username = (body['username'] as String?) ?? (jid != null ? jid.split('@').first : null);
+      final host = body['host'] as String?;
+
+      final usernameError = InputValidator.validateUsername(username);
+      if (usernameError != null) {
+        return Response.badRequest(body: jsonEncode({'error': usernameError}), headers: _jsonHeaders);
+      }
+
+      final domain = host ?? xmppRegistrar.domain;
+      final userJid = '$username@$domain';
+
+      final deleted = await xmppRegistrar.deleteUser(username!, host: host);
+      if (deleted) {
+        db.db.execute('DELETE FROM users WHERE jid = ?', [userJid]);
+        db.db.execute('DELETE FROM entitlements WHERE jid = ?', [userJid]);
+        db.db.execute('DELETE FROM miner_sessions WHERE jid = ?', [userJid]);
+        db.db.execute('DELETE FROM payments WHERE jid = ?', [userJid]);
+        db.db.execute('DELETE FROM subscriptions WHERE jid = ?', [userJid]);
+        db.db.execute('DELETE FROM gateway_authorizations WHERE jid = ?', [userJid]);
+        return Response.ok(
+          jsonEncode({'message': 'Account deleted successfully', 'jid': userJid}),
+          headers: _jsonHeaders,
+        );
+      } else {
+        return Response(500, body: jsonEncode({'error': 'Failed to delete account. User may not exist or server does not support deletion.'}), headers: _jsonHeaders);
+      }
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  static const _jsonHeaders = {'Content-Type': 'application/json'};
 
   Future<Response> _handlePricing(Request request) async {
     try {
@@ -472,22 +773,30 @@ class ApiRouter {
 
   Future<Response> _handleStripeCheckout(Request request) async {
     try {
+      final clientIp = request.ip ?? 'unknown';
+      if (!_paymentLimiter.allow(clientIp)) {
+        return Response(429, body: jsonEncode({'error': 'Too many requests'}), headers: _jsonHeaders);
+      }
+
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
       final jid = body['jid'] as String?;
       final tier = body['tier'] as String?;
 
-      if (jid == null || tier == null) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'jid and tier are required'}),
-          headers: _jsonHeaders,
-        );
+      final jidError = InputValidator.validateJid(jid);
+      if (jidError != null) {
+        return Response.badRequest(body: jsonEncode({'error': jidError}), headers: _jsonHeaders);
+      }
+
+      final tierError = InputValidator.validateTier(tier);
+      if (tierError != null) {
+        return Response.badRequest(body: jsonEncode({'error': tierError}), headers: _jsonHeaders);
       }
 
       if (!paymentService.stripeEnabled) {
         return Response(503, body: jsonEncode({'error': 'Stripe is not configured'}), headers: _jsonHeaders);
       }
 
-      final session = await paymentService.createStripeCheckoutSession(jid, tier);
+      final session = await paymentService.createStripeCheckoutSession(jid!, tier!);
       return Response.ok(
         jsonEncode(session),
         headers: _jsonHeaders,
@@ -502,22 +811,30 @@ class ApiRouter {
 
   Future<Response> _handleBtcpayInvoice(Request request) async {
     try {
+      final clientIp = request.ip ?? 'unknown';
+      if (!_paymentLimiter.allow(clientIp)) {
+        return Response(429, body: jsonEncode({'error': 'Too many requests'}), headers: _jsonHeaders);
+      }
+
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
       final jid = body['jid'] as String?;
       final tier = body['tier'] as String?;
 
-      if (jid == null || tier == null) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'jid and tier are required'}),
-          headers: _jsonHeaders,
-        );
+      final jidError = InputValidator.validateJid(jid);
+      if (jidError != null) {
+        return Response.badRequest(body: jsonEncode({'error': jidError}), headers: _jsonHeaders);
+      }
+
+      final tierError = InputValidator.validateTier(tier);
+      if (tierError != null) {
+        return Response.badRequest(body: jsonEncode({'error': tierError}), headers: _jsonHeaders);
       }
 
       if (!paymentService.btcpayEnabled) {
         return Response(503, body: jsonEncode({'error': 'BTCPay Server is not configured'}), headers: _jsonHeaders);
       }
 
-      final invoice = await paymentService.createBtcpayInvoice(jid, tier);
+      final invoice = await paymentService.createBtcpayInvoice(jid!, tier!);
       return Response.ok(
         jsonEncode(invoice),
         headers: _jsonHeaders,
@@ -533,6 +850,11 @@ class ApiRouter {
   Future<Response> _handleStripeWebhook(Request request) async {
     try {
       final body = await request.readAsString();
+      final signatureHeader = request.headers['stripe-signature'];
+      if (!paymentService.verifyStripeWebhookSignature(body, signatureHeader)) {
+        print('Stripe webhook: Invalid signature');
+        return Response(401, body: jsonEncode({'error': 'Invalid webhook signature'}), headers: _jsonHeaders);
+      }
       final event = jsonDecode(body) as Map<String, dynamic>;
       await paymentService.handleStripeWebhook(event);
       return Response.ok(
@@ -550,6 +872,11 @@ class ApiRouter {
   Future<Response> _handleBtcpayWebhook(Request request) async {
     try {
       final body = await request.readAsString();
+      final signatureHeader = request.headers['btcpay-sig'];
+      if (!paymentService.verifyBtcpayWebhookSignature(body, signatureHeader)) {
+        print('BTCPay webhook: Invalid signature');
+        return Response(401, body: jsonEncode({'error': 'Invalid webhook signature'}), headers: _jsonHeaders);
+      }
       final event = jsonDecode(body) as Map<String, dynamic>;
       await paymentService.handleBtcpayWebhook(event);
       return Response.ok(
@@ -622,6 +949,4 @@ class ApiRouter {
       );
     }
   }
-
-  static const _jsonHeaders = {'Content-Type': 'application/json'};
 }

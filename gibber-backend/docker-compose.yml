@@ -35,13 +35,35 @@ services:
       - GIBBER_ADMIN_KEY=gibber-admin-key-change-in-production
       - GIBBER_REGISTRATION_MODE=xmpp
       - GIBBER_PROSODY_URL=http://prosody:5280
+      - GIBBER_ENABLE_SASL2=1
+      - GIBBER_JWT_SECRET=change-me-in-production-use-a-strong-random-string
     depends_on:
       - prosody
     networks:
       - gibber_net
 
+  caddy:
+    image: caddy:2-alpine
+    container_name: gibber_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - ../build/web:/srv/gibber-web:ro
+    depends_on:
+      - gibber-backend
+    networks:
+      - gibber_net
+
 volumes:
   prosody_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   gibber_net:

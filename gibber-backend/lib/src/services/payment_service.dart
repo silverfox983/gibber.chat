@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:uuid/uuid.dart';
 import 'package:gibber_backend/src/services/database_service.dart';
 import 'package:gibber_backend/src/models/subscription.dart';
@@ -36,6 +37,44 @@ class PaymentService {
 
   bool get stripeEnabled => stripeSecretKey.isNotEmpty;
   bool get btcpayEnabled => btcpayApiKey.isNotEmpty && btcpayStoreId.isNotEmpty;
+
+  bool verifyStripeWebhookSignature(String payload, String? signatureHeader) {
+    if (stripeWebhookSecret.isEmpty) {
+      print('PaymentService: WARNING - Stripe webhook secret not configured, skipping signature verification');
+      return true;
+    }
+    if (signatureHeader == null || signatureHeader.isEmpty) return false;
+
+    final parts = <String, String>{};
+    for (final part in signatureHeader.split(',')) {
+      final eqIndex = part.indexOf('=');
+      if (eqIndex > 0) {
+        parts[part.substring(0, eqIndex).trim()] = part.substring(eqIndex + 1).trim();
+      }
+    }
+
+    final timestamp = parts['t'];
+    final v1 = parts['v1'];
+    if (timestamp == null || v1 == null) return false;
+
+    final timestampAge = DateTime.now().millisecondsSinceEpoch ~/ 1000 - int.tryParse(timestamp)!;
+    if (timestampAge.abs() > 300) return false;
+
+    final signedPayload = '$timestamp.$payload';
+    final expectedSig = Hmac(sha256, utf8.encode(stripeWebhookSecret))
+        .convert(utf8.encode(signedPayload))
+        .toString();
+
+    return expectedSig == v1;
+  }
+
+  bool verifyBtcpayWebhookSignature(String payload, String? signatureHeader) {
+    if (btcpayApiKey.isEmpty) return true;
+    if (signatureHeader == null || signatureHeader.isEmpty) return false;
+
+    final expectedSig = sha256.convert(utf8.encode(btcpayApiKey)).toString();
+    return signatureHeader == expectedSig;
+  }
 
   Future<Map<String, dynamic>> getPricing() async {
     return {

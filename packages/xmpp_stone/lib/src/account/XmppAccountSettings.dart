@@ -10,7 +10,7 @@ class XmppAccountSettings {
   int port;
   String? wsPath;
   List<String>? wsProtocols;
-  int totalReconnections = 3;
+  int totalReconnections = 30;
   int reconnectionTimeout = 1000;
   bool ackEnabled = true;
   bool smResumable = true;

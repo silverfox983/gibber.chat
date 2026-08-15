@@ -1,0 +1,105 @@
+gibberapp.online {
+    # API backend
+    reverse_proxy /api/* gibber-backend:8080 {
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+    }
+
+    # Auth endpoints
+    reverse_proxy /auth/* gibber-backend:8080 {
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+    }
+
+    # Health check
+    reverse_proxy /health gibber-backend:8080
+
+    # Config endpoint
+    reverse_proxy /config gibber-backend:8080
+
+    # Registration endpoints
+    reverse_proxy /register gibber-backend:8080
+    reverse_proxy /register/check gibber-backend:8080
+
+    # XMPP WebSocket (primary path through Caddy for TLS)
+    reverse_proxy /xmpp-websocket gibber-backend:8080 {
+        # WebSocket support
+        header_up Connection {>Connection}
+        header_up Upgrade {>Upgrade}
+    }
+
+    # XMPP BOSH fallback
+    reverse_proxy /http-bind gibber-backend:8080
+
+    # Miner endpoints
+    reverse_proxy /miner/* gibber-backend:8080
+
+    # Payment endpoints
+    reverse_proxy /payments/* gibber-backend:8080
+
+    # Subscription endpoints
+    reverse_proxy /subscription/* gibber-backend:8080
+
+    # Gateway endpoints
+    reverse_proxy /gateways/* gibber-backend:8080
+
+    # Entitlement endpoints
+    reverse_proxy /entitlements/* gibber-backend:8080
+
+    # Redeem endpoints
+    reverse_proxy /redeem gibber-backend:8080
+
+    # Pricing endpoint
+    reverse_proxy /pricing gibber-backend:8080
+
+    # Admin code endpoints
+    reverse_proxy /codes gibber-backend:8080
+
+    # Password change endpoint
+    reverse_proxy /password/* gibber-backend:8080
+
+    # Account deletion endpoint
+    reverse_proxy /account/* gibber-backend:8080
+
+    # Static web frontend (Flutter web build)
+    root * /srv/gibber-web
+    try_files {path} /index.html
+    file_server
+
+    # Security headers
+    header {
+        # HSTS - 1 year with preload
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Prevent clickjacking
+        X-Frame-Options "DENY"
+        # XSS protection
+        X-Content-Type-Options "nosniff"
+        # XSS protection (legacy)
+        X-XSS-Protection "1; mode=block"
+        # Referrer policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # CSP - allow XMPP WebSocket connections
+        Content-Security-Policy "default-src 'self'; connect-src 'self' wss://gibberapp.online ws://gibberapp.online:5280 https://gibberapp.online; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'none';"
+        # Permissions policy
+        Permissions-Policy "camera=(self), microphone=(self), geolocation=()"
+    }
+
+    # Compression
+    encode gzip zstd
+
+    # Logging
+    log {
+        output stdout
+        format json
+    }
+}
+
+# Redirect www to apex
+www.gibberapp.online {
+    redir https://gibberapp.online{uri} permanent
+}
+
+# Direct Prosody ports (for native XMPP clients that need raw TCP)
+# These are NOT proxied through Caddy - Prosody handles its own TLS
+# Port 5222: XMPP client-to-server (STARTTLS)
+# Port 5269: XMPP server-to-server (STARTTLS)

@@ -12,17 +12,11 @@ consider_websocket_secure = true
 
 -- Allow in-band registration (so Gibber client can create accounts)
 allow_registration = true
-registration_throttle_max = 3
+registration_throttle_max = 10
 registration_throttle_period = 60
 
 -- Storage backend
 storage = "internal"
-
--- Authentication provider: store passwords in plaintext so our backend
--- can write .dat files directly (internal_hashed requires SCRAM hashes
--- which we can't compute in Dart). Prosody still supports SCRAM-SHA-1
--- auth with internal_plain by computing hashes on-the-fly.
-authentication = "internal_plain"
 
 -- Self-signed cert for development
 ssl = {

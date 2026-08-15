@@ -15,6 +15,7 @@ import 'package:gibber_backend/src/services/miner_pool_service.dart';
 import 'package:gibber_backend/src/services/entitlement_service.dart';
 import 'package:gibber_backend/src/services/captcha_service.dart';
 import 'package:gibber_backend/src/services/payment_service.dart';
+import 'package:gibber_backend/src/services/jwt_service.dart';
 
 Future<shelf.Response> _proxyToProsody(shelf.Request request, String prosodyUrl, String domain) async {
   final client = HttpClient();
@@ -80,7 +81,7 @@ Future<shelf.Response> _proxyToProsody(shelf.Request request, String prosodyUrl,
   }
 }
 
-void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String domain) {
+void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String domain, {bool enableSasl2 = true}) {
   final prosodyUri = Uri.parse(prosodyUrl);
   final wsScheme = prosodyUri.scheme == 'https' ? 'wss' : 'ws';
   final wsPort = prosodyUri.port;
@@ -116,21 +117,23 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
             content = content.replaceAll(RegExp(r'<starttls[^>]*>.*?</starttls>', dotAll: true), '');
             content = content.replaceAll(RegExp(r'<starttls[^>]*/>'), '');
 
-            // 2. Strip SASL2 <authentication> block (SASL2 support in progress;
-            //    fall back to SASL1 <mechanisms> for now)
-            if (content.contains(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"]', dotAll: true))) {
-              final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
-                  .allMatches(content)
-                  .map((m) => m.group(1)!)
-                  .toSet();
+            // 2. SASL2 <authentication> block handling
+            if (!enableSasl2) {
+              // Strip SASL2 and fall back to SASL1 <mechanisms>
+              if (content.contains(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"]', dotAll: true))) {
+                final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
+                    .allMatches(content)
+                    .map((m) => m.group(1)!)
+                    .toSet();
 
-              content = content.replaceAll(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"][^>]*>.*?</authentication>', dotAll: true), '');
+                content = content.replaceAll(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"][^>]*>.*?</authentication>', dotAll: true), '');
 
-              if (!content.contains('<mechanisms')) {
-                final mechs = sasl2Mechs.toList()..add('PLAIN');
-                final mechsXml = mechs.map((m) => '<mechanism>$m</mechanism>').join('');
-                final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>$mechsXml</mechanisms>";
-                content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
+                if (!content.contains('<mechanisms')) {
+                  final mechs = sasl2Mechs.toList()..add('PLAIN');
+                  final mechsXml = mechs.map((m) => '<mechanism>$m</mechanism>').join('');
+                  final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>$mechsXml</mechanisms>";
+                  content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
+                }
               }
             }
 
@@ -243,6 +246,8 @@ void main(List<String> args) async {
     ..addOption('btcpay-url', defaultsTo: Platform.environment['BTCPAY_URL'] ?? '')
     ..addOption('btcpay-api-key', defaultsTo: Platform.environment['BTCPAY_API_KEY'] ?? '')
     ..addOption('btcpay-store-id', defaultsTo: Platform.environment['BTCPAY_STORE_ID'] ?? '')
+    ..addFlag('enable-sasl2', defaultsTo: Platform.environment['GIBBER_ENABLE_SASL2'] != '0', help: 'Enable SASL2 pass-through (default: true). Disable to strip SASL2 and fall back to SASL1.')
+    ..addOption('jwt-secret', defaultsTo: Platform.environment['GIBBER_JWT_SECRET'] ?? '', help: 'Secret key for JWT token generation. If not set, auth/token endpoint returns 503.')
     ..addFlag('reset-db', abbr: 'r', defaultsTo: false);
 
   final result = parser.parse(args);
@@ -265,9 +270,18 @@ void main(List<String> args) async {
   final resetDb = result['reset-db'] as bool;
   final webDir = result['web-dir'] as String;
   final prosodyUrl = result['prosody-url'] as String;
+  final enableSasl2 = result['enable-sasl2'] as bool;
+  final jwtSecret = result['jwt-secret'] as String;
 
   final db = DatabaseService(dbPath);
   await db.initialize(reset: resetDb);
+
+  if (adminKey == 'gibber-admin-key' || adminKey == 'gibber-admin-key-change-in-production') {
+    print('WARNING: Using default admin key. Set GIBBER_ADMIN_KEY env var to a secure value for production!');
+  }
+  if (stripeSecret.isNotEmpty && stripeWebhookSecret.isEmpty) {
+    print('WARNING: Stripe is configured but STRIPE_WEBHOOK_SECRET is not set. Webhook signatures will not be verified!');
+  }
 
   final modeStr = result['mode'] as String;
   final mode = modeStr == 'http' ? RegistrationMode.http
@@ -333,6 +347,14 @@ void main(List<String> args) async {
     btcpayStoreId: btcpayStoreId,
   );
 
+  JwtService? jwtService;
+  if (jwtSecret.isNotEmpty) {
+    jwtService = JwtService(secret: jwtSecret);
+    print('JWT auth enabled (secret length: ${jwtSecret.length})');
+  } else {
+    print('JWT auth disabled (set GIBBER_JWT_SECRET or --jwt-secret to enable /auth/token and /auth/refresh)');
+  }
+
   final apiRouter = ApiRouter(
     db: db,
     xmppRegistrar: xmppRegistrar,
@@ -341,6 +363,7 @@ void main(List<String> args) async {
     paymentService: paymentSvc,
     adminApiKey: adminKey,
     captchaService: captchaSvc,
+    jwtService: jwtService,
   );
 
   final corsMiddleware = corsHeaders(headers: {
@@ -351,7 +374,7 @@ void main(List<String> args) async {
 
   final xmppWsHandler = webSocketHandler(
     (webSocket, _) {
-      _handleXmppWebSocket(webSocket, prosodyUrl, xmppRegistrar.domain);
+      _handleXmppWebSocket(webSocket, prosodyUrl, xmppRegistrar.domain, enableSasl2: enableSasl2);
     },
     protocols: ['xmpp'],
   );
@@ -449,4 +472,8 @@ void main(List<String> args) async {
   if (webDir.isNotEmpty) {
     print('  Web dir: $webDir');
   }
+
+  Timer.periodic(const Duration(minutes: 5), (_) {
+    minerPool.deactivateStaleSessions();
+  });
 }

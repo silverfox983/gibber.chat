@@ -18,6 +18,7 @@ dependencies:
   shelf_static: ^1.1.0
   shelf_web_socket: ^3.0.0
   web_socket_channel: ^3.0.3
+  crypto: ^3.0.5
 
 dev_dependencies:
   test: ^1.30.0

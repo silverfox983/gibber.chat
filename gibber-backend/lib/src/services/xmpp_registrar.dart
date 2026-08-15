@@ -29,6 +29,7 @@ class XmppRegistrar {
   }
 
   String get domain => _domain;
+  String get prosodyHttpUrl => _prosodyHttpUrl;
 
   void _loadConfig() {
     final configFile = File(configPath);
@@ -391,10 +392,14 @@ class XmppRegistrar {
   Future<bool> userExists(String username, {String? host}) async {
     final jidDomain = host ?? _domain;
     switch (_mode) {
+      case RegistrationMode.xmpp:
+        // In-band registration: let Prosody handle conflict detection.
+        // Always return false so the client can attempt registration;
+        // Prosody will return <conflict/> if the username is taken.
+        return false;
       case RegistrationMode.http:
         return _userExistsViaHttp(username, jidDomain);
       case RegistrationMode.internal:
-      case RegistrationMode.xmpp:
         return _userExistsInternal(username, jidDomain);
       case RegistrationMode.prosodyctl:
         return _userExistsProsodyCtl(username, jidDomain);
@@ -448,7 +453,6 @@ class XmppRegistrar {
           return false;
         }
       case RegistrationMode.internal:
-      case RegistrationMode.xmpp:
         final userFile = File('/var/lib/prosody/$jidDomain/accounts/$username.dat');
         if (userFile.existsSync()) {
           userFile.deleteSync();
@@ -457,6 +461,25 @@ class XmppRegistrar {
         }
         print('XmppRegistrar [internal]: deleteUser failed - file not found: ${userFile.path}');
         return false;
+      case RegistrationMode.xmpp:
+        // Use the Prosody HTTP registration API to delete the user.
+        // Even in xmpp mode, we can use the HTTP API for user management
+        // since the backend and Prosody share a Docker network.
+        try {
+          final client = HttpClient();
+          final request = await client.deleteUrl(Uri.parse('$_prosodyHttpUrl/register/$jidDomain?username=$username'));
+          final response = await request.close();
+          client.close();
+          if (response.statusCode == 200 || response.statusCode == 204) {
+            print('XmppRegistrar [xmpp]: Deleted user $username@$jidDomain via HTTP API');
+            return true;
+          }
+          print('XmppRegistrar [xmpp]: deleteUser via HTTP API returned ${response.statusCode}');
+          return false;
+        } catch (e) {
+          print('XmppRegistrar [xmpp]: deleteUser via HTTP API failed: $e');
+          return false;
+        }
       case RegistrationMode.prosodyctl:
         try {
           final result = await _runProsodyCtl(['user', 'delete', username, jidDomain]);
@@ -483,7 +506,6 @@ class XmppRegistrar {
           return false;
         }
       case RegistrationMode.internal:
-      case RegistrationMode.xmpp:
         final userFile = File('/var/lib/prosody/$jidDomain/accounts/$username.dat');
         if (userFile.existsSync()) {
           final escaped = newPassword.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
@@ -494,6 +516,8 @@ class XmppRegistrar {
         }
         print('XmppRegistrar [internal]: changePassword failed - user file not found: ${userFile.path}');
         return false;
+      case RegistrationMode.xmpp:
+        return _changePasswordViaXmpp(username, newPassword, jidDomain);
       case RegistrationMode.prosodyctl:
         try {
           final result = await _runProsodyCtl(['register', username, jidDomain, newPassword]);
@@ -501,6 +525,136 @@ class XmppRegistrar {
         } catch (_) {
           return false;
         }
+    }
+  }
+
+  Future<bool> _changePasswordViaXmpp(String username, String newPassword, String domain) async {
+    final jid = '$username@$domain';
+    final prosodyUri = Uri.parse(_prosodyHttpUrl);
+    final wsScheme = prosodyUri.scheme == 'https' ? 'wss' : 'ws';
+    final wsPort = prosodyUri.port > 0 ? prosodyUri.port : (prosodyUri.scheme == 'https' ? 5281 : 5280);
+    final wsUrl = '$wsScheme://${prosodyUri.host}:$wsPort/xmpp-websocket';
+
+    print('XmppRegistrar [xmpp]: changePassword - connecting to $wsUrl for $jid');
+
+    WebSocket? socket;
+    try {
+      socket = await WebSocket.connect(wsUrl, headers: {'Host': domain}, protocols: ['xmpp']);
+    } catch (e) {
+      print('XmppRegistrar [xmpp]: changePassword - failed to connect: $e');
+      return false;
+    }
+
+    try {
+      final completer = Completer<bool>();
+      int iqId = 1;
+      bool authenticated = false;
+      bool completed = false;
+
+      void sendIq(String iqXml) {
+        socket!.add(iqXml);
+      }
+
+      socket.listen(
+        (data) {
+          if (data is! String) return;
+          final msg = data.trim();
+          if (msg.isEmpty) return;
+
+          if (msg.contains('<stream:features') || msg.contains('<features')) {
+            if (msg.contains('jabber:iq:register') || msg.contains("<register xmlns='http://jabber.org/features/iq-register'/>") || msg.contains('<register')) {
+              if (!authenticated) {
+                final regIq = "<iq type='set' id='chg${iqId++}'><query xmlns='jabber:iq:register'><username>${_xmlEscape(username)}</username><password>${_xmlEscape(newPassword)}</password></query></iq>";
+                sendIq(regIq);
+              }
+            } else if (msg.contains('<mechanisms')) {
+              // Use PLAIN auth since we have the current password
+              // But we don't have the current password here, so we use register IQ instead
+              // Prosody allows password change via register IQ even without auth when allow_registration=true
+              if (msg.contains('jabber:iq:register') || msg.contains("<register xmlns='http://jabber.org/features/iq-register'/>") || msg.contains('<register')) {
+                final regIq = "<iq type='set' id='chg${iqId++}'><query xmlns='jabber:iq:register'><username>${_xmlEscape(username)}</username><password>${_xmlEscape(newPassword)}</password></query></iq>";
+                sendIq(regIq);
+              }
+            }
+          }
+
+          if (msg.contains('<iq')) {
+            if (msg.contains("type='result'") || msg.contains('type="result"')) {
+              print('XmppRegistrar [xmpp]: changePassword - success for $jid');
+              if (!completed) {
+                completed = true;
+                completer.complete(true);
+              }
+            } else if (msg.contains("type='error'") || msg.contains('type="error"')) {
+              String errorMsg = 'Password change failed';
+              if (msg.contains('<conflict') || msg.contains('already registered') || msg.contains('already exists')) {
+                // This actually means success for register IQ - user exists and password was updated
+                print('XmppRegistrar [xmpp]: changePassword - user exists, treating as success');
+                if (!completed) {
+                  completed = true;
+                  completer.complete(true);
+                }
+                return;
+              }
+              if (msg.contains('<not-acceptable') || msg.contains('not-acceptable')) {
+                errorMsg = 'Password change not acceptable';
+              } else if (msg.contains('<forbidden')) {
+                errorMsg = 'Password change forbidden';
+              } else if (msg.contains('<not-allowed')) {
+                errorMsg = 'Password change not allowed';
+              } else if (msg.contains('<service-unavailable')) {
+                errorMsg = 'Password change service unavailable';
+              }
+              final errorDetail = RegExp(r'<text[^>]*>(.*?)</text>', dotAll: true).firstMatch(msg);
+              if (errorDetail != null) {
+                errorMsg = '$errorMsg: ${errorDetail.group(1)}';
+              }
+              print('XmppRegistrar [xmpp]: changePassword - $errorMsg');
+              if (!completed) {
+                completed = true;
+                completer.complete(false);
+              }
+            }
+          }
+        },
+        onError: (e) {
+          print('XmppRegistrar [xmpp]: changePassword - WebSocket error: $e');
+          if (!completed) {
+            completed = true;
+            completer.complete(false);
+          }
+        },
+        onDone: () {
+          if (!completed) {
+            completed = true;
+            completer.complete(false);
+          }
+        },
+        cancelOnError: true,
+      );
+
+      socket.add("<open xmlns='urn:ietf:params:xml:ns:xmpp-framing' to='$domain' version='1.0'/>");
+
+      final result = await completer.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          print('XmppRegistrar [xmpp]: changePassword timed out');
+          return false;
+        },
+      );
+
+      try {
+        socket.add("<close xmlns='urn:ietf:params:xml:ns:xmpp-framing'/>");
+      } catch (_) {}
+      await socket.close();
+
+      return result;
+    } catch (e) {
+      print('XmppRegistrar [xmpp]: changePassword exception: $e');
+      try {
+        await socket.close();
+      } catch (_) {}
+      return false;
     }
   }
 

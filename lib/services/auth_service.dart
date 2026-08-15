@@ -19,6 +19,7 @@ import './otr_service.dart';
 import './spaces_service.dart';
 import '../models/space_models.dart';
 import './database_service.dart';
+import './offline_queue_service.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -167,8 +168,13 @@ class AuthService with ChangeNotifier {
   final Map<String, JingleSignalingService> _jingleServices = {};
   final Map<String, HttpUploadService> _uploadServices = {};
   final Map<String, bool> _carbonsEnabled = {};
-  final Map<String, SpacesService> _spacesServices = {};
   final Map<String, List<Map<String, dynamic>>> _accountIceServers = {};
+  final Map<String, SpacesService> _spacesServices = {};
+  final OfflineQueueService _offlineQueue = OfflineQueueService();
+
+  // XEP-0359: Track sent message origin-ids for carbon deduplication
+  // Maps originId -> accountId, so carbon echoes can update existing messages
+  final Map<String, String> _sentOriginIds = {};
   // Track participants in MUCs
   final Map<String, Set<RoomParticipant>> _roomParticipants = {};
   final _roomParticipantStreamController =
@@ -944,6 +950,9 @@ class AuthService with ChangeNotifier {
 
           // Trigger Full Data Sync (MAM, Bookmarks, vCard)
           _syncAllXmppData(id, conn);
+
+          // Flush offline message queue now that we're connected
+          _flushPendingMessages(id);
 
           onAuthenticated?.call(bareJid);
 
@@ -2101,6 +2110,18 @@ class AuthService with ChangeNotifier {
                   final forwarded = carbon.getChild('forwarded');
                   final innerMessage = forwarded?.getChild('message');
                   if (innerMessage != null) {
+                    // XEP-0359: Check origin-id for deduplication
+                    final originIdEl = innerMessage.getChild('origin-id');
+                    final originId = originIdEl?.getAttribute('id')?.value;
+                    if (originId != null && _sentOriginIds.containsKey(originId)) {
+                      // This is a carbon echo of our own message — update status to sent
+                      debugPrint('XMPP: Carbon echo for origin-id $originId, updating status');
+                      _sentOriginIds.remove(originId);
+                      // The message was already added to the stream when sent locally.
+                      // ChatProvider will update its status via the stream.
+                      return;
+                    }
+
                     String? body = innerMessage.getChild('body')?.textValue;
                     final buddyJid = carbonSent != null
                         ? innerMessage.getAttribute('to')?.value
@@ -2136,6 +2157,7 @@ class AuthService with ChangeNotifier {
                           ChatMessage(
                             id:
                                 innerMessage.getAttribute('id')?.value ??
+                                originId ??
                                 'carbon_${timestamp.millisecondsSinceEpoch}',
                             text: body,
                             timestamp: timestamp,
@@ -2204,6 +2226,9 @@ class AuthService with ChangeNotifier {
               connectionCompleter.completeError(Exception(_lastDiagnostic));
             }
           }
+        } else if (state == xmpp.XmppConnectionState.Resumed) {
+          debugPrint('XMPP Account $id: Stream Management resumed — flushing pending messages');
+          _flushPendingMessages(id);
         }
       }, onError: _handleXmppStreamError);
 
@@ -2260,6 +2285,15 @@ class AuthService with ChangeNotifier {
       final finalTarget = isGroup ? targetJid.split('/').first : targetJid;
       final bareTarget = targetJid.split('/').first;
       msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
+
+      // XEP-0359: Add origin-id for carbon deduplication
+      final originId = msg.id ?? 'msg_${DateTime.now().microsecondsSinceEpoch}';
+      final originIdEl = xmpp.XmppElement();
+      originIdEl.name = 'origin-id';
+      originIdEl.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:sid:0'));
+      originIdEl.addAttribute(xmpp.XmppAttribute('id', originId));
+      msg.addChild(originIdEl);
+      _sentOriginIds[originId] = id ?? _activeAccountId ?? '';
 
       // OMEMO Encryption Layer
       final isOmemo = _omemoEnabled[targetJid.toLowerCase()] ?? false;
@@ -2328,8 +2362,83 @@ class AuthService with ChangeNotifier {
         ),
       );
     } else {
-      throw Exception('XMPP connection is not ready. State: ${conn?.state.name ?? "Disconnected"}');
+      final qid = await _offlineQueue.enqueue(
+        targetJid: targetJid,
+        text: text,
+        accountId: id ?? _activeAccountId ?? '',
+        type: type,
+        filePath: filePath,
+        fileName: fileName,
+        replyToId: replyToId,
+        isGroup: isGroup,
+        encryptionType: isOmemo ? 'omemo' : null,
+      );
+      _messageStreamController.add(
+        ChatMessage(
+          id: qid,
+          text: text,
+          timestamp: DateTime.now(),
+          isSent: true,
+          senderId: _xmppJids[id] ?? 'me',
+          accountId: id,
+          protocol: 'XMPP',
+          conversationId: targetJid.split('/').first.toLowerCase(),
+          type: type,
+          filePath: filePath,
+          fileName: fileName,
+          isGroup: isGroup,
+          status: MessageStatus.sending,
+          encryptionType: isOmemo ? 'omemo' : null,
+        ),
+      );
+      debugPrint('XMPP: Message queued offline (id: $qid, target: $targetJid)');
     }
+  }
+
+  Future<void> _flushPendingMessages(String accountId) async {
+    final pending = await _offlineQueue.getPendingForAccount(accountId);
+    if (pending.isEmpty) return;
+
+    debugPrint('XMPP: Flushing ${pending.length} pending messages for account $accountId');
+
+    for (final row in pending) {
+      final id = row['id'] as String;
+      final targetJid = row['target_jid'] as String;
+      final text = row['text'] as String;
+      final messageType = MessageType.values[(row['message_type'] as int?) ?? 0];
+      final filePath = row['file_path'] as String?;
+      final fileName = row['file_name'] as String?;
+      final replyToId = row['reply_to_id'] as String?;
+      final isGroup = (row['is_group'] as int?) == 1;
+      final encryptionType = row['encryption_type'] as String?;
+
+      final conn = _xmppConnections[accountId];
+      if (conn == null || (conn.state != xmpp.XmppConnectionState.Ready && conn.state != xmpp.XmppConnectionState.Resumed)) {
+        debugPrint('XMPP: Connection lost during flush, will retry later');
+        await _offlineQueue.incrementRetryCount(id);
+        return;
+      }
+
+      try {
+        await sendXmppMessage(
+          targetJid,
+          text,
+          accountId: accountId,
+          type: messageType,
+          filePath: filePath,
+          fileName: fileName,
+          replyToId: replyToId,
+          isGroup: isGroup,
+        );
+        await _offlineQueue.dequeue(id);
+        debugPrint('XMPP: Flushed pending message $id');
+      } catch (e) {
+        debugPrint('XMPP: Failed to flush pending message $id: $e');
+        await _offlineQueue.incrementRetryCount(id);
+      }
+    }
+
+    await _offlineQueue.removeOldRetries();
   }
 
   Future<void> sendEditedMessage(
@@ -2482,7 +2591,10 @@ class AuthService with ChangeNotifier {
     String? replyToId,
     bool isGroup = false,
   }) async {
-    if (_xmppConnections.containsKey(accountId)) {
+    final conn = _xmppConnections[accountId];
+    if (conn != null &&
+        (conn.state == xmpp.XmppConnectionState.Ready ||
+            conn.state == xmpp.XmppConnectionState.Resumed)) {
       await sendXmppMessage(
         toId,
         text,
@@ -2494,7 +2606,34 @@ class AuthService with ChangeNotifier {
         isGroup: isGroup,
       );
     } else {
-      throw Exception('Account $accountId is not connected.');
+      final qid = await _offlineQueue.enqueue(
+        targetJid: toId,
+        text: text,
+        accountId: accountId,
+        type: type,
+        filePath: filePath,
+        fileName: fileName,
+        replyToId: replyToId,
+        isGroup: isGroup,
+      );
+      _messageStreamController.add(
+        ChatMessage(
+          id: qid,
+          text: text,
+          timestamp: DateTime.now(),
+          isSent: true,
+          senderId: _xmppJids[accountId] ?? 'me',
+          accountId: accountId,
+          protocol: 'XMPP',
+          conversationId: toId.split('/').first.toLowerCase(),
+          type: type,
+          filePath: filePath,
+          fileName: fileName,
+          isGroup: isGroup,
+          status: MessageStatus.sending,
+        ),
+      );
+      debugPrint('XMPP: Message queued offline via sendMessage (id: $qid, target: $toId)');
     }
   }
 
@@ -3475,18 +3614,32 @@ class AuthService with ChangeNotifier {
     // 1. Sync User Avatar/vCard
     fetchMyVCard(accountId: accountId);
 
-    // 2. Global MAM Catchup (Offline Messages)
+    // 2. Global MAM Catchup (Offline Messages) — limited to last 50
     try {
+      final iqId = 'mam_sync_${DateTime.now().millisecondsSinceEpoch}';
       final iq = xmpp.IqStanza(
-        'mam_sync_${DateTime.now().millisecondsSinceEpoch}',
+        iqId,
         xmpp.IqStanzaType.SET,
       );
       final query = xmpp.XmppElement();
       query.name = 'query';
       query.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:mam:2'));
+      // RSM: Request only the last 50 messages for initial sync
+      final setEl = xmpp.XmppElement();
+      setEl.name = 'set';
+      setEl.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/rsm'));
+      final maxEl = xmpp.XmppElement();
+      maxEl.name = 'max';
+      maxEl.textValue = '50';
+      setEl.addChild(maxEl);
+      // Request from the end (most recent first)
+      final beforeEl = xmpp.XmppElement();
+      beforeEl.name = 'before';
+      setEl.addChild(beforeEl);
+      query.addChild(setEl);
       iq.addChild(query);
       conn.writeStanza(iq);
-      debugPrint('SYNC: Dispatched global MAM request.');
+      debugPrint('SYNC: Dispatched global MAM request (last 50 messages).');
     } catch (e) {
       debugPrint('SYNC: Failed to dispatch global MAM - $e');
     }

@@ -3,6 +3,7 @@ import 'package:sqlite3/sqlite3.dart';
 class DatabaseService {
   final String dbPath;
   Database? _db;
+  static const int _currentVersion = 2;
 
   DatabaseService(this.dbPath);
 
@@ -21,9 +22,25 @@ class DatabaseService {
         db.execute('DROP TABLE IF EXISTS gateway_authorizations');
         db.execute('DROP TABLE IF EXISTS subscriptions');
         db.execute('DROP TABLE IF EXISTS payments');
+        db.execute('DROP TABLE IF EXISTS schema_version');
       } catch (_) {}
     }
 
+    db.execute('PRAGMA journal_mode=WAL');
+    db.execute('PRAGMA busy_timeout=5000');
+    db.execute('PRAGMA foreign_keys=ON');
+    db.execute('PRAGMA synchronous=NORMAL');
+
+    _createTables();
+    _createIndexes();
+    _runMigrations();
+
+    final version = _getSchemaVersion();
+    _setSchemaVersion(_currentVersion);
+    print('Database initialized (schema v$version, target v$_currentVersion)');
+  }
+
+  void _createTables() {
     db.execute('''
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -118,6 +135,15 @@ class DatabaseService {
       )
     ''');
 
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT DEFAULT (datetime('now'))
+      )
+    ''');
+  }
+
+  void _createIndexes() {
     db.execute('CREATE INDEX IF NOT EXISTS idx_users_jid ON users(jid)');
     db.execute('CREATE INDEX IF NOT EXISTS idx_miner_sessions_token ON miner_sessions(session_token)');
     db.execute('CREATE INDEX IF NOT EXISTS idx_miner_sessions_jid ON miner_sessions(jid)');
@@ -129,7 +155,36 @@ class DatabaseService {
     db.execute('CREATE INDEX IF NOT EXISTS idx_payments_provider_payment_id ON payments(provider_payment_id)');
   }
 
+  int _getSchemaVersion() {
+    try {
+      final result = db.select('SELECT MAX(version) as v FROM schema_version');
+      if (result.isEmpty) return 0;
+      return result.first['v'] as int? ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  void _setSchemaVersion(int version) {
+    db.execute('INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (?, datetime(\'now\'))', [version]);
+  }
+
+  void _runMigrations() {
+    final currentVersion = _getSchemaVersion();
+
+    if (currentVersion < 1) {
+      print('Running migration v1: initial schema');
+      _setSchemaVersion(1);
+    }
+
+    if (currentVersion < 2) {
+      print('Running migration v2: add stale session cleanup');
+      db.execute('CREATE INDEX IF NOT EXISTS idx_miner_sessions_active ON miner_sessions(active, last_heartbeat)');
+      _setSchemaVersion(2);
+    }
+  }
+
   void dispose() {
-    _db?.dispose();
+    _db?.close();
   }
 }

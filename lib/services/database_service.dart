@@ -29,7 +29,7 @@ class DatabaseService {
     }
     return await openDatabase(
       path,
-      version: 14,
+      version: 15,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -139,6 +139,28 @@ class DatabaseService {
             value BLOB
           )
         ''');
+        await db.execute('''
+          CREATE TABLE pending_messages(
+            id TEXT PRIMARY KEY,
+            target_jid TEXT NOT NULL,
+            text TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            message_type INTEGER DEFAULT 0,
+            file_path TEXT,
+            file_name TEXT,
+            reply_to_id TEXT,
+            is_group INTEGER DEFAULT 0,
+            encryption_type TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            retry_count INTEGER DEFAULT 0
+          )
+        ''');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_pending_messages_account ON pending_messages(account_id)',
+        );
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_pending_messages_created ON pending_messages(created_at)',
+        );
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 3) {
@@ -280,6 +302,30 @@ class DatabaseService {
           } catch (e) {
             debugPrint('Column cover_url might already exist: $e');
           }
+        }
+        if (oldVersion < 15) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS pending_messages (
+              id TEXT PRIMARY KEY,
+              target_jid TEXT NOT NULL,
+              text TEXT NOT NULL,
+              account_id TEXT NOT NULL,
+              message_type INTEGER DEFAULT 0,
+              file_path TEXT,
+              file_name TEXT,
+              reply_to_id TEXT,
+              is_group INTEGER DEFAULT 0,
+              encryption_type TEXT,
+              created_at TEXT DEFAULT (datetime('now')),
+              retry_count INTEGER DEFAULT 0
+            )
+          ''');
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_pending_messages_account ON pending_messages(account_id)',
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_pending_messages_created ON pending_messages(created_at)',
+          );
         }
       },
     );
