@@ -28,7 +28,6 @@ class TurnstileWebWidget extends StatefulWidget {
 
 class _TurnstileWebWidgetState extends State<TurnstileWebWidget> {
   String _viewType = '';
-  bool _tokenReceived = false;
 
   @override
   void initState() {
@@ -40,13 +39,11 @@ class _TurnstileWebWidgetState extends State<TurnstileWebWidget> {
     _viewType = '_turnstile_${DateTime.now().millisecondsSinceEpoch}';
 
     js.context['_turnstileOnToken$_viewType'] = (String token) {
-      _tokenReceived = true;
       widget.onTokenReceived?.call(token);
       if (mounted) setState(() {});
     };
 
     js.context['_turnstileOnExpired$_viewType'] = () {
-      _tokenReceived = false;
       widget.onTokenExpired?.call();
       if (mounted) setState(() {});
     };

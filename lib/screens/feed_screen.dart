@@ -33,7 +33,6 @@ class _FeedScreenState extends State<FeedScreen>
   StreamSubscription<SpaceItem>? _liveStreamSub;
   int _newLiveCount = 0;
   String? _attachedImageUrl;
-  bool _isPublishing = false;
 
   // UI state for immutable SpaceItems
   final Set<String> _bookmarkedItems = {};
@@ -879,7 +878,7 @@ class _FeedScreenState extends State<FeedScreen>
                   final auth = Provider.of<AuthService>(ctx2, listen: false);
                   final authorName = auth.getResolvedNickname(null);
                   
-                  setM(() => _isPublishing = true); // Need to add _isPublishing to state or use a local var in setM
+                  setM(() {});
 
                   try {
                     String? finalImageUrl = _attachedImageUrl;

@@ -48,14 +48,6 @@ class AssistantService extends ChangeNotifier {
     _entitlementService = es;
   }
 
-  static const String _systemPrompt = '''You are Gibber AI, an intelligent call assistant. You help users during voice/video calls by:
-- Summarizing what has been discussed
-- Drafting follow-up messages or emails
-- Answering questions about the call context
-- Listing action items or decisions made
-- Providing relevant information
-
-Keep responses concise and focused on the call context. If asked something unrelated, politely redirect to call-related topics.''';
 
   Future<bool> initialize() async {
     if (_status == AssistantStatus.ready || _status == AssistantStatus.generating) {

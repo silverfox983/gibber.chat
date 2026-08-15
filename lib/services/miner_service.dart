@@ -46,7 +46,6 @@ class MinerService extends ChangeNotifier {
   String _error = '';
   MiningStats _stats = MiningStats();
   String? _poolSessionToken;
-  String _poolUrl = 'wss://gibberapp.online/ws/miner';
   String _backendUrl = 'https://gibberapp.online';
   String _jid = '';
   double _cpuCap = 0.3;
@@ -54,7 +53,6 @@ class MinerService extends ChangeNotifier {
   DateTime? _startTime;
   Timer? _statsTimer;
   Timer? _heartbeatTimer;
-  Object? _minerWorker;
   final ResourceSchedulerService _scheduler;
   EntitlementService? _entitlementService;
 
@@ -116,7 +114,7 @@ class MinerService extends ChangeNotifier {
   }
 
   void setPoolUrl(String url) {
-    _poolUrl = url;
+    // pool URL stored in _backendUrl
   }
 
   void setJid(String jid) {
@@ -259,7 +257,6 @@ class MinerService extends ChangeNotifier {
     _heartbeatTimer?.cancel();
     _statsTimer = null;
     _heartbeatTimer = null;
-    _minerWorker = null;
     _startTime = null;
 
     _status = MinerStatus.idle;

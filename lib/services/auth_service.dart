@@ -164,7 +164,6 @@ class AuthService with ChangeNotifier {
   // XEP-0153: Track avatar hashes to avoid redundant fetches and trigger updates
   final Map<String, String> _contactAvatarHashes = {};
 
-  final Map<String, StreamSubscription> _xmppStatusSubs = {};
   final Map<String, JingleSignalingService> _jingleServices = {};
   final Map<String, HttpUploadService> _uploadServices = {};
   final Map<String, bool> _carbonsEnabled = {};
@@ -188,14 +187,6 @@ class AuthService with ChangeNotifier {
       _groupInviteStreamController.stream;
 
   final Map<String, Set<String>> _serverFeatures = {};
-
-  String _emojiToText(dynamic emoji) {
-    final name = emoji?.name?.toString();
-    if (name != null && name.isNotEmpty) {
-      return name;
-    }
-    return emoji?.toString() ?? '';
-  }
 
   final Map<String, String?> _uploadServiceJids = {};
 
