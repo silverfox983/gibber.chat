@@ -9,6 +9,8 @@ class BackendConfig extends ChangeNotifier {
   String _poolUrl = 'wss://gibberapp.online/ws/miner';
   bool _captchaEnabled = true;
   String? _domain;
+  String? _uploadUrl;
+  int _maxUploadSize = 52428800; // 50MB default
 
   static const String _apiUrlKey = 'gibber_backend_api_url';
   static const String _poolUrlKey = 'gibber_backend_pool_url';
@@ -20,6 +22,8 @@ class BackendConfig extends ChangeNotifier {
   String get poolUrl => _poolUrl;
   bool get captchaEnabled => _captchaEnabled;
   String? get domain => _domain;
+  String? get uploadUrl => _uploadUrl;
+  int get maxUploadSize => _maxUploadSize;
 
   BackendConfig() {
     _load();
@@ -45,6 +49,8 @@ class BackendConfig extends ChangeNotifier {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         _captchaEnabled = data['captchaEnabled'] == true;
         _domain = data['domain'] as String?;
+        _uploadUrl = data['uploadUrl'] as String?;
+        _maxUploadSize = (data['maxUploadSize'] as int?) ?? 52428800;
         notifyListeners();
       }
     } catch (_) {}

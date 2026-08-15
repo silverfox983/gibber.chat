@@ -492,10 +492,14 @@ class ApiRouter {
   }
 
   Future<Response> _handleConfig(Request request) async {
+    final prosodyUri = Uri.parse(xmppRegistrar.prosodyHttpUrl);
+    final uploadUrl = '${prosodyUri.scheme}://${prosodyUri.host}:${prosodyUri.port > 0 ? prosodyUri.port : (prosodyUri.scheme == 'https' ? 5281 : 5280)}/upload';
     return Response.ok(
       jsonEncode({
         'captchaEnabled': captchaService.enabled,
         'domain': xmppRegistrar.domain,
+        'uploadUrl': uploadUrl,
+        'maxUploadSize': 52428800,
       }),
       headers: _jsonHeaders,
     );
