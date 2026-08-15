@@ -3770,6 +3770,81 @@ class AuthService with ChangeNotifier {
     }
   }
 
+  Future<void> configureXmppRoom(
+    String roomJid, {
+    String? accountId,
+    String? name,
+    String? description,
+    bool isPublic = true,
+    bool isPersistent = true,
+    bool isMembersOnly = false,
+    bool allowMemberInvites = true,
+    bool changeSubject = true,
+    int historyLength = 50,
+  }) async {
+    final id = accountId ?? _activeAccountId;
+    final conn = _xmppConnections[id];
+    if (conn == null) return;
+
+    final iqId = 'mucConfig_${DateTime.now().millisecondsSinceEpoch}';
+    final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'));
+
+    final xForm = xmpp.XmppElement();
+    xForm.name = 'x';
+    xForm.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
+    xForm.addAttribute(xmpp.XmppAttribute('type', 'submit'));
+
+    final fields = <xmpp.XmppElement>[];
+
+    final formType = xmpp.XmppElement();
+    formType.name = 'field';
+    formType.addAttribute(xmpp.XmppAttribute('var', 'FORM_TYPE'));
+    formType.addAttribute(xmpp.XmppAttribute('type', 'hidden'));
+    final formTypeValue = xmpp.XmppElement();
+    formTypeValue.name = 'value';
+    formTypeValue.textValue = 'http://jabber.org/protocol/muc#roomconfig';
+    formType.addChild(formTypeValue);
+    fields.add(formType);
+
+    if (name != null) {
+      fields.add(_makeField('muc#roomconfig_roomname', name));
+    }
+    if (description != null) {
+      fields.add(_makeField('muc#roomconfig_roomdesc', description));
+    }
+    fields.add(_makeField('muc#roomconfig_publicroom', isPublic ? '1' : '0'));
+    fields.add(_makeField('muc#roomconfig_persistentroom', isPersistent ? '1' : '0'));
+    fields.add(_makeField('muc#roomconfig_membersonly', isMembersOnly ? '1' : '0'));
+    fields.add(_makeField('muc#roomconfig_allowmemberinvites', allowMemberInvites ? '1' : '0'));
+    fields.add(_makeField('muc#roomconfig_changesubject', changeSubject ? '1' : '0'));
+    fields.add(_makeField('muc#roomconfig_historylength', historyLength.toString()));
+
+    for (final field in fields) {
+      xForm.addChild(field);
+    }
+
+    query.addChild(xForm);
+    iq.addChild(query);
+
+    conn.writeStanza(iq);
+  }
+
+  xmpp.XmppElement _makeField(String varName, String value) {
+    final field = xmpp.XmppElement();
+    field.name = 'field';
+    field.addAttribute(xmpp.XmppAttribute('var', varName));
+    final valEl = xmpp.XmppElement();
+    valEl.name = 'value';
+    valEl.textValue = value;
+    field.addChild(valEl);
+    return field;
+  }
+
   Future<String?> joinXmppRoom(
     String roomJid,
     String nick, {
