@@ -231,7 +231,7 @@ void main(List<String> args) async {
     ..addOption('prosody-ctl', defaultsTo: Platform.environment['GIBBER_PROSODYCTL_PATH'] ?? 'prosodyctl')
     ..addOption('docker-container', defaultsTo: Platform.environment['GIBBER_DOCKER_CONTAINER'] ?? 'gibber_xmpp')
     ..addFlag('use-docker', defaultsTo: Platform.environment['GIBBER_USE_DOCKER'] == '1')
-    ..addOption('mode', defaultsTo: Platform.environment['GIBBER_REGISTRATION_MODE'] ?? 'prosodyctl', allowed: ['prosodyctl', 'http', 'internal'])
+    ..addOption('mode', defaultsTo: Platform.environment['GIBBER_REGISTRATION_MODE'] ?? 'prosodyctl', allowed: ['prosodyctl', 'http', 'internal', 'xmpp'])
     ..addOption('prosody-url', defaultsTo: Platform.environment['GIBBER_PROSODY_URL'] ?? 'http://localhost:5280')
     ..addOption('web-dir', defaultsTo: Platform.environment['GIBBER_WEB_DIR'] ?? '')
     ..addOption('admin-key', defaultsTo: Platform.environment['GIBBER_ADMIN_KEY'] ?? 'gibber-admin-key')
@@ -272,6 +272,7 @@ void main(List<String> args) async {
   final modeStr = result['mode'] as String;
   final mode = modeStr == 'http' ? RegistrationMode.http
       : modeStr == 'internal' ? RegistrationMode.internal
+      : modeStr == 'xmpp' ? RegistrationMode.xmpp
       : RegistrationMode.prosodyctl;
 
   final xmppRegistrar = XmppRegistrar(
@@ -283,30 +284,37 @@ void main(List<String> args) async {
     prosodyHttpUrl: prosodyUrl,
   );
 
-  // Startup diagnostics for internal registration mode
-  if (mode == RegistrationMode.internal) {
+  // Startup diagnostics for registration modes that use the shared volume
+  if (mode == RegistrationMode.internal || mode == RegistrationMode.xmpp) {
+    final modeLabel = mode == RegistrationMode.xmpp ? 'xmpp' : 'internal';
     final prosodyDataDir = Directory('/var/lib/prosody');
     if (prosodyDataDir.existsSync()) {
-      print('Startup [internal]: /var/lib/prosody exists and is accessible');
+      print('Startup [$modeLabel]: /var/lib/prosody exists and is accessible');
       final domainDir = Directory('/var/lib/prosody/${xmppRegistrar.domain}');
       if (domainDir.existsSync()) {
-        print('Startup [internal]: Domain directory ${domainDir.path} exists');
+        print('Startup [$modeLabel]: Domain directory ${domainDir.path} exists');
         final accountsDir = Directory('${domainDir.path}/accounts');
         if (accountsDir.existsSync()) {
-          print('Startup [internal]: Accounts directory ${accountsDir.path} exists');
+          print('Startup [$modeLabel]: Accounts directory ${accountsDir.path} exists');
           final existingAccounts = accountsDir.listSync().whereType<File>().toList();
-          print('Startup [internal]: Found ${existingAccounts.length} existing account(s)');
+          print('Startup [$modeLabel]: Found ${existingAccounts.length} existing account(s)');
           for (final f in existingAccounts) {
-            print('Startup [internal]:   - ${f.path}');
+            print('Startup [$modeLabel]:   - ${f.path}');
           }
         } else {
-          print('Startup [internal]: Accounts directory does not yet exist (will be created on first registration)');
+          print('Startup [$modeLabel]: Accounts directory does not yet exist (will be created on first registration)');
         }
       } else {
-        print('Startup [internal]: Domain directory does not yet exist (will be created on first registration)');
+        print('Startup [$modeLabel]: Domain directory does not yet exist (will be created on first registration)');
       }
     } else {
-      print('Startup [internal]: WARNING - /var/lib/prosody does not exist! Shared volume may not be mounted.');
+      print('Startup [$modeLabel]: WARNING - /var/lib/prosody does not exist! Shared volume may not be mounted.');
+    }
+    // Also test XMPP connection for xmpp mode
+    if (mode == RegistrationMode.xmpp) {
+      final testWsUrl = '${prosodyUrl.replaceFirst('http', 'ws')}/xmpp-websocket';
+      print('Startup [xmpp]: Registration will use in-band XMPP via $testWsUrl');
+      print('Startup [xmpp]: userExists/deleteUser will use shared volume at /var/lib/prosody');
     }
   }
   final minerPool = MinerPoolService(db: db);

@@ -33,7 +33,7 @@ services:
       - GIBBER_HOST=0.0.0.0
       - GIBBER_PORT=8080
       - GIBBER_ADMIN_KEY=gibber-admin-key-change-in-production
-      - GIBBER_REGISTRATION_MODE=internal
+      - GIBBER_REGISTRATION_MODE=xmpp
       - GIBBER_PROSODY_URL=http://prosody:5280
     depends_on:
       - prosody

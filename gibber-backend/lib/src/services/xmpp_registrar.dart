@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
-enum RegistrationMode { prosodyctl, http, internal }
+enum RegistrationMode { prosodyctl, http, internal, xmpp }
 
 class XmppRegistrar {
   final String configPath;
@@ -49,8 +51,150 @@ class XmppRegistrar {
         return _registerViaHttp(username, password, jidDomain, jid);
       case RegistrationMode.internal:
         return _registerViaInternal(username, password, jidDomain, jid);
+      case RegistrationMode.xmpp:
+        return _registerViaXmpp(username, password, jidDomain, jid);
       case RegistrationMode.prosodyctl:
         return _registerViaProsodyCtl(username, password, jidDomain, jid);
+    }
+  }
+
+  Future<XmppRegistrationResult> _registerViaXmpp(String username, String password, String domain, String jid) async {
+    final prosodyUri = Uri.parse(_prosodyHttpUrl);
+    final wsScheme = prosodyUri.scheme == 'https' ? 'wss' : 'ws';
+    final wsPort = prosodyUri.port > 0 ? prosodyUri.port : (prosodyUri.scheme == 'https' ? 5281 : 5280);
+    final wsUrl = '$wsScheme://${prosodyUri.host}:$wsPort/xmpp-websocket';
+
+    print('XmppRegistrar [xmpp]: Connecting to $wsUrl for in-band registration of $jid');
+
+    WebSocketChannel? ws;
+    try {
+      ws = WebSocketChannel.connect(Uri.parse(wsUrl), protocols: ['xmpp']);
+      await ws.ready;
+      print('XmppRegistrar [xmpp]: WebSocket connected');
+    } catch (e) {
+      print('XmppRegistrar [xmpp]: Failed to connect WebSocket: $e');
+      return XmppRegistrationResult(
+        success: false,
+        jid: jid,
+        message: 'Failed to connect to XMPP server: $e',
+      );
+    }
+
+    try {
+      final completer = Completer<XmppRegistrationResult>();
+      String? streamId;
+      bool featuresReceived = false;
+      bool registrationSent = false;
+
+      ws.stream.listen(
+        (data) {
+          if (data is! String) return;
+          final msg = data.trim();
+
+          if (msg.contains('<open') && msg.contains('urn:ietf:params:xml:ns:xmpp-framing')) {
+            final idMatch = RegExp(r"id='([^']+)'").firstMatch(msg);
+            streamId = idMatch?.group(1);
+            print('XmppRegistrar [xmpp]: Stream opened, id=$streamId');
+          }
+
+          if (msg.contains('<stream:features') || msg.contains('<features')) {
+            if (!featuresReceived) {
+              featuresReceived = true;
+              print('XmppRegistrar [xmpp]: Stream features received, sending registration IQ');
+
+              final regIq = "<iq type='set' id='reg1'><query xmlns='jabber:iq:register'><username>$username</username><password>$password</password></query></iq>";
+              ws!.sink.add(regIq);
+              registrationSent = true;
+            }
+          }
+
+          if (registrationSent && msg.contains('<iq')) {
+            if (msg.contains("type='result'") || msg.contains('type="result"')) {
+              print('XmppRegistrar [xmpp]: Registration successful for $jid');
+              if (!completer.isCompleted) {
+                completer.complete(XmppRegistrationResult(
+                  success: true,
+                  jid: jid,
+                  message: 'Registration successful',
+                ));
+              }
+            } else if (msg.contains("type='error'") || msg.contains('type="error"')) {
+              String errorMsg = 'Registration failed';
+              if (msg.contains('<conflict') || msg.contains('already registered') || msg.contains('already exists')) {
+                errorMsg = 'Username already exists';
+              } else if (msg.contains('<not-acceptable') || msg.contains('not-acceptable')) {
+                errorMsg = 'Registration not acceptable';
+              } else if (msg.contains('<forbidden')) {
+                errorMsg = 'Registration forbidden';
+              } else if (msg.contains('<service-unavailable')) {
+                errorMsg = 'Registration service unavailable';
+              }
+              final errorDetail = RegExp(r'<text[^>]*>(.*?)</text>', dotAll: true).firstMatch(msg);
+              if (errorDetail != null) {
+                errorMsg = '$errorMsg: ${errorDetail.group(1)}';
+              }
+              print('XmppRegistrar [xmpp]: Registration failed: $errorMsg');
+              if (!completer.isCompleted) {
+                completer.complete(XmppRegistrationResult(
+                  success: false,
+                  jid: jid,
+                  message: errorMsg,
+                ));
+              }
+            }
+          }
+        },
+        onError: (e) {
+          print('XmppRegistrar [xmpp]: WebSocket error: $e');
+          if (!completer.isCompleted) {
+            completer.complete(XmppRegistrationResult(
+              success: false,
+              jid: jid,
+              message: 'WebSocket error: $e',
+            ));
+          }
+        },
+        onDone: () {
+          print('XmppRegistrar [xmpp]: WebSocket closed');
+          if (!completer.isCompleted) {
+            completer.complete(XmppRegistrationResult(
+              success: false,
+              jid: jid,
+              message: 'WebSocket closed before registration completed',
+            ));
+          }
+        },
+        cancelOnError: true,
+      );
+
+      ws.sink.add("<open xmlns='urn:ietf:params:xml:ns:xmpp-framing' to='$domain' version='1.0'/>");
+
+      final result = await completer.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          print('XmppRegistrar [xmpp]: Registration timed out after 10 seconds');
+          return XmppRegistrationResult(
+            success: false,
+            jid: jid,
+            message: 'Registration timed out',
+          );
+        },
+      );
+
+      ws.sink.add("<close xmlns='urn:ietf:params:xml:ns:xmpp-framing'/>");
+      await ws.sink.close();
+
+      return result;
+    } catch (e) {
+      print('XmppRegistrar [xmpp]: Exception during registration: $e');
+      try {
+        ws.sink.close();
+      } catch (_) {}
+      return XmppRegistrationResult(
+        success: false,
+        jid: jid,
+        message: 'Internal registration failed: $e',
+      );
     }
   }
 
@@ -225,6 +369,7 @@ class XmppRegistrar {
       case RegistrationMode.http:
         return _userExistsViaHttp(username, jidDomain);
       case RegistrationMode.internal:
+      case RegistrationMode.xmpp:
         return _userExistsInternal(username, jidDomain);
       case RegistrationMode.prosodyctl:
         return _userExistsProsodyCtl(username, jidDomain);
@@ -278,6 +423,7 @@ class XmppRegistrar {
           return false;
         }
       case RegistrationMode.internal:
+      case RegistrationMode.xmpp:
         final userFile = File('/var/lib/prosody/$jidDomain/accounts/$username.dat');
         if (userFile.existsSync()) {
           userFile.deleteSync();
@@ -312,6 +458,7 @@ class XmppRegistrar {
           return false;
         }
       case RegistrationMode.internal:
+      case RegistrationMode.xmpp:
         final userFile = File('/var/lib/prosody/$jidDomain/accounts/$username.dat');
         if (userFile.existsSync()) {
           final escaped = newPassword.replaceAll('\\', '\\\\').replaceAll('"', '\\"');

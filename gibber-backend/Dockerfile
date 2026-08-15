@@ -23,4 +23,4 @@ RUN ln -sf /usr/lib/x86_64-linux-gnu/libsqlite3.so.0 /app/lib/libsqlite3.so || t
 COPY config/ /app/config/
 RUN mkdir -p /app/data
 EXPOSE 8080
-CMD ["/app/bin/server", "--host", "0.0.0.0", "--port", "8080", "--db-path", "/app/data/gibber_backend.db", "--config", "/app/config/prosody.cfg.lua", "--mode", "internal"]
+CMD ["/app/bin/server", "--host", "0.0.0.0", "--port", "8080", "--db-path", "/app/data/gibber_backend.db", "--config", "/app/config/prosody.cfg.lua", "--mode", "xmpp"]
