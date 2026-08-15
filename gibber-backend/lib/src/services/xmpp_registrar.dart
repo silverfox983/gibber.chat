@@ -286,7 +286,12 @@ class XmppRegistrar {
   Future<ProcessResult> _runProsodyCtl(List<String> args) async {
     if (_useDocker) {
       final fullArgs = ['exec', _dockerContainer, _prosodyCtlPath, ...args];
-      print('XmppRegistrar: Running: docker ${fullArgs.join(' ')}');
+      // Redact password from log if present (register command: [register, user, domain, password])
+      final logArgs = fullArgs.toList();
+      if (logArgs.length > 4 && logArgs[2] == 'register') {
+        logArgs[5] = '***';
+      }
+      print('XmppRegistrar: Running: docker ${logArgs.join(' ')}');
       final result = await Process.run('docker', fullArgs);
       print('XmppRegistrar: docker exec result: exitCode=${result.exitCode}');
       if (result.stderr.toString().trim().isNotEmpty) {
@@ -294,7 +299,11 @@ class XmppRegistrar {
       }
       return result;
     }
-    print('XmppRegistrar: Running: $_prosodyCtlPath ${args.join(' ')}');
+    final logArgs = args.toList();
+    if (logArgs.length > 3 && logArgs[0] == 'register') {
+      logArgs[3] = '***';
+    }
+    print('XmppRegistrar: Running: $_prosodyCtlPath ${logArgs.join(' ')}');
     return Process.run(_prosodyCtlPath, args);
   }
 
