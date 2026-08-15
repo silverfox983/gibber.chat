@@ -103,14 +103,12 @@ class XmppRegistrar {
       if (!domainDir.existsSync()) {
         print('XmppRegistrar [internal]: Creating domain directory ${domainDir.path}');
         domainDir.createSync(recursive: true);
-        _makeReadable(domainDir);
       }
 
       final accountsDir = Directory('${domainDir.path}/accounts');
       if (!accountsDir.existsSync()) {
         print('XmppRegistrar [internal]: Creating accounts directory ${accountsDir.path}');
         accountsDir.createSync(recursive: true);
-        _makeReadable(accountsDir);
       }
 
       final userFile = File('${accountsDir.path}/$username.dat');
@@ -127,7 +125,8 @@ class XmppRegistrar {
       final content = 'return {\n\t["password"] = "$escaped";\n};\n';
       print('XmppRegistrar [internal]: Writing user file ${userFile.path}');
       userFile.writeAsStringSync(content);
-      _makeFileReadable(userFile);
+
+      _chownRecursive(domainDir.path);
 
       final verified = userFile.existsSync();
       final size = verified ? userFile.lengthSync() : 0;
@@ -158,22 +157,17 @@ class XmppRegistrar {
     }
   }
 
-  void _makeReadable(Directory dir) {
+  void _chownRecursive(String path) {
     try {
-      final result = Process.runSync('chmod', ['a+rx', dir.path]);
+      final result = Process.runSync('chown', ['-R', '101:101', path]);
       if (result.exitCode != 0) {
-        print('XmppRegistrar [internal]: chmod a+rx failed: ${result.stderr}');
+        print('XmppRegistrar [internal]: chown -R 101:101 $path failed: ${result.stderr}');
+      } else {
+        print('XmppRegistrar [internal]: chown -R 101:101 $path succeeded');
       }
-    } catch (_) {}
-  }
-
-  void _makeFileReadable(File file) {
-    try {
-      final result = Process.runSync('chmod', ['a+r', file.path]);
-      if (result.exitCode != 0) {
-        print('XmppRegistrar [internal]: chmod a+r failed: ${result.stderr}');
-      }
-    } catch (_) {}
+    } catch (e) {
+      print('XmppRegistrar [internal]: chown exception: $e');
+    }
   }
 
   Future<XmppRegistrationResult> _registerViaProsodyCtl(String username, String password, String domain, String jid) async {
@@ -322,6 +316,7 @@ class XmppRegistrar {
         if (userFile.existsSync()) {
           final escaped = newPassword.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
           userFile.writeAsStringSync('return {\n\t["password"] = "$escaped";\n};\n');
+          _chownRecursive(userFile.path);
           print('XmppRegistrar [internal]: Password changed for $username@$jidDomain');
           return true;
         }

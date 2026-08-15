@@ -282,6 +282,33 @@ void main(List<String> args) async {
     mode: mode,
     prosodyHttpUrl: prosodyUrl,
   );
+
+  // Startup diagnostics for internal registration mode
+  if (mode == RegistrationMode.internal) {
+    final prosodyDataDir = Directory('/var/lib/prosody');
+    if (prosodyDataDir.existsSync()) {
+      print('Startup [internal]: /var/lib/prosody exists and is accessible');
+      final domainDir = Directory('/var/lib/prosody/${xmppRegistrar.domain}');
+      if (domainDir.existsSync()) {
+        print('Startup [internal]: Domain directory ${domainDir.path} exists');
+        final accountsDir = Directory('${domainDir.path}/accounts');
+        if (accountsDir.existsSync()) {
+          print('Startup [internal]: Accounts directory ${accountsDir.path} exists');
+          final existingAccounts = accountsDir.listSync().whereType<File>().toList();
+          print('Startup [internal]: Found ${existingAccounts.length} existing account(s)');
+          for (final f in existingAccounts) {
+            print('Startup [internal]:   - ${f.path}');
+          }
+        } else {
+          print('Startup [internal]: Accounts directory does not yet exist (will be created on first registration)');
+        }
+      } else {
+        print('Startup [internal]: Domain directory does not yet exist (will be created on first registration)');
+      }
+    } else {
+      print('Startup [internal]: WARNING - /var/lib/prosody does not exist! Shared volume may not be mounted.');
+    }
+  }
   final minerPool = MinerPoolService(db: db);
   final entitlementSvc = BackendEntitlementService(db: db);
   final captchaSvc = CaptchaService(
