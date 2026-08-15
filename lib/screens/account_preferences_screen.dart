@@ -1,12 +1,17 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import '../services/auth_service.dart';
 import '../models/chat_models.dart';
 import '../services/backup_service.dart';
 import '../services/data_export_service.dart';
+import '../services/jwt_token_service.dart';
+import '../services/backend_config.dart';
+import '../services/database_service.dart';
 
 class AccountPreferencesScreen extends StatefulWidget {
   const AccountPreferencesScreen({super.key});
@@ -164,6 +169,23 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
                   ],
                 ),
               ),
+              const SizedBox(height: 32),
+              Text('DANGER ZONE', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+              const SizedBox(height: 16),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Theme.of(context).colorScheme.error.withValues(alpha: 0.5)),
+                ),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: Icon(Icons.warning_amber_rounded, color: Theme.of(context).colorScheme.error, size: 28),
+                  title: const Text('Delete Account', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Permanently delete your account from the server'),
+                  onTap: () => _confirmDeleteAccount(context, authService),
+                ),
+              ),
               if (_isProcessing)
                 const Padding(
                   padding: EdgeInsets.all(32),
@@ -174,6 +196,123 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _confirmDeleteAccount(BuildContext context, AuthService authService) async {
+    final accounts = authService.savedAccounts.where((a) => a.protocol == 'XMPP').toList();
+    if (accounts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: const Text('No account to delete.'), backgroundColor: Theme.of(context).colorScheme.error),
+      );
+      return;
+    }
+
+    final account = accounts.first;
+    final jid = account.fullJid;
+    final parts = jid.split('@');
+    final username = parts.first;
+    final host = parts.length > 1 ? parts.sublist(1).join('@') : account.domain;
+
+    String confirmText = '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Account', style: TextStyle(fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This will permanently delete your account ($jid) from the server. This action cannot be undone.',
+              style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Type DELETE to confirm:',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.error),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'DELETE',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onChanged: (v) => confirmText = v,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCEL')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('DELETE ACCOUNT'),
+          ),
+        ],
+      ),
+    ) ?? false;
+
+    if (!confirmed) return;
+    if (confirmText != 'DELETE') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: const Text('Confirmation text did not match.'), backgroundColor: Theme.of(context).colorScheme.error),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isProcessing = true);
+    try {
+      final backendConfig = Provider.of<BackendConfig>(context, listen: false);
+      final jwtService = JwtTokenService();
+      await jwtService.init(apiUrl: backendConfig.apiUrl);
+
+      final headers = <String, String>{'Content-Type': 'application/json'};
+      final authHeaders = await jwtService.authHeadersAsync();
+      if (authHeaders.isNotEmpty) {
+        headers.addAll(authHeaders);
+      } else {
+        headers['X-API-Key'] = backendConfig.apiUrl;
+      }
+
+      final response = await http.post(
+        Uri.parse('${backendConfig.apiUrl}/account/delete'),
+        headers: headers,
+        body: jsonEncode({'username': username, 'host': host}),
+      );
+
+      if (response.statusCode == 200) {
+        await authService.clearAllData();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.clear();
+        await DatabaseService().clearAll();
+        if (mounted) {
+          context.goNamed('login');
+        }
+      } else {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        final errorMsg = body['error'] as String? ?? 'Account deletion failed (${response.statusCode}).';
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(errorMsg), backgroundColor: Theme.of(context).colorScheme.error),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Theme.of(context).colorScheme.error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
   }
 
   Future<void> _pickCustomRingtone() async {

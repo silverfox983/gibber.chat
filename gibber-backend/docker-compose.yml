@@ -27,6 +27,7 @@ services:
       - ./data:/app/data
       - ./config/prosody.cfg.lua:/app/config/prosody.cfg.lua:ro
       - prosody_data:/var/lib/prosody
+      - web_build:/app/web
     environment:
       - GIBBER_DB_PATH=/app/data/gibber_backend.db
       - GIBBER_PROSODY_CONFIG=/app/config/prosody.cfg.lua
@@ -37,6 +38,7 @@ services:
       - GIBBER_PROSODY_URL=http://prosody:5280
       - GIBBER_ENABLE_SASL2=1
       - GIBBER_JWT_SECRET=change-me-in-production-use-a-strong-random-string
+      - GIBBER_WEB_DIR=/app/web
     depends_on:
       - prosody
     networks:
@@ -64,6 +66,7 @@ volumes:
   prosody_data:
   caddy_data:
   caddy_config:
+  web_build:
 
 networks:
   gibber_net:
