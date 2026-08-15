@@ -243,7 +243,7 @@ class XmppProxyService {
 
     // Wait for all probes to finish before declaring total failure
     // This prevents premature completeError when staggered probes haven't started yet
-    Future.wait(pendingFutures).catchError((_) {});
+    Future.wait(pendingFutures).catchError((_) => <dynamic>[]);
 
     return await completer.future.timeout(const Duration(seconds: 45));
   }

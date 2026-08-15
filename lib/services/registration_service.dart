@@ -333,9 +333,24 @@ class RegistrationService {
       final body = jsonDecode(response.body) as Map<String, dynamic>;
 
       if (response.statusCode == 200) {
+        String? accessToken;
+        String? refreshToken;
+        try {
+          final loginResult = await loginWithJwt(
+            apiUrl: apiUrl,
+            username: username.trim(),
+            password: password,
+            host: host,
+          );
+          accessToken = loginResult.accessToken;
+          refreshToken = loginResult.refreshToken;
+        } catch (_) {}
+
         return RegistrationResult(
           status: RegistrationStatus.success,
           jid: body['jid'] as String?,
+          accessToken: accessToken,
+          refreshToken: refreshToken,
           message: body['message'] as String? ?? 'Registration successful',
         );
       } else if (response.statusCode == 403 && (body['error'] ?? '').toString().contains('Captcha')) {
@@ -400,6 +415,95 @@ class RegistrationService {
       return false;
     } catch (_) {
       return false;
+    }
+  }
+
+  static Future<RegistrationResult> loginWithJwt({
+    required String apiUrl,
+    required String username,
+    required String password,
+    String? host,
+  }) async {
+    try {
+      final uri = Uri.parse('$apiUrl/auth/token');
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'username': username.trim(),
+          'password': password,
+          if (host != null) 'host': host,
+        }),
+      );
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        return RegistrationResult(
+          status: RegistrationStatus.success,
+          jid: body['jid'] as String?,
+          accessToken: body['accessToken'] as String?,
+          refreshToken: body['refreshToken'] as String?,
+          message: 'Login successful',
+        );
+      } else if (response.statusCode == 401) {
+        return const RegistrationResult(
+          status: RegistrationStatus.validationError,
+          message: 'Invalid username or password.',
+        );
+      } else if (response.statusCode == 429) {
+        return const RegistrationResult(
+          status: RegistrationStatus.validationError,
+          message: 'Too many attempts. Please try again later.',
+        );
+      } else if (response.statusCode == 503) {
+        return const RegistrationResult(
+          status: RegistrationStatus.unsupported,
+          message: 'JWT authentication is not configured on this server.',
+        );
+      } else {
+        return RegistrationResult(
+          status: RegistrationStatus.networkError,
+          message: body['error'] as String? ?? 'Login failed (${response.statusCode}).',
+        );
+      }
+    } on SocketException {
+      return const RegistrationResult(
+        status: RegistrationStatus.networkError,
+        message: 'Could not reach the server. Check your network connection.',
+      );
+    } on FormatException {
+      return const RegistrationResult(
+        status: RegistrationStatus.networkError,
+        message: 'Invalid server response.',
+      );
+    } catch (e) {
+      return RegistrationResult(
+        status: RegistrationStatus.networkError,
+        message: 'Error: $e',
+      );
+    }
+  }
+
+  static Future<String?> refreshJwtToken({
+    required String apiUrl,
+    required String refreshToken,
+  }) async {
+    try {
+      final uri = Uri.parse('$apiUrl/auth/refresh');
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'refreshToken': refreshToken}),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        return body['accessToken'] as String?;
+      }
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 }

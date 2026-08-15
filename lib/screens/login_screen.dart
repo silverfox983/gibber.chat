@@ -4,6 +4,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
+import '../services/registration_service.dart';
+import '../services/jwt_token_service.dart';
+import '../services/backend_config.dart';
 import '../models/chat_models.dart';
 import '../widgets/auth/auth_layout.dart';
 import '../widgets/auth/auth_text_field.dart';
@@ -368,12 +371,31 @@ class _LoginScreenState extends State<LoginScreen> {
     final port = kIsWeb ? 443 : 5222;
 
     try {
+      final backendConfig = Provider.of<BackendConfig>(context, listen: false);
       await authService.connectXmpp(
         user: user,
         domain: domain,
         pass: _passController.text,
         port: port,
       ).timeout(const Duration(seconds: 30));
+
+      try {
+        final loginResult = await RegistrationService.loginWithJwt(
+          apiUrl: backendConfig.apiUrl,
+          username: user,
+          password: _passController.text,
+          host: domain,
+        );
+        if (loginResult.accessToken != null) {
+          final jwtService = JwtTokenService();
+          await jwtService.saveTokens(
+            accessToken: loginResult.accessToken!,
+            refreshToken: loginResult.refreshToken,
+            jid: loginResult.jid,
+            apiUrl: backendConfig.apiUrl,
+          );
+        }
+      } catch (_) {}
 
       if (_rememberMe) {
         await authService.saveAccount(

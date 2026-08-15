@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import '../services/registration_service.dart';
 import '../services/backend_config.dart';
+import '../services/jwt_token_service.dart';
 import '../models/registration_models.dart';
 import '../models/chat_models.dart';
 import '../widgets/auth/auth_layout.dart';
@@ -185,6 +186,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     if (result.isOk) {
       setState(() => _registerStatus = 'Account created. Connecting...');
+
+      if (result.accessToken != null) {
+        final jwtService = JwtTokenService();
+        await jwtService.saveTokens(
+          accessToken: result.accessToken!,
+          refreshToken: result.refreshToken,
+          jid: result.jid,
+          apiUrl: backendConfig.apiUrl,
+        );
+      }
 
       final authService = Provider.of<AuthService>(context, listen: false);
 

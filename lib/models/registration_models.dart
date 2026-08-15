@@ -29,11 +29,15 @@ class RegistrationResult {
   final RegistrationStatus status;
   final String? jid;
   final String? message;
+  final String? accessToken;
+  final String? refreshToken;
 
   const RegistrationResult({
     required this.status,
     this.jid,
     this.message,
+    this.accessToken,
+    this.refreshToken,
   });
 
   bool get isOk => status == RegistrationStatus.success;
