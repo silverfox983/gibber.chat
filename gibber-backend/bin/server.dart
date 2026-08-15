@@ -379,7 +379,7 @@ void main(List<String> args) async {
     protocols: ['xmpp'],
   );
 
-  final xmppProxyPaths = {'/xmpp-websocket', '/xmpp-websocket/', '/http-bind', '/http-bind/'};
+  final xmppProxyPaths = {'/xmpp-websocket', '/xmpp-websocket/', '/http-bind', '/http-bind/', '/upload', '/upload/'};
   final xmppWsPaths = {'/xmpp-websocket', '/xmpp-websocket/'};
 
   const assetExtensions = {

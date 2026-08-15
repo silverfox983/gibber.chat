@@ -7,6 +7,7 @@ RUN mkdir -p /certs && \
         -subj "/CN=gibberapp.online/O=Gibber/C=US"
 
 FROM prosody/prosody:latest
+RUN apt-get update && apt-get install -y --no-install-recommends prosody-modules && rm -rf /var/lib/apt/lists/*
 COPY --from=certgen /certs/gibberapp.online.key /etc/prosody/certs/gibberapp.online.key
 COPY --from=certgen /certs/gibberapp.online.crt /etc/prosody/certs/gibberapp.online.crt
 RUN chown -R prosody:prosody /etc/prosody/certs

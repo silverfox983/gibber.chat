@@ -31,6 +31,12 @@ gibberapp.online {
     # XMPP BOSH fallback
     reverse_proxy /http-bind gibber-backend:8080
 
+    # HTTP File Upload (XEP-0363)
+    reverse_proxy /upload gibber-backend:8080 {
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+    }
+
     # Miner endpoints
     reverse_proxy /miner/* gibber-backend:8080
 
@@ -65,6 +71,11 @@ gibberapp.online {
     root * /srv/gibber-web
     try_files {path} /index.html
     file_server
+
+    # Upload size limit (for HTTP File Upload)
+    request_body {
+        max_size 50MB
+    }
 
     # Security headers
     header {
