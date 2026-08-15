@@ -2273,6 +2273,7 @@ class AuthService with ChangeNotifier {
   }) async {
     final id = accountId ?? _activeAccountId;
     final conn = _xmppConnections[id];
+    final isOmemo = _omemoEnabled[targetJid.toLowerCase()] ?? false;
     if (conn != null &&
         (conn.state == xmpp.XmppConnectionState.Ready ||
             conn.state == xmpp.XmppConnectionState.Resumed)) {
@@ -2296,7 +2297,6 @@ class AuthService with ChangeNotifier {
       _sentOriginIds[originId] = id ?? _activeAccountId ?? '';
 
       // OMEMO Encryption Layer
-      final isOmemo = _omemoEnabled[targetJid.toLowerCase()] ?? false;
       if (isOmemo) {
         final encryptedList = await _omemo.encryptMessage(
           targetJid,
@@ -2410,7 +2410,8 @@ class AuthService with ChangeNotifier {
       final fileName = row['file_name'] as String?;
       final replyToId = row['reply_to_id'] as String?;
       final isGroup = (row['is_group'] as int?) == 1;
-      final encryptionType = row['encryption_type'] as String?;
+      // encryptionType from queue: OMEMO state is determined by _omemoEnabled at send time
+      final _ = row['encryption_type'] as String?;
 
       final conn = _xmppConnections[accountId];
       if (conn == null || (conn.state != xmpp.XmppConnectionState.Ready && conn.state != xmpp.XmppConnectionState.Resumed)) {
