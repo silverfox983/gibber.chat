@@ -20,6 +20,7 @@ import './database_service.dart';
 import './offline_queue_service.dart';
 import './connection_lifecycle_service.dart';
 import './xmpp_omemo_service.dart';
+import './xmpp_room_service.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -120,13 +121,9 @@ class AuthService with ChangeNotifier {
   final List<SavedAccount> _savedAccounts = [];
   List<SavedAccount> get savedAccounts => List.unmodifiable(_savedAccounts);
 
-  final List<Room> _joinedRooms = [];
-  List<Room> get joinedRooms => List.unmodifiable(_joinedRooms);
-
-  final StreamController<List<Room>> _joinedRoomsStreamController =
-      StreamController<List<Room>>.broadcast();
-  Stream<List<Room>> get joinedRoomsStream =>
-      _joinedRoomsStreamController.stream;
+  // XEP-0359: Track sent message origin-Ids for carbon deduplication
+  // Maps originId -> accountId, so carbon echoes can update existing messages
+  final Map<String, String> _sentOriginIds = {};
 
   final StreamController<List<SpaceNode>> _joinedSpacesStreamController =
       StreamController<List<SpaceNode>>.broadcast();
@@ -141,8 +138,6 @@ class AuthService with ChangeNotifier {
   // Multi-Account Storages
   final Map<String, xmpp.Connection> _xmppConnections = {};
   final Map<String, String> _xmppJids = {};
-  Set<String> _persistedRooms = {};
-  final Map<String, String> _roomNicknames = {}; // accountId|roomJid -> nick
   List<SpaceNode> _cachedJoinedSpaces = [];
   final Map<String, Completer<List<Map<String, String>>>> _discoveryCompleters =
       {};
@@ -170,21 +165,7 @@ class AuthService with ChangeNotifier {
   final Map<String, List<Map<String, dynamic>>> _accountIceServers = {};
   final Map<String, SpacesService> _spacesServices = {};
   final OfflineQueueService _offlineQueue = OfflineQueueService();
-
-  // XEP-0359: Track sent message origin-ids for carbon deduplication
-  // Maps originId -> accountId, so carbon echoes can update existing messages
-  final Map<String, String> _sentOriginIds = {};
-  // Track participants in MUCs
-  final Map<String, Set<RoomParticipant>> _roomParticipants = {};
-  final _roomParticipantStreamController =
-      StreamController<Map<String, List<RoomParticipant>>>.broadcast();
-  Stream<Map<String, List<RoomParticipant>>> get roomParticipantsStream =>
-      _roomParticipantStreamController.stream;
-
-  final StreamController<Map<String, dynamic>> _groupInviteStreamController =
-      StreamController<Map<String, dynamic>>.broadcast();
-  Stream<Map<String, dynamic>> get groupInviteStream =>
-      _groupInviteStreamController.stream;
+  late final XmppRoomService _roomService;
 
   final Map<String, Set<String>> _serverFeatures = {};
 
@@ -246,10 +227,20 @@ class AuthService with ChangeNotifier {
   }
 
   AuthService() {
+    _roomService = XmppRoomService(_xmppConnections, _xmppJids);
+    _roomService.setActiveAccountIdGetter(() => _activeAccountId);
     _otr.injectMessage = (bareJid, text) {
       sendMessage(_activeAccountId ?? '', bareJid, text, isGroup: false);
     };
   }
+
+  XmppRoomService get roomService => _roomService;
+  List<Room> get joinedRooms => _roomService.joinedRooms;
+  Stream<List<Room>> get joinedRoomsStream => _roomService.joinedRoomsStream;
+  Stream<Map<String, List<RoomParticipant>>> get roomParticipantsStream => _roomService.roomParticipantsStream;
+  Stream<Map<String, dynamic>> get groupInviteStream => _roomService.groupInviteStream;
+  List<RoomParticipant> getRoomParticipants(String roomJid) => _roomService.getRoomParticipants(roomJid);
+  String? getRoomNickname(String? accountId, String roomJid) => _roomService.getNickname(accountId ?? _activeAccountId ?? '', roomJid);
 
   String? _activeAccountId;
   String? get activeAccountId => _activeAccountId;
@@ -944,7 +935,6 @@ class AuthService with ChangeNotifier {
                 final roomJid = '${fromJid?.local}@${fromJid?.domain}';
                 final nick = fromJid?.resource;
                 if (nick != null) {
-                  _roomParticipants[roomJid] ??= {};
                   final isUnavailable = stanza.type.toString().contains(
                     'unavailable',
                   );
@@ -962,18 +952,10 @@ class AuthService with ChangeNotifier {
                   );
 
                   if (isUnavailable) {
-                    _roomParticipants[roomJid]!.remove(participant);
+                    _roomService.removeParticipant(roomJid, nick);
                   } else {
-                    _roomParticipants[roomJid]!.remove(participant);
-                    _roomParticipants[roomJid]!.add(participant);
+                    _roomService.updateParticipant(roomJid, participant);
                   }
-
-                  final cloned = <String, List<RoomParticipant>>{};
-                  for (final e in _roomParticipants.entries) {
-                    cloned[e.key] = e.value.toList();
-                  }
-
-                  _roomParticipantStreamController.add(cloned);
                 }
               }
             }
@@ -1038,9 +1020,14 @@ class AuthService with ChangeNotifier {
             if (stanza is xmpp.IqStanza) {
               final fromJidStr = stanza.fromJid?.fullJid;
 
-              if (stanza.id != null && _pendingIqs.containsKey(stanza.id)) {
-                _pendingIqs[stanza.id!]!.complete(stanza);
-                _pendingIqs.remove(stanza.id);
+              if (stanza.id != null && (_pendingIqs.containsKey(stanza.id) || _roomService.pendingIqs.containsKey(stanza.id))) {
+                if (_pendingIqs.containsKey(stanza.id)) {
+                  _pendingIqs[stanza.id!]!.complete(stanza);
+                  _pendingIqs.remove(stanza.id);
+                } else {
+                  _roomService.pendingIqs[stanza.id!]!.complete(stanza);
+                  _roomService.pendingIqs.remove(stanza.id);
+                }
               }
 
               if (stanza.type == xmpp.IqStanzaType.ERROR) {
@@ -1076,6 +1063,18 @@ class AuthService with ChangeNotifier {
                       'description': '',
                     });
                     _roomInfoCompleters.remove(stanza.id);
+                  }
+                  if (_roomService.discoveryCompleters.containsKey(stanza.id)) {
+                    _roomService.discoveryCompleters[stanza.id]!.complete([]);
+                    _roomService.discoveryCompleters.remove(stanza.id);
+                  }
+                  if (_roomService.roomInfoCompleters.containsKey(stanza.id)) {
+                    _roomService.roomInfoCompleters[stanza.id]!.complete({
+                      'jid': stanza.fromJid?.fullJid ?? '',
+                      'name': '',
+                      'description': '',
+                    });
+                    _roomService.roomInfoCompleters.remove(stanza.id);
                   }
                 }
               }
@@ -1358,6 +1357,11 @@ class AuthService with ChangeNotifier {
                   _discoveryCompleters[stanza.id]!.complete(discoveredRooms);
                   _discoveryCompleters.remove(stanza.id);
                 }
+                if (stanza.id != null &&
+                    _roomService.discoveryCompleters.containsKey(stanza.id)) {
+                  _roomService.discoveryCompleters[stanza.id]!.complete(discoveredRooms);
+                  _roomService.discoveryCompleters.remove(stanza.id);
+                }
                 return;
               }
 
@@ -1408,7 +1412,8 @@ class AuthService with ChangeNotifier {
 
                 // Handle MUC Room Info queries
                 if (stanza.id != null &&
-                    _roomInfoCompleters.containsKey(stanza.id)) {
+                    (_roomInfoCompleters.containsKey(stanza.id) ||
+                     _roomService.roomInfoCompleters.containsKey(stanza.id))) {
                   final Map<String, dynamic> roomInfo = {
                     'jid': stanza.fromJid?.fullJid ?? '',
                     'password_protected': false,
@@ -1447,8 +1452,14 @@ class AuthService with ChangeNotifier {
                     }
                   }
 
-                  _roomInfoCompleters[stanza.id]!.complete(roomInfo);
-                  _roomInfoCompleters.remove(stanza.id);
+                  if (_roomInfoCompleters.containsKey(stanza.id)) {
+                    _roomInfoCompleters[stanza.id]!.complete(roomInfo);
+                    _roomInfoCompleters.remove(stanza.id);
+                  }
+                  if (_roomService.roomInfoCompleters.containsKey(stanza.id)) {
+                    _roomService.roomInfoCompleters[stanza.id]!.complete(roomInfo);
+                    _roomService.roomInfoCompleters.remove(stanza.id);
+                  }
                 }
 
                 return;
@@ -1507,8 +1518,7 @@ class AuthService with ChangeNotifier {
                               final parts = jid.split('@');
                               if (parts.length == 2) {
                                 // Join the room using the active account ID and the nickname from the JID (parts[0])
-                                _roomNicknames['$id|${jid.toLowerCase()}'] =
-                                    parts[0];
+                                _roomService.setNickname(id, jid, parts[0]);
                                 joinXmppRoom(jid, parts[0]);
                                 debugPrint(
                                   'SYNC: Synced bookmark room $jid (Legacy)',
@@ -1532,8 +1542,7 @@ class AuthService with ChangeNotifier {
                         if (jid != null) {
                           final parts = jid.split('@');
                           if (parts.length == 2) {
-                            _roomNicknames['$id|${jid.toLowerCase()}'] =
-                                parts[0];
+                            _roomService.setNickname(id, jid, parts[0]);
                             joinXmppRoom(jid, parts[0]);
                             debugPrint(
                               'SYNC: Synced bookmark room $jid (Modern)',
@@ -1695,7 +1704,7 @@ class AuthService with ChangeNotifier {
                   final roomJid = child.getAttribute('jid')?.value;
                   if (roomJid != null) {
                     debugPrint('MUC: Received Direct Invite to $roomJid');
-                    _groupInviteStreamController.add({
+                    _roomService.emitGroupInvite({
                       'accountId': id,
                       'roomJid': roomJid,
                       'fromJid': stanza.fromJid?.fullJid ?? '',
@@ -1728,7 +1737,7 @@ class AuthService with ChangeNotifier {
                         stanza.fromJid?.fullJid ??
                         '';
                     debugPrint('MUC: Received Mediated Invite from $fromJid');
-                    _groupInviteStreamController.add({
+                    _roomService.emitGroupInvite({
                       'accountId': id,
                       'roomJid': stanza.fromJid?.fullJid ?? '',
                       'fromJid': fromJid,
@@ -1794,7 +1803,7 @@ class AuthService with ChangeNotifier {
 
                 // Identify if this message was sent by us (MUC Echo)
                 bool isMe = false;
-                final myNick = _roomNicknames['$id|${roomJid.toLowerCase()}'];
+                final myNick = _roomService.getNickname(id, roomJid.toLowerCase());
                 if (myNick != null) {
                   isMe = (nick == myNick);
                 } else {
@@ -2710,118 +2719,23 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  Future<void> joinRoom(
-    String accountId,
-    String roomJid,
-    String nickname,
-  ) async {
-    await joinXmppRoom(roomJid, nickname, accountId: accountId);
-  }
+  Future<void> joinRoom(String accountId, String roomJid, String nickname) async =>
+      _roomService.joinRoom(accountId, roomJid, nickname);
 
-  Future<void> inviteToRoom(
-    String accountId,
-    String roomJid,
-    String userJid, {
-    String? reason,
-  }) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
+  Future<void> inviteToRoom(String accountId, String roomJid, String userJid, {String? reason}) async =>
+      _roomService.inviteToRoom(accountId, roomJid, userJid, reason: reason);
 
-    final msg = xmpp.MessageStanza(
-      DateTime.now().millisecondsSinceEpoch.toString(),
-      xmpp.MessageStanzaType.NORMAL,
-    );
-    msg.toJid = xmpp.Jid.fromFullJid(roomJid);
+  Future<void> inviteToRoomDirect(String accountId, String roomJid, String userJid, {String? reason, String? password}) async =>
+      _roomService.inviteToRoomDirect(accountId, roomJid, userJid, reason: reason, password: password);
 
-    final x = xmpp.XmppElement();
-    x.name = 'x';
-    x.addAttribute(
-      xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#user'),
-    );
+  Future<void> createRoom(String accountId, String roomJid, String nickname) async =>
+      _roomService.createRoom(accountId, roomJid, nickname);
 
-    final invite = xmpp.XmppElement();
-    invite.name = 'invite';
-    invite.addAttribute(xmpp.XmppAttribute('to', userJid));
+  Future<void> leaveRoom(String accountId, String roomJid) async =>
+      _roomService.leaveRoom(accountId, roomJid);
 
-    if (reason != null && reason.isNotEmpty) {
-      final reasonEl = xmpp.XmppElement();
-      reasonEl.name = 'reason';
-      reasonEl.textValue = reason;
-      invite.addChild(reasonEl);
-    }
-
-    x.addChild(invite);
-    msg.addChild(x);
-
-    conn.writeStanza(msg);
-    debugPrint('MUC: Sent mediated invite to $userJid for room $roomJid');
-  }
-
-  Future<void> inviteToRoomDirect(
-    String accountId,
-    String roomJid,
-    String userJid, {
-    String? reason,
-    String? password,
-  }) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
-
-    final msg = xmpp.MessageStanza(
-      DateTime.now().millisecondsSinceEpoch.toString(),
-      xmpp.MessageStanzaType.CHAT,
-    );
-    msg.toJid = xmpp.Jid.fromFullJid(userJid);
-
-    final x = xmpp.XmppElement();
-    x.name = 'x';
-    x.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:conference'));
-    x.addAttribute(xmpp.XmppAttribute('jid', roomJid));
-
-    if (reason != null && reason.isNotEmpty) {
-      x.addAttribute(xmpp.XmppAttribute('reason', reason));
-    }
-    if (password != null && password.isNotEmpty) {
-      x.addAttribute(xmpp.XmppAttribute('password', password));
-    }
-
-    msg.addChild(x);
-    conn.writeStanza(msg);
-    debugPrint('MUC: Sent direct invite to $userJid for room $roomJid');
-  }
-
-  Future<void> createRoom(
-    String accountId,
-    String roomJid,
-    String nickname,
-  ) async {
-    await joinRoom(accountId, roomJid, nickname);
-  }
-
-  Future<void> leaveRoom(String accountId, String roomJid) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
-
-    debugPrint('MUC: Leaving Room $roomJid');
-    final presence = xmpp.PresenceStanza();
-    presence.toJid = xmpp.Jid.fromFullJid(roomJid);
-    presence.type = xmpp.PresenceType.UNAVAILABLE;
-    conn.writeStanza(presence);
-
-    _persistedRooms.removeWhere((r) => r.startsWith('$accountId|$roomJid'));
-    _saveJoinedRooms();
-  }
-
-  Future<String?> joinGenericRoom(
-    String destination, {
-    String? accountId,
-  }) async {
-    return await joinXmppRoom(
-      destination,
-      getResolvedNickname(accountId),
-      accountId: accountId,
-    );
-  }
+  Future<String?> joinGenericRoom(String destination, {String? accountId}) async =>
+      _roomService.joinGenericRoom(destination, accountId: accountId);
 
   void sendChatState(
     String targetJid,
@@ -2880,330 +2794,38 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  Future<List<Map<String, String>>> discoverMucRooms(
-    String accountId,
-    String serviceJid,
-  ) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return [];
-    final id = 'disco_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
-    iq.toJid = xmpp.Jid.fromFullJid(serviceJid);
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(
-      xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#items'),
-    );
-    iq.addChild(query);
-    final completer = Completer<List<Map<String, String>>>();
-    _discoveryCompleters[id] = completer;
-    conn.writeStanza(iq);
-    return completer.future.timeout(
-      const Duration(seconds: 15),
-      onTimeout: () {
-        _discoveryCompleters.remove(id);
-        return [];
-      },
-    );
-  }
+  Future<List<Map<String, String>>> discoverMucRooms(String accountId, String serviceJid) async =>
+      _roomService.discoverMucRooms(accountId, serviceJid);
 
-  Future<Map<String, dynamic>> getMucRoomInfo(
-    String accountId,
-    String roomJid,
-  ) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) {
-      return {'jid': roomJid, 'name': roomJid, 'description': ''};
-    }
-    final id = 'roominfo_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
-    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(
-      xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#info'),
-    );
-    iq.addChild(query);
-    final completer = Completer<Map<String, dynamic>>();
-    _roomInfoCompleters[id] = completer;
-    conn.writeStanza(iq);
-    return completer.future.timeout(
-      const Duration(seconds: 10),
-      onTimeout: () {
-        _roomInfoCompleters.remove(id);
-        return {'jid': roomJid, 'name': roomJid, 'description': ''};
-      },
-    );
-  }
+  Future<Map<String, dynamic>> getMucRoomInfo(String accountId, String roomJid) async =>
+      _roomService.getMucRoomInfo(accountId, roomJid);
 
-  Future<void> requestRoomConfig(String accountId, String roomJid) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
+  Future<void> requestRoomConfig(String accountId, String roomJid) async =>
+      _roomService.requestRoomConfig(accountId, roomJid);
 
-    final id = 'config_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
-    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(
-      xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'),
-    );
-    iq.addChild(query);
-    conn.writeStanza(iq);
-  }
+  Future<void> submitRoomConfig(String accountId, String roomJid, Map<String, String> fields) async =>
+      _roomService.submitRoomConfig(accountId, roomJid, fields);
 
-  Future<void> submitRoomConfig(
-    String accountId,
-    String roomJid,
-    Map<String, String> fields,
-  ) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
+  Future<Map<String, dynamic>?> fetchRoomConfig(String accountId, String roomJid) async =>
+      _roomService.fetchRoomConfig(accountId, roomJid);
 
-    final id = 'submit_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.SET);
-    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+  Future<List<Map<String, String>>> fetchRoomAffiliations(String accountId, String roomJid, String affiliation) async =>
+      _roomService.fetchRoomAffiliations(accountId, roomJid, affiliation);
 
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(
-      xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'),
-    );
+  Future<void> setMucRole(String accountId, String roomJid, String nick, String role, {String? reason}) async =>
+      _roomService.setMucRole(accountId, roomJid, nick, role, reason: reason);
 
-    final x = xmpp.XmppElement();
-    x.name = 'x';
-    x.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
-    x.addAttribute(xmpp.XmppAttribute('type', 'submit'));
+  Future<void> setMucAffiliation(String accountId, String roomJid, String userJid, String affiliation, {String? reason}) async =>
+      _roomService.setMucAffiliation(accountId, roomJid, userJid, affiliation, reason: reason);
 
-    fields.forEach((key, value) {
-      final field = xmpp.XmppElement();
-      field.name = 'field';
-      field.addAttribute(xmpp.XmppAttribute('var', key));
-      final val = xmpp.XmppElement();
-      val.name = 'value';
-      val.textValue = value;
-      field.addChild(val);
-      x.addChild(field);
-    });
+  Future<void> sendXmppSubject(String roomJid, String subject, {String? accountId}) async =>
+      _roomService.sendXmppSubject(roomJid, subject, accountId: accountId);
 
-    query.addChild(x);
-    iq.addChild(query);
-    conn.writeStanza(iq);
-  }
+  Future<void> kickUser(String accountId, String roomJid, String nick, {String? reason}) async =>
+      _roomService.kickUser(accountId, roomJid, nick, reason: reason);
 
-  // --- MUC Administration (XEP-0045) ---
-
-  Future<Map<String, dynamic>?> fetchRoomConfig(String accountId, String roomJid) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return null;
-
-    final id = 'config_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
-    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
-
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'));
-    iq.addChild(query);
-
-    final completer = Completer<xmpp.IqStanza>();
-    _pendingIqs[id] = completer;
-    conn.writeStanza(iq);
-
-    try {
-      final response = await completer.future.timeout(const Duration(seconds: 10));
-      if (response.type == xmpp.IqStanzaType.ERROR) return null;
-
-      final q = response.getChild('query');
-      final x = q?.getChild('x');
-      if (x == null) return null;
-
-      final config = <String, dynamic>{};
-      for (var field in x.children.where((c) => c.name == 'field')) {
-        final varName = field.getAttribute('var')?.value;
-        if (varName == null) continue;
-        
-        final values = field.children.where((c) => c.name == 'value').map((c) => c.textValue).toList();
-        if (values.isEmpty) continue;
-        
-        if (values.length == 1) {
-          config[varName] = values.first;
-        } else {
-          config[varName] = values;
-        }
-      }
-      return config;
-    } catch (e) {
-      return null;
-    } finally {
-      _pendingIqs.remove(id);
-    }
-  }
-
-  Future<List<Map<String, String>>> fetchRoomAffiliations(String accountId, String roomJid, String affiliation) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return [];
-
-    final id = 'affil_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
-    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
-
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#admin'));
-    
-    final item = xmpp.XmppElement();
-    item.name = 'item';
-    item.addAttribute(xmpp.XmppAttribute('affiliation', affiliation)); // owner, admin, member, outcast
-    
-    query.addChild(item);
-    iq.addChild(query);
-
-    final completer = Completer<xmpp.IqStanza>();
-    _pendingIqs[id] = completer;
-    conn.writeStanza(iq);
-
-    try {
-      final response = await completer.future.timeout(const Duration(seconds: 10));
-      if (response.type == xmpp.IqStanzaType.ERROR) return [];
-
-      final q = response.getChild('query');
-      if (q == null) return [];
-
-      final items = <Map<String, String>>[];
-      for (var it in q.children.where((c) => c.name == 'item')) {
-        final jid = it.getAttribute('jid')?.value;
-        if (jid != null) {
-          items.add({'jid': jid, 'affiliation': affiliation});
-        }
-      }
-      return items;
-    } catch (e) {
-      return [];
-    } finally {
-      _pendingIqs.remove(id);
-    }
-  }
-
-  Future<void> setMucRole(
-    String accountId,
-    String roomJid,
-    String nick,
-    String role, {
-    String? reason,
-  }) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
-
-    final id = 'role_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.SET);
-    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
-
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(
-      xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#admin'),
-    );
-
-    final item = xmpp.XmppElement();
-    item.name = 'item';
-    item.addAttribute(xmpp.XmppAttribute('nick', nick));
-    item.addAttribute(xmpp.XmppAttribute('role', role));
-
-    if (reason != null && reason.isNotEmpty) {
-      final reasonEl = xmpp.XmppElement();
-      reasonEl.name = 'reason';
-      reasonEl.textValue = reason;
-      item.addChild(reasonEl);
-    }
-
-    query.addChild(item);
-    iq.addChild(query);
-    conn.writeStanza(iq);
-  }
-
-  Future<void> setMucAffiliation(
-    String accountId,
-    String roomJid,
-    String userJid,
-    String affiliation, {
-    String? reason,
-  }) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
-
-    final id = 'affil_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.SET);
-    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
-
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(
-      xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#admin'),
-    );
-
-    final item = xmpp.XmppElement();
-    item.name = 'item';
-    item.addAttribute(xmpp.XmppAttribute('jid', userJid));
-    item.addAttribute(xmpp.XmppAttribute('affiliation', affiliation));
-
-    if (reason != null && reason.isNotEmpty) {
-      final reasonEl = xmpp.XmppElement();
-      reasonEl.name = 'reason';
-      reasonEl.textValue = reason;
-      item.addChild(reasonEl);
-    }
-
-    query.addChild(item);
-    iq.addChild(query);
-    conn.writeStanza(iq);
-  }
-
-  Future<void> sendXmppSubject(
-    String roomJid,
-    String subject, {
-    String? accountId,
-  }) async {
-    final conn = _xmppConnections[accountId ?? _activeAccountId];
-    if (conn == null) return;
-
-    final msg = xmpp.MessageStanza(
-      DateTime.now().millisecondsSinceEpoch.toString(),
-      xmpp.MessageStanzaType.GROUPCHAT,
-    );
-    msg.toJid = xmpp.Jid.fromFullJid(roomJid);
-
-    final subjEl = xmpp.XmppElement();
-    subjEl.name = 'subject';
-    subjEl.textValue = subject;
-    msg.addChild(subjEl);
-
-    conn.writeStanza(msg);
-  }
-
-  Future<void> kickUser(
-    String accountId,
-    String roomJid,
-    String nick, {
-    String? reason,
-  }) async {
-    await setMucRole(accountId, roomJid, nick, 'none', reason: reason);
-  }
-
-  Future<void> banUser(
-    String accountId,
-    String roomJid,
-    String userJid, {
-    String? reason,
-  }) async {
-    await setMucAffiliation(
-      accountId,
-      roomJid,
-      userJid,
-      'outcast',
-      reason: reason,
-    );
-  }
+  Future<void> banUser(String accountId, String roomJid, String userJid, {String? reason}) async =>
+      _roomService.banUser(accountId, roomJid, userJid, reason: reason);
 
   List<Map<String, dynamic>> getAuthenticatedAccounts() {
     return _authenticatedAccountIds
@@ -3223,113 +2845,13 @@ class AuthService with ChangeNotifier {
     return jid;
   }
 
-  Future<void> _saveJoinedRooms() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('joined_rooms', _persistedRooms.toList());
-    _publishBookmarks();
-  }
-
-  void _publishBookmarks() {
-    // Publish to storage:bookmarks
-    final accountGroups = <String, List<String>>{};
-    for (final room in _persistedRooms) {
-      final parts = room.split('|');
-      if (parts.length >= 2) {
-        final acc = parts[0];
-        final jid = parts[1];
-        accountGroups[acc] ??= [];
-        accountGroups[acc]!.add(jid);
-      }
-    }
-
-    for (final acc in accountGroups.keys) {
-      final conn = _xmppConnections[acc];
-      if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
-        continue;
-      }
-
-      try {
-        final id = 'pub_bm_${DateTime.now().millisecondsSinceEpoch}';
-        final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.SET);
-
-        final pubsub = xmpp.XmppElement();
-        pubsub.name = 'pubsub';
-        pubsub.addAttribute(
-          xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'),
-        );
-
-        final publish = xmpp.XmppElement();
-        publish.name = 'publish';
-        publish.addAttribute(xmpp.XmppAttribute('node', 'storage:bookmarks'));
-
-        final item = xmpp.XmppElement();
-        item.name = 'item';
-        item.addAttribute(xmpp.XmppAttribute('id', 'current'));
-
-        final storage = xmpp.XmppElement();
-        storage.name = 'storage';
-        storage.addAttribute(xmpp.XmppAttribute('xmlns', 'storage:bookmarks'));
-
-        for (final jid in accountGroups[acc]!) {
-          final conf = xmpp.XmppElement();
-          conf.name = 'conference';
-          conf.addAttribute(xmpp.XmppAttribute('autojoin', '1'));
-          conf.addAttribute(xmpp.XmppAttribute('jid', jid));
-          conf.addAttribute(xmpp.XmppAttribute('name', jid.split('@').first));
-          storage.addChild(conf);
-        }
-
-        item.addChild(storage);
-        publish.addChild(item);
-
-        final publishOptions = xmpp.XmppElement();
-        publishOptions.name = 'publish-options';
-        final x = xmpp.XmppElement();
-        x.name = 'x';
-        x.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
-        x.addAttribute(xmpp.XmppAttribute('type', 'submit'));
-
-        final field = xmpp.XmppElement();
-        field.name = 'field';
-        field.addAttribute(xmpp.XmppAttribute('var', 'FORM_TYPE'));
-        field.addAttribute(xmpp.XmppAttribute('type', 'hidden'));
-        final val = xmpp.XmppElement();
-        val.name = 'value';
-        val.textValue = 'http://jabber.org/protocol/pubsub#publish-options';
-        field.addChild(val);
-        x.addChild(field);
-
-        final accessModel = xmpp.XmppElement();
-        accessModel.name = 'field';
-        accessModel.addAttribute(
-          xmpp.XmppAttribute('var', 'pubsub#access_model'),
-        );
-        final accessVal = xmpp.XmppElement();
-        accessVal.name = 'value';
-        accessVal.textValue = 'whitelist';
-        accessModel.addChild(accessVal);
-        x.addChild(accessModel);
-
-        publishOptions.addChild(x);
-
-        pubsub.addChild(publish);
-        pubsub.addChild(publishOptions);
-        iq.addChild(pubsub);
-
-        conn.writeStanza(iq);
-        debugPrint('SYNC: Published bookmarks for $acc');
-      } catch (e) {
-        debugPrint('SYNC: Failed to publish bookmarks for $acc: $e');
-      }
-    }
-  }
-
+  Future<void> _saveJoinedRooms() async => await _roomService.saveJoinedRooms();
+  void _publishBookmarks() => _roomService.publishBookmarks();
   Future<void> _loadJoinedRooms() async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = prefs.getStringList('joined_rooms') ?? [];
-    _persistedRooms = list.toSet();
+    await _roomService.loadJoinedRooms();
 
     // Migrate old spaces from SharedPreferences to SQLite if needed
+    final prefs = await SharedPreferences.getInstance();
     final spacesList = prefs.getStringList('joined_spaces');
     final db = DatabaseService();
     if (spacesList != null && spacesList.isNotEmpty) {
@@ -3346,20 +2868,38 @@ class AuthService with ChangeNotifier {
     _cachedJoinedSpaces = await db.getJoinedSpaces();
     _emitJoinedSpaces();
   }
+  Future<void> _autoJoinRooms(String accountId) async => await _roomService.autoJoinRooms(accountId);
 
-  Future<void> _autoJoinRooms(String accountId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = prefs.getStringList('joined_rooms') ?? [];
-    _persistedRooms = list.toSet();
+  Future<String?> createXmppRoom(String roomJid, String nick, {String? accountId}) async =>
+      _roomService.createXmppRoom(roomJid, nick, accountId: accountId);
 
-    for (var roomInfo in list) {
-      final parts = roomInfo.split('|');
-      if (parts.length == 3 && parts[0] == accountId) {
-        _roomNicknames['${parts[0]}|${parts[1].toLowerCase()}'] = parts[2];
-        joinRoom(parts[0], parts[1], parts[2]);
-      }
-    }
-  }
+  Future<void> configureXmppRoom(
+    String roomJid, {
+    String? accountId,
+    String? name,
+    String? description,
+    bool isPublic = true,
+    bool isPersistent = true,
+    bool isMembersOnly = false,
+    bool allowMemberInvites = true,
+    bool changeSubject = true,
+    int historyLength = 50,
+  }) async =>
+      _roomService.configureXmppRoom(
+        roomJid,
+        accountId: accountId,
+        name: name,
+        description: description,
+        isPublic: isPublic,
+        isPersistent: isPersistent,
+        isMembersOnly: isMembersOnly,
+        allowMemberInvites: allowMemberInvites,
+        changeSubject: changeSubject,
+        historyLength: historyLength,
+      );
+
+  Future<String?> joinXmppRoom(String roomJid, String nick, {String? accountId, String? password}) async =>
+      _roomService.joinXmppRoom(roomJid, nick, accountId: accountId, password: password);
 
   Future<void> logout() async {
     for (var entry in _xmppConnections.entries) {
@@ -3619,224 +3159,6 @@ class AuthService with ChangeNotifier {
         protocol: 'XMPP',
       ),
     );
-  }
-
-  Future<String?> createXmppRoom(
-    String roomJid,
-    String nick, {
-    String? accountId,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
-      return 'XMPP not connected';
-    }
-
-    try {
-      // 1. Initial MUC joining presence (XEP-0045 7.2.1)
-      final roomJidObj = xmpp.Jid.fromFullJid('$roomJid/$nick');
-      final presence = xmpp.PresenceStanza();
-      presence.toJid = roomJidObj;
-      presence.addAttribute(xmpp.XmppAttribute('to', '$roomJid/$nick'));
-      presence.show = xmpp.PresenceShowElement.CHAT;
-      presence.status = 'Creating room...';
-
-      // Add <x xmlns='http://jabber.org/protocol/muc'/> to signal MUC intent
-      final mucX = xmpp.XmppElement();
-      mucX.name = 'x';
-      mucX.addAttribute(
-        xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc'),
-      );
-      presence.addChild(mucX);
-
-      conn.writeStanza(presence);
-
-      // 2. Immediate "Instant Room" configuration (XEP-0045 10.1.2)
-      final iqId = 'mucConfirm_${DateTime.now().millisecondsSinceEpoch}';
-      final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
-      iq.toJid = xmpp.Jid.fromFullJid(roomJid);
-
-      final query = xmpp.XmppElement();
-      query.name = 'query';
-      query.addAttribute(
-        xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'),
-      );
-
-      final xForm = xmpp.XmppElement();
-      xForm.name = 'x';
-      xForm.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
-      xForm.addAttribute(
-        xmpp.XmppAttribute('type', 'submit'),
-      ); // Submit empty form = Instant Room
-
-      query.addChild(xForm);
-      iq.addChild(query);
-
-      conn.writeStanza(iq);
-
-      _joinedRooms.add(
-        Room(
-          id: roomJid,
-          name: roomJid.split('@').first,
-          participants: [],
-          protocol: 'XMPP',
-        ),
-      );
-      _joinedRoomsStreamController.add(List.from(_joinedRooms));
-      notifyListeners();
-      return null;
-    } catch (e) {
-      debugPrint('XMPP Room Creation Error: $e');
-      return e.toString();
-    }
-  }
-
-  Future<void> configureXmppRoom(
-    String roomJid, {
-    String? accountId,
-    String? name,
-    String? description,
-    bool isPublic = true,
-    bool isPersistent = true,
-    bool isMembersOnly = false,
-    bool allowMemberInvites = true,
-    bool changeSubject = true,
-    int historyLength = 50,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return;
-
-    final iqId = 'mucConfig_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
-    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
-
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'));
-
-    final xForm = xmpp.XmppElement();
-    xForm.name = 'x';
-    xForm.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
-    xForm.addAttribute(xmpp.XmppAttribute('type', 'submit'));
-
-    final fields = <xmpp.XmppElement>[];
-
-    final formType = xmpp.XmppElement();
-    formType.name = 'field';
-    formType.addAttribute(xmpp.XmppAttribute('var', 'FORM_TYPE'));
-    formType.addAttribute(xmpp.XmppAttribute('type', 'hidden'));
-    final formTypeValue = xmpp.XmppElement();
-    formTypeValue.name = 'value';
-    formTypeValue.textValue = 'http://jabber.org/protocol/muc#roomconfig';
-    formType.addChild(formTypeValue);
-    fields.add(formType);
-
-    if (name != null) {
-      fields.add(_makeField('muc#roomconfig_roomname', name));
-    }
-    if (description != null) {
-      fields.add(_makeField('muc#roomconfig_roomdesc', description));
-    }
-    fields.add(_makeField('muc#roomconfig_publicroom', isPublic ? '1' : '0'));
-    fields.add(_makeField('muc#roomconfig_persistentroom', isPersistent ? '1' : '0'));
-    fields.add(_makeField('muc#roomconfig_membersonly', isMembersOnly ? '1' : '0'));
-    fields.add(_makeField('muc#roomconfig_allowmemberinvites', allowMemberInvites ? '1' : '0'));
-    fields.add(_makeField('muc#roomconfig_changesubject', changeSubject ? '1' : '0'));
-    fields.add(_makeField('muc#roomconfig_historylength', historyLength.toString()));
-
-    for (final field in fields) {
-      xForm.addChild(field);
-    }
-
-    query.addChild(xForm);
-    iq.addChild(query);
-
-    conn.writeStanza(iq);
-  }
-
-  xmpp.XmppElement _makeField(String varName, String value) {
-    final field = xmpp.XmppElement();
-    field.name = 'field';
-    field.addAttribute(xmpp.XmppAttribute('var', varName));
-    final valEl = xmpp.XmppElement();
-    valEl.name = 'value';
-    valEl.textValue = value;
-    field.addChild(valEl);
-    return field;
-  }
-
-  Future<String?> joinXmppRoom(
-    String roomJid,
-    String nick, {
-    String? accountId,
-    String? password,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
-      return 'XMPP not connected';
-    }
-    try {
-      final roomJidObj = xmpp.Jid.fromFullJid('$roomJid/$nick');
-      final presence = xmpp.PresenceStanza();
-      presence.toJid = roomJidObj;
-      presence.addAttribute(xmpp.XmppAttribute('to', '$roomJid/$nick'));
-      presence.show = xmpp.PresenceShowElement.CHAT;
-      presence.status = 'Joining room...';
-
-      final mucX = xmpp.XmppElement();
-      mucX.name = 'x';
-      mucX.addAttribute(
-        xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc'),
-      );
-
-      if (password != null && password.isNotEmpty) {
-        final passEl = xmpp.XmppElement();
-        passEl.name = 'password';
-        passEl.textValue = password;
-        mucX.addChild(passEl);
-      }
-
-      presence.addChild(mucX);
-
-      conn.writeStanza(presence);
-
-      bool exists = false;
-      for (var r in _joinedRooms) {
-        if (r.id == roomJid) exists = true;
-      }
-
-      _roomNicknames['$id|${roomJid.toLowerCase()}'] = nick;
-
-      if (!exists) {
-        _joinedRooms.add(
-          Room(
-            id: roomJid,
-            name: roomJid.split('@').first,
-            participants: [],
-            protocol: 'XMPP',
-          ),
-        );
-        _joinedRoomsStreamController.add(List.from(_joinedRooms));
-        notifyListeners();
-      }
-
-      final persistStr = '$id|$roomJid|$nick';
-      if (!_persistedRooms.contains(persistStr)) {
-        _persistedRooms.add(persistStr);
-        _saveJoinedRooms(); // This also publishes bookmarks
-      }
-
-      return null;
-    } catch (e) {
-      debugPrint('Failed to join room: $e');
-      return e.toString();
-    }
-  }
-
-  List<RoomParticipant> getRoomParticipants(String roomJid) {
-    return _roomParticipants[roomJid]?.toList() ?? [];
   }
 
   Future<List<Map<String, dynamic>>> fetchIceServers(String accountId) async {
