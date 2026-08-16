@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  analyze-flutter:
+    name: Flutter Analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - working-directory: packages/xmpp_stone
+        run: dart pub get
+
+      - working-directory: packages/sip_ua
+        run: dart pub get
+
+      - name: Analyze Flutter app (lib/ only)
+        run: flutter analyze lib
+
+  analyze-backend:
+    name: Backend Analyze
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gibber-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Analyze
+        run: dart analyze --fatal-infos
+
+  build-web:
+    name: Build Web
+    runs-on: ubuntu-latest
+    needs: analyze-flutter
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - working-directory: packages/xmpp_stone
+        run: dart pub get
+
+      - name: Build web
+        run: flutter build web --release
+
+      - name: Upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: build/web/
+
+  build-backend-docker:
+    name: Build Backend Docker
+    runs-on: ubuntu-latest
+    needs: analyze-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        run: docker build -t gibber-backend:test gibber-backend/
+
+      - name: Build prosody image
+        run: docker build -t gibber-prosody:test gibber-backend/prosody/
