@@ -12,15 +12,14 @@ import './jingle_signaling_service.dart';
 import './xmpp_proxy_service.dart' if (dart.library.html) './xmpp_proxy_service_web.dart';
 import './http_upload_service.dart';
 import './avatar_cache_service.dart';
-import './omemo_service_stub.dart' if (dart.library.io) './omemo_service.dart';
 import './secure_storage_service.dart';
-import './omemo_storage_stub.dart' if (dart.library.io) './omemo_storage.dart';
 import './otr_service.dart';
 import './spaces_service.dart';
 import '../models/space_models.dart';
 import './database_service.dart';
 import './offline_queue_service.dart';
 import './connection_lifecycle_service.dart';
+import './xmpp_omemo_service.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -275,127 +274,36 @@ class AuthService with ChangeNotifier {
     return ConnectionProtocol.none;
   }
 
-  final OmemoService _omemo = OmemoService();
-  final Map<String, bool> _omemoEnabled = {};
-  bool _isStrictVerificationEnabled = false;
+  final XmppOmemoService _omemoService = XmppOmemoService();
+  XmppOmemoService get omemoService => _omemoService;
 
-  bool isOmemoEnabled(String chatId) {
-    return _omemoEnabled[chatId.toLowerCase()] ?? false;
-  }
+  bool isOmemoEnabled(String chatId) => _omemoService.isOmemoEnabled(chatId);
 
-  bool get isStrictVerificationEnabled => _isStrictVerificationEnabled;
+  bool get isStrictVerificationEnabled => _omemoService.isStrictVerificationEnabled;
 
-  Future<void> setStrictVerification(bool enabled) async {
-    _isStrictVerificationEnabled = enabled;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('omemo_strict_verification', enabled);
-    notifyListeners();
-  }
+  Future<void> setStrictVerification(bool enabled) => _omemoService.setStrictVerification(enabled);
 
-  Future<bool> hasUnverifiedDevices(String jid) async {
-    if (kIsWeb) return false;
-    final store = SQLiteSignalStore();
-    final identities = await store.getIdentitiesForJid(
-      jid.split('/').first.toLowerCase(),
-    );
-    return identities.any((iden) => (iden['trust_level'] as int? ?? 0) == 0);
-  }
+  Future<bool> hasUnverifiedDevices(String jid) => _omemoService.hasUnverifiedDevices(jid);
 
-  Future<int> getChatSecurityStatus(String chatId) async {
-    if (!isOmemoEnabled(chatId)) return -1; // Not encrypted
+  Future<int> getChatSecurityStatus(String chatId) => _omemoService.getChatSecurityStatus(chatId);
 
-    final fingerprints = await _omemo.getFingerprintsDetailed(chatId);
-    if (fingerprints.isEmpty) return -1;
+  Future<void> updateOmemoTrust(String jid, int deviceId, int trustLevel) => _omemoService.updateOmemoTrust(jid, deviceId, trustLevel);
 
-    bool hasDistrusted = false;
-    bool hasUnverified = false;
+  void toggleOmemo(String chatId) => _omemoService.toggleOmemo(chatId);
 
-    for (var device in fingerprints.values) {
-      final level = device['trustLevel'] as int;
-      if (level == 2) hasDistrusted = true;
-      if (level == 0) hasUnverified = true;
-    }
+  bool isOmemoSupportedByServer(String accountId) => _omemoService.isOmemoSupportedByServer(accountId);
 
-    if (hasDistrusted) return 2; // Red (Distrusted)
-    if (hasUnverified) return 0; // Yellow (Unverified)
-    return 1; // Green (Trusted)
-  }
+  Future<Map<int, Map<String, dynamic>>> getOmemoFingerprintsDetailed(String chatId) => _omemoService.getOmemoFingerprintsDetailed(chatId);
 
-  Future<void> updateOmemoTrust(
-    String jid,
-    int deviceId,
-    int trustLevel,
-  ) async {
-    await _omemo.setDeviceTrust(jid, deviceId, trustLevel);
-    notifyListeners();
-  }
+  Future<void> refreshOmemoDevices(String chatId, {String? accountId}) => _omemoService.refreshOmemoDevices(chatId, accountId: accountId);
 
-  void toggleOmemo(String chatId) {
-    final id = chatId.toLowerCase();
-    _omemoEnabled[id] = !(_omemoEnabled[id] ?? false);
-    notifyListeners();
-  }
+  Future<String> getMyOmemoFingerprint() => _omemoService.getMyOmemoFingerprint();
 
-  bool isOmemoSupportedByServer(String accountId) {
-    return _serverFeatures[accountId]?.contains(OmemoService.nsOmemo) ?? false;
-  }
+  Future<List<Map<String, dynamic>>> fetchOmemoIdentities() => _omemoService.fetchOmemoIdentities(activeAccountId: _activeAccountId, jidsMap: _xmppJids);
 
-  Future<Map<int, Map<String, dynamic>>> getOmemoFingerprintsDetailed(
-    String chatId,
-  ) {
-    return _omemo.getFingerprintsDetailed(chatId);
-  }
+  int getLocalOmemoDeviceId() => _omemoService.getLocalOmemoDeviceId();
 
-  Future<void> refreshOmemoDevices(String chatId, {String? accountId}) async {
-    final id = accountId ?? _activeAccountId;
-    if (id != null && _xmppConnections.containsKey(id)) {
-      _omemo.setConnection(_xmppConnections[id]!);
-    }
-
-    final devices = await _omemo.fetchDeviceList(chatId);
-    for (var devId in devices) {
-      await _omemo.buildSession(chatId, devId);
-    }
-  }
-
-  Future<String> getMyOmemoFingerprint() async {
-    return await _omemo.getLocalFingerprint();
-  }
-
-  Future<List<Map<String, dynamic>>> fetchOmemoIdentities() async {
-    if (kIsWeb) return [];
-    final store = SQLiteSignalStore();
-    final List<Map<String, dynamic>> identities = List.from(
-      await store.getAllIdentities(),
-    );
-
-    try {
-      final myIdentity = await store.getIdentityKeyPair();
-      final myJid = _activeAccountId != null
-          ? _xmppJids[_activeAccountId]?.split('/').first.toLowerCase()
-          : 'My Account';
-      identities.insert(0, {
-        'address_name': myJid ?? 'My Account',
-        'device_id': _omemo.localDeviceId,
-        'identity_key_data': myIdentity.getPublicKey().serialize(),
-        'trust_level': 1,
-      });
-    } catch (e) {
-      debugPrint('Error loading own identity: $e');
-    }
-
-    return identities;
-  }
-
-  int getLocalOmemoDeviceId() => _omemo.localDeviceId;
-
-  Future<void> resetOmemoKeys(String accountId) async {
-    final bareJid = _xmppJids[accountId]?.split('/').first.toLowerCase();
-    if (bareJid != null) {
-      await _omemo.resetIdentity(bareJid);
-    }
-    notifyListeners();
-  }
+  Future<void> resetOmemoKeys(String accountId) => _omemoService.resetOmemoKeys(accountId);
 
   final _secureStorage = SecureStorageService.instance;
 
@@ -897,11 +805,12 @@ class AuthService with ChangeNotifier {
 
       final conn = xmpp.Connection(accountSettings);
       final bareJid = fullJidStr.split('/').first.toLowerCase();
-      _omemo.setConnection(conn);
-      await _omemo.initialize(bareJid);
+      _omemoService.registerConnection(id, conn, fullJidStr);
+      await _omemoService.initialize(bareJid);
 
       _xmppConnections[id] = conn;
       _xmppJids[id] = jid.fullJid ?? fullJidStr; // Store JID
+      _omemoService.registerConnection(id, conn, fullJidStr);
       ConnectionLifecycleService.instance.registerConnection(id, conn);
 
       _connectionStateSubs[id]?.cancel();
@@ -924,10 +833,7 @@ class AuthService with ChangeNotifier {
 
           // OMEMO: Publish keys now that we're connected & authenticated (XEP-0384)
           final bareJid = fullJidStr.split('/').first.toLowerCase();
-          _omemo.ensureNodeAccessModels(conn);
-          _omemo.publishDeviceList(conn, bareJid);
-          _omemo.publishBundle(conn);
-          _omemo.checkAndReplenishPreKeys();
+          _omemoService.publishKeys(conn, bareJid);
 
           // Broadcast presence after connection (including XEP-0153 avatar hash)
           await updateMyStatus(_myStatus, message: _myStatusMessage);
@@ -1472,6 +1378,7 @@ class AuthService with ChangeNotifier {
                       _serverFeatures[id]!.add(varAttr);
                     }
                   }
+                  _omemoService.registerServerFeatures(id, _serverFeatures[id]!);
                   debugPrint('DISCO: Server features: ${_serverFeatures[id]}');
 
                   // If Carbons supported, auto-enable
@@ -1659,7 +1566,7 @@ class AuthService with ChangeNotifier {
                       final list = item.getChild('list');
                       if (list != null &&
                           list.getAttribute('xmlns')?.value ==
-                              OmemoService.nsOmemo) {
+                              XmppOmemoService.nsOmemo) {
                         for (var device in list.children.where(
                           (c) => c.name == 'device',
                         )) {
@@ -1668,7 +1575,7 @@ class AuthService with ChangeNotifier {
                             final devId = int.tryParse(idStr);
                             if (devId != null) {
                               // Dynamically fetch bundle for new devices
-                              _omemo.buildSession(bareJid, devId).then((_) {
+                              _omemoService.buildSession(bareJid, devId).then((_) {
                                 notifyListeners();
                               });
                             }
@@ -1844,7 +1751,7 @@ class AuthService with ChangeNotifier {
                 final encrypted = stanza.getChild('encrypted');
                 if (encrypted != null) {
                   final delay = stanza.getChild('delay');
-                  final decrypted = await _omemo.decryptMessage(
+                  final decrypted = await _omemoService.decryptMessage(
                     encrypted,
                     fromBareJid: roomJid.toLowerCase(),
                     isHistorical: delay != null,
@@ -1855,11 +1762,11 @@ class AuthService with ChangeNotifier {
                     finalBody =
                         '🔒 [Decryption Failed - Rebuilding Session...]';
                     // Auto-heal session
-                    _omemo.fetchDeviceList(roomJid.toLowerCase()).then((
+                    _omemoService.fetchDeviceList(roomJid.toLowerCase()).then((
                       devices,
                     ) {
                       for (var devId in devices) {
-                        _omemo.buildSession(roomJid.toLowerCase(), devId);
+                        _omemoService.buildSession(roomJid.toLowerCase(), devId);
                       }
                     });
                   }
@@ -1939,7 +1846,7 @@ class AuthService with ChangeNotifier {
                 final encrypted = stanza.getChild('encrypted');
                 if (encrypted != null) {
                   final delay = stanza.getChild('delay');
-                  final decrypted = await _omemo.decryptMessage(
+                  final decrypted = await _omemoService.decryptMessage(
                     encrypted,
                     fromBareJid: bareJid,
                     isHistorical: delay != null,
@@ -2021,7 +1928,7 @@ class AuthService with ChangeNotifier {
                             .split('/')
                             .first
                             .toLowerCase();
-                        final decrypted = await _omemo.decryptMessage(
+                        final decrypted = await _omemoService.decryptMessage(
                           encrypted,
                           fromBareJid: bareJid,
                           isHistorical:
@@ -2131,7 +2038,7 @@ class AuthService with ChangeNotifier {
                     if (encrypted != null && buddyJid != null) {
                       final bareJid = buddyJid.split('/').first.toLowerCase();
                       final delay = forwarded?.getChild('delay');
-                      final decrypted = await _omemo.decryptMessage(
+                      final decrypted = await _omemoService.decryptMessage(
                         encrypted,
                         fromBareJid: bareJid,
                         isHistorical: delay != null,
@@ -2276,7 +2183,7 @@ class AuthService with ChangeNotifier {
   }) async {
     final id = accountId ?? _activeAccountId;
     final conn = _xmppConnections[id];
-    final isOmemo = _omemoEnabled[targetJid.toLowerCase()] ?? false;
+    final isOmemo = _omemoService.isOmemoEnabled(targetJid);
     if (conn != null &&
         (conn.state == xmpp.XmppConnectionState.Ready ||
             conn.state == xmpp.XmppConnectionState.Resumed)) {
@@ -2301,10 +2208,10 @@ class AuthService with ChangeNotifier {
 
       // OMEMO Encryption Layer
       if (isOmemo) {
-        final encryptedList = await _omemo.encryptMessage(
+        final encryptedList = await _omemoService.encryptMessage(
           targetJid,
           text,
-          strict: _isStrictVerificationEnabled,
+          strict: _omemoService.isStrictVerificationEnabled,
         );
         if (encryptedList != null && encryptedList.isNotEmpty) {
           for (var enc in encryptedList) {
@@ -2413,7 +2320,7 @@ class AuthService with ChangeNotifier {
       final fileName = row['file_name'] as String?;
       final replyToId = row['reply_to_id'] as String?;
       final isGroup = (row['is_group'] as int?) == 1;
-      // encryptionType from queue: OMEMO state is determined by _omemoEnabled at send time
+      // encryptionType from queue: OMEMO state is determined by omemoService at send time
       final _ = row['encryption_type'] as String?;
 
       final conn = _xmppConnections[accountId];
@@ -4544,7 +4451,7 @@ class AuthService with ChangeNotifier {
 
   Future<void> clearAllData() async {
     await logout();
-    await _omemo.clearDatabase();
+     await _omemoService.clearDatabase();
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     await _secureStorage.deleteAll();
