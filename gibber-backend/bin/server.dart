@@ -118,22 +118,22 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
             content = content.replaceAll(RegExp(r'<starttls[^>]*/>'), '');
 
             // 2. SASL2 <authentication> block handling
-            if (!enableSasl2) {
-              // Strip SASL2 and fall back to SASL1 <mechanisms>
-              if (content.contains(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"]', dotAll: true))) {
-                final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
-                    .allMatches(content)
-                    .map((m) => m.group(1)!)
-                    .toSet();
+            // Always strip SASL2 from stream features since xmpp_stone only
+            // supports SASL1. Extract mechanisms and inject a SASL1 <mechanisms>
+            // element so the client can authenticate.
+            if (content.contains(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"]', dotAll: true))) {
+              final sasl2Mechs = RegExp(r'<mechanism>([^<]+)</mechanism>')
+                  .allMatches(content)
+                  .map((m) => m.group(1)!)
+                  .toSet();
 
-                content = content.replaceAll(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"][^>]*>.*?</authentication>', dotAll: true), '');
+              content = content.replaceAll(RegExp('<authentication xmlns=[\'"]urn:xmpp:sasl:2[\'"][^>]*>.*?</authentication>', dotAll: true), '');
 
-                if (!content.contains('<mechanisms')) {
-                  final mechs = sasl2Mechs.toList()..add('PLAIN');
-                  final mechsXml = mechs.map((m) => '<mechanism>$m</mechanism>').join('');
-                  final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>$mechsXml</mechanisms>";
-                  content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
-                }
+              if (!content.contains('<mechanisms')) {
+                final mechs = sasl2Mechs.toList()..add('PLAIN');
+                final mechsXml = mechs.map((m) => '<mechanism>$m</mechanism>').join('');
+                final legacySasl = "<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>$mechsXml</mechanisms>";
+                content = content.replaceFirst('<stream:features>', '<stream:features>$legacySasl');
               }
             }
 
