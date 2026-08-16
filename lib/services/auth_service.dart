@@ -20,6 +20,7 @@ import './spaces_service.dart';
 import '../models/space_models.dart';
 import './database_service.dart';
 import './offline_queue_service.dart';
+import './connection_lifecycle_service.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -901,6 +902,7 @@ class AuthService with ChangeNotifier {
 
       _xmppConnections[id] = conn;
       _xmppJids[id] = jid.fullJid ?? fullJidStr; // Store JID
+      ConnectionLifecycleService.instance.registerConnection(id, conn);
 
       _connectionStateSubs[id]?.cancel();
       _connectionStateSubs[id] = conn.connectionStateStream.listen((state) async {
@@ -913,6 +915,12 @@ class AuthService with ChangeNotifier {
           _xmppConnecting = false;
           _activeAccountId ??= id;
           _authenticatedAccountIds.add(id); // Track user intent
+
+          // Enable keepalive pings (60s interval, 30s timeout, 3 max unanswered)
+          xmpp.PingManager.getInstance(conn).setPingInterval(
+            const Duration(seconds: 60),
+            timeout: const Duration(seconds: 30),
+          );
 
           // OMEMO: Publish keys now that we're connected & authenticated (XEP-0384)
           final bareJid = fullJidStr.split('/').first.toLowerCase();
@@ -2180,6 +2188,7 @@ class AuthService with ChangeNotifier {
           _xmppConnecting = false;
           _lastDiagnostic =
               'Authentication failed. Check your username and password.';
+          ConnectionLifecycleService.instance.unregisterConnection(id);
           conn.dispose();
           _xmppProxies[id]?.stop();
           if (!connectionCompleter.isCompleted) {
@@ -2190,6 +2199,7 @@ class AuthService with ChangeNotifier {
           _xmppConnecting = false;
           _lastDiagnostic =
               'Server does not support any compatible authentication method.';
+          ConnectionLifecycleService.instance.unregisterConnection(id);
           conn.dispose();
           _xmppProxies[id]?.stop();
           if (!connectionCompleter.isCompleted) {
@@ -2199,6 +2209,7 @@ class AuthService with ChangeNotifier {
           _xmppConnecting = false;
           _lastDiagnostic =
               'TLS handshake failed. The server may not support secure connections on this port.';
+          ConnectionLifecycleService.instance.unregisterConnection(id);
           conn.dispose();
           _xmppProxies[id]?.stop();
           if (!connectionCompleter.isCompleted) {
@@ -2211,6 +2222,7 @@ class AuthService with ChangeNotifier {
             _lastDiagnostic = state == xmpp.XmppConnectionState.ForcefullyClosed
                 ? 'Connection was forcefully closed by the server.'
                 : 'Connection closed before authentication completed.';
+            ConnectionLifecycleService.instance.unregisterConnection(id);
             conn.dispose();
             _xmppProxies[id]?.stop();
             if (!connectionCompleter.isCompleted) {
@@ -2764,6 +2776,7 @@ class AuthService with ChangeNotifier {
     // Disconnect if currently connected
     if (acc.protocol == 'XMPP' && _xmppConnections.containsKey(acc.fullJid)) {
       _xmppConnections[acc.fullJid]?.close();
+      ConnectionLifecycleService.instance.unregisterConnection(acc.fullJid);
       _xmppConnections.remove(acc.fullJid);
     }
 
@@ -3442,8 +3455,9 @@ class AuthService with ChangeNotifier {
   }
 
   Future<void> logout() async {
-    for (var conn in _xmppConnections.values) {
-      conn.close();
+    for (var entry in _xmppConnections.entries) {
+      ConnectionLifecycleService.instance.unregisterConnection(entry.key);
+      entry.value.close();
     }
     _xmppConnections.clear();
 

@@ -19,6 +19,7 @@ import './providers/theme_provider.dart';
 import './theme/app_theme.dart';
 import './services/desktop_lifecycle_service.dart';
 import './services/mobile_lifecycle_service.dart';
+import './services/connection_lifecycle_service.dart';
 import './router/app_router.dart';
 
 void main() {
@@ -28,6 +29,8 @@ void main() {
     await DesktopLifecycleService.instance.init();
 
     await MobileLifecycleService.instance.init();
+
+    ConnectionLifecycleService.instance.init();
 
     await initDatabase();
 
