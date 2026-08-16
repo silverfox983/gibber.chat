@@ -493,12 +493,16 @@ class ApiRouter {
 
   Future<Response> _handleConfig(Request request) async {
     final prosodyUri = Uri.parse(xmppRegistrar.prosodyHttpUrl);
+    final wsScheme = prosodyUri.scheme == 'https' ? 'wss' : 'ws';
+    final wsPort = prosodyUri.port > 0 ? prosodyUri.port : (prosodyUri.scheme == 'https' ? 5281 : 5280);
     final uploadUrl = '${prosodyUri.scheme}://${prosodyUri.host}:${prosodyUri.port > 0 ? prosodyUri.port : (prosodyUri.scheme == 'https' ? 5281 : 5280)}/upload';
+    final websocketUrl = '$wsScheme://${prosodyUri.host}:$wsPort/xmpp-websocket';
     return Response.ok(
       jsonEncode({
         'captchaEnabled': captchaService.enabled,
         'domain': xmppRegistrar.domain,
         'uploadUrl': uploadUrl,
+        'websocketUrl': websocketUrl,
         'maxUploadSize': 52428800,
       }),
       headers: _jsonHeaders,

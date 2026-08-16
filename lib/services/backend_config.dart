@@ -10,7 +10,8 @@ class BackendConfig extends ChangeNotifier {
   bool _captchaEnabled = true;
   String? _domain;
   String? _uploadUrl;
-  int _maxUploadSize = 52428800; // 50MB default
+  String? _websocketUrl;
+  int _maxUploadSize = 52428800;
 
   static const String _apiUrlKey = 'gibber_backend_api_url';
   static const String _poolUrlKey = 'gibber_backend_pool_url';
@@ -24,6 +25,15 @@ class BackendConfig extends ChangeNotifier {
   String? get domain => _domain;
   String? get uploadUrl => _uploadUrl;
   int get maxUploadSize => _maxUploadSize;
+  String? get websocketUrl => _websocketUrl;
+
+  String get derivedWebsocketUrl {
+    if (_websocketUrl != null) return _websocketUrl!;
+    final uri = Uri.parse(_apiUrl);
+    final wsScheme = uri.scheme == 'https' ? 'wss' : 'ws';
+    final port = uri.port > 0 ? ':${uri.port}' : '';
+    return '$wsScheme://${uri.host}$port/xmpp-websocket';
+  }
 
   BackendConfig() {
     _load();
@@ -50,6 +60,7 @@ class BackendConfig extends ChangeNotifier {
         _captchaEnabled = data['captchaEnabled'] == true;
         _domain = data['domain'] as String?;
         _uploadUrl = data['uploadUrl'] as String?;
+        _websocketUrl = data['websocketUrl'] as String?;
         _maxUploadSize = (data['maxUploadSize'] as int?) ?? 52428800;
         notifyListeners();
       }
