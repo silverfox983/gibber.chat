@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -849,7 +850,7 @@ class _FeedScreenState extends State<FeedScreen>
                   borderRadius: BorderRadius.circular(12),
                   child: _attachedImageUrl!.startsWith('http')
                       ? Image.network(_attachedImageUrl!, height: 120, width: double.infinity, fit: BoxFit.cover)
-                      : Image.file(File(_attachedImageUrl!), height: 120, width: double.infinity, fit: BoxFit.cover),
+                      : kIsWeb ? const SizedBox.shrink() : Image.file(File(_attachedImageUrl!), height: 120, width: double.infinity, fit: BoxFit.cover),
                 ),
                 Positioned(top: 4, right: 4,
                   child: GestureDetector(
@@ -882,7 +883,7 @@ class _FeedScreenState extends State<FeedScreen>
 
                   try {
                     String? finalImageUrl = _attachedImageUrl;
-                    if (_attachedImageUrl != null && !_attachedImageUrl!.startsWith('http')) {
+                    if (_attachedImageUrl != null && !_attachedImageUrl!.startsWith('http') && !kIsWeb) {
                       final uploadService = auth.activeUploadService;
                       if (uploadService != null) {
                         final file = File(_attachedImageUrl!);

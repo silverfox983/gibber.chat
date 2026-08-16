@@ -19,7 +19,7 @@ class SoundService {
       final prefs = await SharedPreferences.getInstance();
       final customPath = prefs.getString('custom_ringtone_path');
       
-      if (customPath != null && await File(customPath).exists()) {
+      if (customPath != null && !kIsWeb && await File(customPath).exists()) {
         await _play(customPath, loop: true, isLocal: true);
         return;
       }

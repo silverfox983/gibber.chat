@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -2699,7 +2700,7 @@ class _CreatePostDialogState extends State<CreatePostDialog>
                           ? Image.network(_attachedImageUrl!, height: 180, width: double.infinity, fit: BoxFit.cover,
                               errorBuilder: (_, __, ___) => Container(height: 180, color: theme.colorScheme.surfaceContainerHighest,
                                 child: const Center(child: Icon(Icons.image_rounded, size: 40))))
-                          : Image.file(File(_attachedImageUrl!), height: 180, width: double.infinity, fit: BoxFit.cover,
+                          : kIsWeb ? const SizedBox.shrink() : Image.file(File(_attachedImageUrl!), height: 180, width: double.infinity, fit: BoxFit.cover,
                               errorBuilder: (_, __, ___) => Container(height: 180, color: theme.colorScheme.surfaceContainerHighest,
                                 child: const Center(child: Icon(Icons.image_rounded, size: 40)))),
                     ),
@@ -2804,7 +2805,7 @@ class _CreatePostDialogState extends State<CreatePostDialog>
       String? finalImageUrl = _attachedImageUrl;
 
       // If we have a local file attached, upload it first via XEP-0363
-      if (_attachedImageUrl != null && !_attachedImageUrl!.startsWith('http')) {
+      if (_attachedImageUrl != null && !_attachedImageUrl!.startsWith('http') && !kIsWeb) {
         final uploadService = widget.authService.activeUploadService;
         if (uploadService == null) {
           throw Exception('HTTP Upload service not available on this server.');

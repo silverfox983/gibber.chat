@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import 'dart:typed_data';
@@ -111,7 +112,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _pickAvatar() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
-    if (result != null && result.files.single.path != null) {
+    if (result != null && result.files.single.path != null && !kIsWeb) {
       final file = File(result.files.single.path!);
       final bytes = await file.readAsBytes();
       setState(() {
@@ -123,6 +124,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
          final authService = Provider.of<AuthService>(context, listen: false);
          await authService.setMyAvatar(_selectedAccountId!, file);
       }
+    } else if (result != null && kIsWeb && result.files.single.bytes != null) {
+      setState(() {
+         _avatarBytes = result.files.single.bytes!;
+      });
     }
   }
 

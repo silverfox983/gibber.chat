@@ -1724,7 +1724,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
       final bool isNetwork = msg.text.startsWith('http');
       Widget imageWidget;
 
-      if (msg.filePath != null && File(msg.filePath!).existsSync()) {
+      if (msg.filePath != null && !kIsWeb && File(msg.filePath!).existsSync()) {
         imageWidget = Image.file(
           File(msg.filePath!),
           width: 220,
@@ -2480,7 +2480,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
           child: InteractiveViewer(
             minScale: 0.5,
             maxScale: 4.0,
-            child: msg.filePath != null && File(msg.filePath!).existsSync()
+            child: msg.filePath != null && !kIsWeb && File(msg.filePath!).existsSync()
                 ? Image.file(File(msg.filePath!))
                 : Image.network(
                     msg.text,
@@ -2519,7 +2519,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const Divider(height: 32),
-            if (msg.filePath != null && File(msg.filePath!).existsSync())
+            if (msg.filePath != null && !kIsWeb && File(msg.filePath!).existsSync())
               ListTile(
                 leading: const Icon(
                   Icons.open_in_new_rounded,
@@ -2613,7 +2613,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
     final wallpaperColor = activeChat.wallpaperColor != null
         ? Color(activeChat.wallpaperColor!)
         : null;
-    final wallpaperImage = activeChat.wallpaperPath != null
+    final wallpaperImage = activeChat.wallpaperPath != null && !kIsWeb
         ? FileImage(File(activeChat.wallpaperPath!))
         : null;
 
