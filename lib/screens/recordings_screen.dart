@@ -264,6 +264,25 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    if (kIsWeb) {
+      final theme = Theme.of(context);
+      return Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        appBar: AppBar(title: const Text('Recordings')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.videocam_off_rounded, size: 80, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
+              const SizedBox(height: 16),
+              Text('Not available on web', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text('Call recordings are available on mobile and desktop.', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13)),
+            ],
+          ),
+        ),
+      );
+    }
     final theme = Theme.of(context);
     final hasSelection = _selectionMode && _selected.isNotEmpty;
 

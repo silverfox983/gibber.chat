@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 // ignore: implementation_imports
 import 'package:xmpp_stone/src/elements/XmppAttribute.dart';
+import 'dart:io' if (dart.library.html) 'file_stub.dart';
 
 class HttpUploadService {
   final xmpp.Connection connection;
@@ -78,11 +79,18 @@ class HttpUploadService {
     return result;
   }
 
-  /// Performs the actual HTTP PUT upload with progress tracking
-  Future<bool> uploadFile(String putUrl, File file, String contentType) async {
+  /// Performs the actual HTTP PUT upload with progress tracking (native only)
+  /// On web, use [uploadBytes] instead.
+  Future<bool> uploadFile(String putUrl, dynamic file, String contentType) async {
+    if (kIsWeb) {
+      debugPrint('HTTP Upload: uploadFile not supported on web, use uploadBytes instead');
+      return false;
+    }
     try {
-      final length = await file.length();
-      final stream = file.openRead();
+      // ignore: avoid_dynamic_calls
+      final nativeFile = file as File;
+      final length = await nativeFile.length();
+      final stream = nativeFile.openRead();
       final uri = Uri.parse(putUrl);
       
       final request = http.StreamedRequest('PUT', uri);
@@ -119,6 +127,37 @@ class HttpUploadService {
       );
 
       final response = await http.Response.fromStream(await request.send());
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        _uploadProgressController.add(1.0);
+        return true;
+      } else {
+        debugPrint('HTTP Upload Error: ${response.statusCode} - ${response.body}');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('HTTP Upload Catch Error: $e');
+      _uploadProgressController.add(0.0);
+      return false;
+    }
+  }
+
+  /// Upload raw bytes (web-compatible)
+  Future<bool> uploadBytes(String putUrl, Uint8List bytes, String contentType, {int totalSize = -1}) async {
+    try {
+      final effectiveSize = totalSize > 0 ? totalSize : bytes.length;
+      final uri = Uri.parse(putUrl);
+
+      _uploadProgressController.add(0.0);
+
+      final response = await http.put(
+        uri,
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': effectiveSize.toString(),
+        },
+        body: bytes,
+      );
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
         _uploadProgressController.add(1.0);
