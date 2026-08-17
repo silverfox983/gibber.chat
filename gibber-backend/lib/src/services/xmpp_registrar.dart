@@ -52,7 +52,12 @@ class XmppRegistrar {
       case RegistrationMode.internal:
         return _registerViaInternal(username, password, jidDomain, jid);
       case RegistrationMode.xmpp:
-        return _registerViaXmpp(username, password, jidDomain, jid);
+        final xmppResult = await _registerViaXmpp(username, password, jidDomain, jid);
+        if (xmppResult.success) {
+          return xmppResult;
+        }
+        print('XmppRegistrar [xmpp]: WebSocket registration failed ($xmppResult.message), trying HTTP fallback...');
+        return _registerViaHttp(username, password, jidDomain, jid);
       case RegistrationMode.prosodyctl:
         return _registerViaProsodyCtl(username, password, jidDomain, jid);
     }

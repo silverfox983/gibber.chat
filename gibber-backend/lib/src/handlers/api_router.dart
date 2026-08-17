@@ -154,18 +154,41 @@ class ApiRouter {
       final result = await xmppRegistrar.register(username!, password!, host: host);
       print('Registration result: success=${result.success}, jid=${result.jid}, message=${result.message}');
 
-      if (result.success) {
-        return Response.ok(
-          jsonEncode({'jid': result.jid, 'message': result.message}),
-          headers: _jsonHeaders,
-        );
-      } else {
+      if (!result.success) {
         return Response(
           409,
           body: jsonEncode({'error': result.message, 'jid': result.jid}),
           headers: _jsonHeaders,
         );
       }
+
+      final jid = result.jid;
+
+      if (jwtService == null) {
+        print('Registration warning: JWT auth not configured, returning without tokens');
+        return Response.ok(
+          jsonEncode({'jid': jid, 'message': result.message}),
+          headers: _jsonHeaders,
+        );
+      }
+
+      final entitlement = await entitlementService.getEntitlement(jid);
+      final accessToken = jwtService!.generateToken(jid, tier: entitlement.tier);
+      final refreshToken = jwtService!.generateRefreshToken(jid);
+
+      _ensureUser(jid);
+
+      print('Registration success: issued JWT tokens for $jid');
+      return Response.ok(
+        jsonEncode({
+          'jid': jid,
+          'accessToken': accessToken,
+          'refreshToken': refreshToken,
+          'message': result.message,
+          'tier': entitlement.tier,
+        }),
+        headers: _jsonHeaders,
+      );
     } on FormatException catch (_) {
       return Response.badRequest(body: jsonEncode({'error': 'Invalid JSON body'}), headers: _jsonHeaders);
     } catch (e) {

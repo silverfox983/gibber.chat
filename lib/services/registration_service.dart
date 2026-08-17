@@ -333,8 +333,19 @@ class RegistrationService {
       final body = jsonDecode(response.body) as Map<String, dynamic>;
 
       if (response.statusCode == 200) {
-        String? accessToken;
-        String? refreshToken;
+        final accessToken = body['accessToken'] as String?;
+        final refreshToken = body['refreshToken'] as String?;
+
+        if (accessToken != null && refreshToken != null) {
+          return RegistrationResult(
+            status: RegistrationStatus.success,
+            jid: body['jid'] as String?,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            message: body['message'] as String? ?? 'Registration successful',
+          );
+        }
+
         try {
           final loginResult = await loginWithJwt(
             apiUrl: apiUrl,
@@ -342,17 +353,20 @@ class RegistrationService {
             password: password,
             host: host,
           );
-          accessToken = loginResult.accessToken;
-          refreshToken = loginResult.refreshToken;
-        } catch (_) {}
-
-        return RegistrationResult(
-          status: RegistrationStatus.success,
-          jid: body['jid'] as String?,
-          accessToken: accessToken,
-          refreshToken: refreshToken,
-          message: body['message'] as String? ?? 'Registration successful',
-        );
+          return RegistrationResult(
+            status: RegistrationStatus.success,
+            jid: body['jid'] as String?,
+            accessToken: loginResult.accessToken,
+            refreshToken: loginResult.refreshToken,
+            message: body['message'] as String? ?? 'Registration successful',
+          );
+        } catch (_) {
+          return RegistrationResult(
+            status: RegistrationStatus.success,
+            jid: body['jid'] as String?,
+            message: body['message'] as String? ?? 'Registration successful (JWT unavailable)',
+          );
+        }
       } else if (response.statusCode == 403 && (body['error'] ?? '').toString().contains('Captcha')) {
         return RegistrationResult(
           status: RegistrationStatus.captchaFailed,
