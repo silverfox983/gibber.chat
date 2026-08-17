@@ -110,7 +110,7 @@ sleep 3
 
 # Now attempt Let's Encrypt if DNS API credentials are configured
 HAVE_DNS_CREDENTIALS=false
-if ([ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_API_KEY" ]) || ([ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]); then
+if ([ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_GLOBAL_API_KEY" ]) || ([ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_API_KEY" ]) || ([ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]); then
     HAVE_DNS_CREDENTIALS=true
 fi
 
@@ -122,9 +122,14 @@ if $HAVE_DNS_CREDENTIALS; then
     export ACME_HOME
 
     DNS_PROVIDER=""
-    if [ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_API_KEY" ]; then
+    if [ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_GLOBAL_API_KEY" ]; then
         DNS_PROVIDER="cloudflare"
-        echo "DNS Provider: Cloudflare"
+        echo "DNS Provider: Cloudflare (Global API Key)"
+        export CF_Key="$CLOUDFLARE_GLOBAL_API_KEY"
+        export CF_Email="$CLOUDFLARE_EMAIL"
+    elif [ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_API_KEY" ]; then
+        DNS_PROVIDER="cloudflare"
+        echo "DNS Provider: Cloudflare (API Token)"
         export CF_Token="$CLOUDFLARE_API_KEY"
         export CF_Email="$CLOUDFLARE_EMAIL"
         if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
@@ -172,8 +177,9 @@ if $HAVE_DNS_CREDENTIALS; then
 else
     echo "=== WARNING: No DNS API credentials configured ==="
     echo "=== S2S federation will NOT work without Let's Encrypt certificates ==="
-    echo "To enable S2S federation, set one of these Railway environment variable pairs:"
-    echo "  Cloudflare (recommended): CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID"
+    echo "To enable S2S federation, set one of these Railway environment variable groups:"
+    echo "  Cloudflare Global API Key (recommended): CLOUDFLARE_EMAIL + CLOUDFLARE_GLOBAL_API_KEY"
+    echo "  Cloudflare API Token: CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID"
     echo "  Namecheap: NAMECHEAP_USERNAME + NAMECHEAP_API_KEY"
     echo ""
     echo "Using self-signed certificate (S2S federation will NOT work)"
