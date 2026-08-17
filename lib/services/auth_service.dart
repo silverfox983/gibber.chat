@@ -3031,31 +3031,8 @@ class AuthService with ChangeNotifier {
   // Legacy compatibility for single-account UI parts
   Future<bool> autoLogin() => _contactService.autoLogin();
 
-  Future<String> testSocketConnection(String host, int port) async {
-    if (kIsWeb) {
-      return 'Web: Socket probe not available — use WebSocket URL instead';
-    }
-    try {
-      final socket = await Socket.connect(
-        host,
-        port,
-        timeout: const Duration(seconds: 5),
-      );
-      socket.destroy();
-      _lastDiagnostic =
-          'Socket probe to $host:$port succeeded. Server is reachable.';
-      notifyListeners();
-      return 'Success: $host:$port is reachable';
-    } on SocketException catch (e) {
-      _lastDiagnostic = 'Socket probe failed: $host:$port — ${e.message}';
-      notifyListeners();
-      return 'Failed: ${e.message}';
-    } catch (e) {
-      _lastDiagnostic = 'Socket probe error: $e';
-      notifyListeners();
-      return 'Error: $e';
-    }
-  }
+  Future<String> testSocketConnection(String host, int port) =>
+      _contactService.testSocketConnection(host, port);
 
   void _enableCarbons(String accountId) {
     final conn = _xmppConnections[accountId];
@@ -3155,100 +3132,11 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  void logCallEvent(
-    String targetId,
-    String text,
-    bool isSent, {
-    String? filePath,
-    MessageType type = MessageType.call,
-  }) {
-    _messageStreamController.add(
-      ChatMessage(
-        id: 'call_log_${DateTime.now().millisecondsSinceEpoch}',
-        text: text,
-        timestamp: DateTime.now(),
-        type: type,
-        filePath: filePath,
-        isSent: isSent,
-        senderId: isSent ? 'me' : targetId,
-        accountId: _activeAccountId,
-        protocol: 'XMPP',
-      ),
-    );
-  }
+  void logCallEvent(String targetId, String text, bool isSent, {String? filePath, MessageType type = MessageType.call}) =>
+      _contactService.logCallEvent(targetId, text, isSent, filePath: filePath, type: type);
 
-  Future<List<Map<String, dynamic>>> fetchIceServers(String accountId) async {
-    if (_accountIceServers.containsKey(accountId) &&
-        _accountIceServers[accountId]!.isNotEmpty) {
-      return _accountIceServers[accountId]!;
-    }
-
-    final conn = _xmppConnections[accountId];
-    if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) return [];
-
-    final iqId = 'extdisco_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.GET);
-    iq.toJid = xmpp.Jid.fromFullJid(conn.account.domain); // Query the server
-
-    final services = xmpp.XmppElement();
-    services.name = 'services';
-    services.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:extdisco:2'));
-    iq.addChild(services);
-
-    final completer = Completer<List<Map<String, dynamic>>>();
-    late StreamSubscription sub;
-
-    sub = conn.inStanzasStream.listen((stanza) {
-      if (stanza is xmpp.IqStanza && stanza.id == iqId) {
-        sub.cancel();
-        final List<Map<String, dynamic>> discovered = [];
-        final servicesRes = stanza.getChild('services');
-        if (servicesRes != null) {
-          for (var service in servicesRes.children) {
-            if (service.name == 'service') {
-              final type = service.getAttribute('type')?.value;
-              final transport = service.getAttribute('transport')?.value;
-              final host = service.getAttribute('host')?.value;
-              final port = service.getAttribute('port')?.value;
-              final username = service.getAttribute('username')?.value;
-              final password = service.getAttribute('password')?.value;
-
-              if (host != null && (type == 'stun' || type == 'turn')) {
-                final urlPref = (type == 'stun' && transport == 'udp')
-                    ? 'stun'
-                    : (type == 'stun' && transport == 'tcp')
-                    ? 'stuns'
-                    : (type == 'turn' && transport == 'udp')
-                    ? 'turn'
-                    : 'turns';
-
-                final serverMap = {
-                  'urls': '$urlPref:$host${port != null ? ":$port" : ""}',
-                };
-                if (username != null) serverMap['username'] = username;
-                if (password != null) serverMap['credential'] = password;
-
-                discovered.add(serverMap);
-              }
-            }
-          }
-        }
-        _accountIceServers[accountId] = discovered;
-        completer.complete(discovered);
-      }
-    });
-
-    conn.writeStanza(iq);
-
-    // Timeout after 5 seconds
-    return completer.future.timeout(
-      const Duration(seconds: 5),
-      onTimeout: () {
-        sub.cancel();
-        return _accountIceServers[accountId] ?? [];
-      },
-    );
-  }
+  Future<List<Map<String, dynamic>>> fetchIceServers(String accountId) =>
+      _contactService.fetchIceServers(accountId);
 
   // --- ROSTER & CONTACT MANAGEMENT (XEP-0164, XEP-0191) ---
 
@@ -3327,132 +3215,21 @@ class AuthService with ChangeNotifier {
 
   // --- Profile Management ---
 
-  Future<void> createProfile(String name, {String? bio}) async {
-    final profile = UserProfile(
-      id: 'profile_${DateTime.now().millisecondsSinceEpoch}',
-      displayName: name,
-      bio: bio,
-      accountIds: [],
-    );
-    _currentProfile = profile;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('current_profile', json.encode(profile.toJson()));
-    notifyListeners();
-  }
+  Future<void> createProfile(String name, {String? bio}) =>
+      _contactService.createProfile(name, bio: bio);
 
   // --- Backup / Restore ---
 
-  Future<Map<String, String>> exportAccountSecrets() async {
-    final all = await _secureStorage.readAll();
-    final Map<String, String> secrets = {};
-    for (var key in all.keys) {
-      if (key.startsWith('pass_')) {
-        secrets[key] = all[key]!;
-      }
-    }
-    return secrets;
-  }
+  Future<Map<String, String>> exportAccountSecrets() => _contactService.exportAccountSecrets();
+  Future<void> importAccountSecrets(Map<String, String> secrets) => _contactService.importAccountSecrets(secrets);
+  Future<void> importSavedAccounts(List<SavedAccount> accounts) => _contactService.importSavedAccounts(accounts);
+  List<Map<String, dynamic>> exportContacts() => _contactService.exportContacts();
+  Future<void> importContacts(List<dynamic> contactsJson) => _contactService.importContacts(contactsJson);
+  Future<Map<String, dynamic>> exportSettings() => _contactService.exportSettings();
+  Future<void> importSettings(Map<String, dynamic> settings) => _contactService.importSettings(settings);
 
-  Future<void> importAccountSecrets(Map<String, String> secrets) async {
-    for (var entry in secrets.entries) {
-      await _secureStorage.write(key: entry.key, value: entry.value);
-    }
-  }
-
-  Future<void> importSavedAccounts(List<SavedAccount> accounts) async {
-    _savedAccounts.clear();
-    _savedAccounts.addAll(accounts);
-
-    final prefs = await SharedPreferences.getInstance();
-    final jsonList = _savedAccounts.map((a) => a.toJson()).toList();
-    await prefs.setString('saved_accounts_json', json.encode(jsonList));
-    notifyListeners();
-  }
-
-  List<Map<String, dynamic>> exportContacts() {
-    return _currentContacts.map((c) => c.toJson()).toList();
-  }
-
-  Future<void> importContacts(List<dynamic> contactsJson) async {
-    final Map<String, Contact> newContacts = {};
-    for (var c in _currentContacts) {
-      newContacts[c.id] = c;
-    }
-
-    for (var j in contactsJson) {
-      try {
-        final contact = Contact.fromJson(j as Map<String, dynamic>);
-        if (newContacts.containsKey(contact.id)) {
-           // Merge rich fields if they are missing locally
-           final existing = newContacts[contact.id]!;
-           existing.bio ??= contact.bio;
-           existing.fullName ??= contact.fullName;
-           existing.email ??= contact.email;
-           existing.phone ??= contact.phone;
-           existing.url ??= contact.url;
-           existing.organization ??= contact.organization;
-           existing.title ??= contact.title;
-           existing.role ??= contact.role;
-           existing.birthday ??= contact.birthday;
-        } else {
-           newContacts[contact.id] = contact;
-        }
-      } catch (e) {
-        debugPrint('Error importing contact: $e');
-      }
-    }
-    
-    _currentContacts.clear();
-    _currentContacts.addAll(newContacts.values);
-    _contactStreamController.add(List.from(_currentContacts));
-  }
-
-  Future<Map<String, dynamic>> exportSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final keys = prefs.getKeys();
-    final Map<String, dynamic> settings = {};
-    for (var key in keys) {
-      settings[key] = prefs.get(key);
-    }
-    return settings;
-  }
-
-  Future<void> importSettings(Map<String, dynamic> settings) async {
-    final prefs = await SharedPreferences.getInstance();
-    for (var entry in settings.entries) {
-      final val = entry.value;
-      if (val is String) {
-        await prefs.setString(entry.key, val);
-      } else if (val is bool) {
-        await prefs.setBool(entry.key, val);
-      } else if (val is int) {
-        await prefs.setInt(entry.key, val);
-      } else if (val is double) {
-        await prefs.setDouble(entry.key, val);
-      } else if (val is List<String>) {
-        await prefs.setStringList(entry.key, val);
-      }
-    }
-    // Reload local state
-    await loadSavedAccounts();
-  }
-
-  Future<void> fetchContactVCard(String jid, {String? accountId}) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) return;
-
-    final iq = xmpp.IqStanza(
-      'vcard_${DateTime.now().millisecondsSinceEpoch}',
-      xmpp.IqStanzaType.GET,
-    );
-    iq.toJid = xmpp.Jid.fromFullJid(jid);
-    final vCard = xmpp.XmppElement();
-    vCard.name = 'vCard';
-    vCard.addAttribute(xmpp.XmppAttribute('xmlns', 'vcard-temp'));
-    iq.addChild(vCard);
-    conn.writeStanza(iq);
-  }
+  Future<void> fetchContactVCard(String jid, {String? accountId}) =>
+      _contactService.fetchContactVCard(jid, accountId: accountId);
 
   void _fetchAllVCards(String accountId) {
     // Collect unique JIDs from the current contacts for this account
@@ -3482,312 +3259,43 @@ class AuthService with ChangeNotifier {
   List<String> get currentBlockedContacts => _currentBlockedContacts;
 
   /// Fetches the list of blocked contacts (XEP-0191)
-  Future<void> fetchBlockedContacts({String? accountId}) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return;
-
-    final iqId = 'get_blocklist_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.GET);
-    final blocklist = xmpp.XmppElement();
-    blocklist.name = 'blocklist';
-    blocklist.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:blocking'));
-    iq.addChild(blocklist);
-
-    conn.writeStanza(iq);
-    debugPrint('SOCIAL: Requested blocklist for $id');
-
-    // The response is handled in the stanza stream listener
-  }
+  Future<void> fetchBlockedContacts({String? accountId}) =>
+      _contactService.fetchBlockedContacts(accountId: accountId);
 
   /// Updates our own presence status (XEP-0030/RFC 6121)
-  Future<void> updatePresence(
-    ContactStatus status, {
-    String? message,
-    String? accountId,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return;
-
-    final presence = xmpp.PresenceStanza();
-    // Convert our internal status to XMPP Show values
-    switch (status) {
-      case ContactStatus.online:
-        presence.show = xmpp.PresenceShowElement.CHAT;
-        break;
-      case ContactStatus.away:
-        presence.show = xmpp.PresenceShowElement.AWAY;
-        break;
-      case ContactStatus.xa:
-        presence.show = xmpp.PresenceShowElement.XA;
-        break;
-      case ContactStatus.dnd:
-        presence.show = xmpp.PresenceShowElement.DND;
-        break;
-      case ContactStatus.offline:
-        // We handle offline via disconnect, but for 'invisible' we'd use XEP-0186
-        break;
-    }
-
-    if (message != null) {
-      presence.status = message;
-    }
-
-    conn.writeStanza(presence);
-
-    _myStatus = status;
-    _myStatusMessage = message;
-    notifyListeners();
-    debugPrint('SOCIAL: Updated my presence to $status ($message) for $id');
-  }
+  Future<void> updatePresence(ContactStatus status, {String? message, String? accountId}) =>
+      _contactService.updatePresence(status, message: message, accountId: accountId);
 
   /// Accepts an incoming friend request (XEP-0163)
-  void acceptSubscription(String jid, {String? accountId}) {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return;
-
-    final presence = xmpp.PresenceStanza();
-    presence.toJid = xmpp.Jid.fromFullJid(jid);
-    presence.type = xmpp.PresenceType.SUBSCRIBED;
-    conn.writeStanza(presence);
-
-    // Also send a 'subscribe' back to ensure mutual friendship
-    final subRequest = xmpp.PresenceStanza();
-    subRequest.toJid = xmpp.Jid.fromFullJid(jid);
-    subRequest.type = xmpp.PresenceType.SUBSCRIBE;
-    conn.writeStanza(subRequest);
-
-    debugPrint('SOCIAL: Accepted subscription and requested mutual from $jid');
-    _pendingSubscriptionRequests.removeWhere((req) => req['jid'] == jid || req['jid'] == xmpp.Jid.fromFullJid(jid).userAtDomain);
-    _subscriptionRequestController.add(List.from(_pendingSubscriptionRequests));
-  }
+  void acceptSubscription(String jid, {String? accountId}) =>
+      _contactService.acceptSubscription(jid, accountId: accountId);
 
   /// Declines or cancels a friend request
-  void declineSubscription(String jid, {String? accountId}) {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return;
-
-    final presence = xmpp.PresenceStanza();
-    presence.toJid = xmpp.Jid.fromFullJid(jid);
-    presence.type = xmpp.PresenceType.UNSUBSCRIBED;
-    conn.writeStanza(presence);
-
-    debugPrint('SOCIAL: Declined subscription from $jid');
-    _pendingSubscriptionRequests.removeWhere((req) => req['jid'] == jid || req['jid'] == xmpp.Jid.fromFullJid(jid).userAtDomain);
-    _subscriptionRequestController.add(List.from(_pendingSubscriptionRequests));
-  }
+  void declineSubscription(String jid, {String? accountId}) =>
+      _contactService.declineSubscription(jid, accountId: accountId);
 
   /// Blocks a contact using XEP-0191 (Blocking Command)
-  Future<void> blockContact(String jid, {String? accountId}) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return;
-
-    final iq = xmpp.IqStanza(
-      'block_${DateTime.now().millisecondsSinceEpoch}',
-      xmpp.IqStanzaType.SET,
-    );
-    final block = xmpp.XmppElement();
-    block.name = 'block';
-    block.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:blocking'));
-
-    final item = xmpp.XmppElement();
-    item.name = 'item';
-    item.addAttribute(xmpp.XmppAttribute('jid', jid));
-    block.addChild(item);
-
-    iq.addChild(block);
-    conn.writeStanza(iq);
-    debugPrint('SOCIAL: Sent XEP-0191 block command for $jid');
-
-    if (!_currentBlockedContacts.contains(jid)) {
-      _currentBlockedContacts.add(jid);
-      _blockedContactsController.add(List.from(_currentBlockedContacts));
-    }
-  }
+  Future<void> blockContact(String jid, {String? accountId}) =>
+      _contactService.blockContact(jid, accountId: accountId);
 
   /// Unblocks a contact using XEP-0191
-  Future<void> unblockContact(String jid, {String? accountId}) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return;
-
-    final iq = xmpp.IqStanza(
-      'unblock_${DateTime.now().millisecondsSinceEpoch}',
-      xmpp.IqStanzaType.SET,
-    );
-    final unblock = xmpp.XmppElement();
-    unblock.name = 'unblock';
-    unblock.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:blocking'));
-
-    final item = xmpp.XmppElement();
-    item.name = 'item';
-    item.addAttribute(xmpp.XmppAttribute('jid', jid));
-    unblock.addChild(item);
-
-    iq.addChild(unblock);
-    conn.writeStanza(iq);
-    debugPrint('SOCIAL: Sent XEP-0191 unblock command for $jid');
-
-    _currentBlockedContacts.remove(jid);
-    _blockedContactsController.add(List.from(_currentBlockedContacts));
-  }
+  Future<void> unblockContact(String jid, {String? accountId}) =>
+      _contactService.unblockContact(jid, accountId: accountId);
 
   /// Renames a contact in the roster (Roster Push)
-  Future<void> renameContact(
-    String jid,
-    String newName, {
-    String? accountId,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return;
-
-    final iq = xmpp.IqStanza(
-      DateTime.now().millisecondsSinceEpoch.toString(),
-      xmpp.IqStanzaType.SET,
-    );
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:iq:roster'));
-
-    final item = xmpp.XmppElement();
-    item.name = 'item';
-    item.addAttribute(xmpp.XmppAttribute('jid', jid));
-    item.addAttribute(xmpp.XmppAttribute('name', newName));
-    query.addChild(item);
-
-    iq.addChild(query);
-    conn.writeStanza(iq);
-    debugPrint('SOCIAL: Sent Roster Push to rename $jid to $newName');
-
-    final index = _currentContacts.indexWhere((c) => c.id == jid);
-    if (index != -1) {
-      _currentContacts[index].name = newName;
-      _contactStreamController.add(List.from(_currentContacts));
-    }
-  }
+  Future<void> renameContact(String jid, String newName, {String? accountId}) =>
+      _contactService.renameContact(jid, newName, accountId: accountId);
 
   /// Completely removes a contact from the roster
-  Future<void> removeContact(String jid, {String? accountId}) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return;
-
-    final iq = xmpp.IqStanza(
-      DateTime.now().millisecondsSinceEpoch.toString(),
-      xmpp.IqStanzaType.SET,
-    );
-    final query = xmpp.XmppElement();
-    query.name = 'query';
-    query.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:iq:roster'));
-
-    final item = xmpp.XmppElement();
-    item.name = 'item';
-    item.addAttribute(xmpp.XmppAttribute('jid', jid));
-    item.addAttribute(xmpp.XmppAttribute('subscription', 'remove'));
-    query.addChild(item);
-
-    iq.addChild(query);
-    conn.writeStanza(iq);
-
-    debugPrint('SOCIAL: Removed $jid from roster.');
-
-    _currentContacts.removeWhere((c) => c.id == jid);
-    _contactStreamController.add(List.from(_currentContacts));
-  }
+  Future<void> removeContact(String jid, {String? accountId}) =>
+      _contactService.removeContact(jid, accountId: accountId);
 
   /// Sends a friend request (XEP-0163)
-  void addContact(String jid, {String? nickname, String? group, String? accountId}) {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return;
+  void addContact(String jid, {String? nickname, String? group, String? accountId}) =>
+      _contactService.addContact(jid, nickname: nickname, group: group, accountId: accountId);
 
-    final iq = xmpp.IqStanza(
-      DateTime.now().millisecondsSinceEpoch.toString(),
-      xmpp.IqStanzaType.SET,
-    );
-    final query = xmpp.XmppElement()
-      ..name = 'query'
-      ..addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:iq:roster'));
-    final item = xmpp.XmppElement()
-      ..name = 'item'
-      ..addAttribute(xmpp.XmppAttribute('jid', jid));
-    if (nickname != null) {
-      item.addAttribute(xmpp.XmppAttribute('name', nickname));
-    }
-    if (group != null && group.isNotEmpty) {
-      final groupElement = xmpp.XmppElement()..name = 'group'..textValue = group;
-      item.addChild(groupElement);
-    }
-    query.addChild(item);
-    iq.addChild(query);
-    conn.writeStanza(iq);
-
-    final presence = xmpp.PresenceStanza();
-    presence.toJid = xmpp.Jid.fromFullJid(jid);
-    presence.type = xmpp.PresenceType.SUBSCRIBE;
-    conn.writeStanza(presence);
-
-    // Optimistic UI Update: Add the contact locally immediately
-    if (!_currentContacts.any((c) => c.id == jid)) {
-      _currentContacts.add(
-        Contact(
-          id: jid,
-          name: nickname ?? xmpp.Jid.fromFullJid(jid).local,
-          protocol: 'XMPP',
-          groups: group != null && group.isNotEmpty ? [group] : [],
-        ),
-      );
-      _contactStreamController.add(List.from(_currentContacts));
-      debugPrint('SOCIAL: Optimistically added $jid to _currentContacts.');
-    }
-
-    debugPrint('SOCIAL: Added $jid to roster and sent subscribe request.');
-  }
-
-  Future<List<String>> getBlockList({String? accountId}) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return [];
-
-    final stanzaId = 'blocks_${DateTime.now().millisecondsSinceEpoch}';
-    final iq = xmpp.IqStanza(stanzaId, xmpp.IqStanzaType.GET);
-    iq.addChild(
-      xmpp.XmppElement()
-        ..name = 'blocklist'
-        ..addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:blocking')),
-    );
-
-    final completer = Completer<List<String>>();
-    StreamSubscription? sub;
-    sub = conn.inStanzasStream.listen((stanza) {
-      if (stanza is xmpp.IqStanza && stanza.id == stanzaId) {
-        if (stanza.type == xmpp.IqStanzaType.RESULT) {
-          final list = stanza.getChild('blocklist');
-          final jids =
-              list?.children
-                  .where((c) => c.name == 'item')
-                  .map((c) => c.getAttribute('jid')?.value ?? '')
-                  .toList() ??
-              [];
-          completer.complete(jids);
-        } else {
-          completer.complete([]);
-        }
-        sub?.cancel();
-      }
-    });
-
-    conn.writeStanza(iq);
-    return await completer.future.timeout(
-      const Duration(seconds: 5),
-      onTimeout: () => [],
-    );
-  }
+  Future<List<String>> getBlockList({String? accountId}) =>
+      _contactService.getBlockList(accountId: accountId);
 
   Future<void> clearAllData() => _contactService.clearAllData();
 }
