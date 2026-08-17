@@ -150,8 +150,8 @@ generate_self_signed_cert() {
     fi
 }
 
-if [ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]; then
-    echo "Namecheap API credentials detected, attempting Let's Encrypt..."
+if ([ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]) || ([ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_API_KEY" ]); then
+    echo "DNS API credentials detected, attempting Let's Encrypt..."
     if provision_lets_encrypt_cert; then
         echo "Let's Encrypt certificate provisioned successfully"
     else
@@ -159,14 +159,11 @@ if [ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]; then
         generate_self_signed_cert
     fi
 else
-    echo "=== WARNING: NAMECHEAP_USERNAME or NAMECHEAP_API_KEY not set ==="
+    echo "=== WARNING: No DNS API credentials configured ==="
     echo "=== S2S federation will NOT work without Let's Encrypt certificates ==="
-    echo "To enable S2S federation, set these Railway environment variables:"
-    echo "  NAMECHEAP_USERNAME=<your_namecheap_username>"
-    echo "  NAMECHEAP_API_KEY=<your_namecheap_api_key>"
-    echo ""
-    echo "Note: You can also use Cloudflare DNS even if domain is registered at Namecheap."
-    echo "      Set CLOUDFLARE_EMAIL and CLOUDFLARE_API_KEY instead."
+    echo "To enable S2S federation, set one of these Railway environment variable pairs:"
+    echo "  Cloudflare (recommended): CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY"
+    echo "  Namecheap: NAMECHEAP_USERNAME + NAMECHEAP_API_KEY"
     echo ""
     generate_self_signed_cert
 fi
