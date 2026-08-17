@@ -2154,6 +2154,17 @@ class AuthService with ChangeNotifier {
         } else if (state == xmpp.XmppConnectionState.Closed ||
             state == xmpp.XmppConnectionState.ForcefullyClosed) {
           _xmppConnecting = false;
+          xmpp.PingManager.removeInstance(conn);
+          _presenceSubs[id]?.cancel();
+          _presenceSubs.remove(id);
+          _rosterSubs[id]?.cancel();
+          _rosterSubs.remove(id);
+          _xmppMessageSubs[id]?.cancel();
+          _xmppMessageSubs.remove(id);
+          _jingleEventSubs[id]?.cancel();
+          _jingleEventSubs.remove(id);
+          _xmppStanzaSubs[id]?.cancel();
+          _xmppStanzaSubs.remove(id);
           if (!_authenticatedAccountIds.contains(id)) {
             _lastDiagnostic = state == xmpp.XmppConnectionState.ForcefullyClosed
                 ? 'Connection was forcefully closed by the server.'
@@ -2923,15 +2934,28 @@ class AuthService with ChangeNotifier {
 
   Future<void> logout() async {
     for (var entry in _xmppConnections.entries) {
+      xmpp.PingManager.removeInstance(entry.value);
       ConnectionLifecycleService.instance.unregisterConnection(entry.key);
-      entry.value.close();
+      _connectionStateSubs[entry.key]?.cancel();
+      _connectionStateSubs.remove(entry.key);
+      _presenceSubs[entry.key]?.cancel();
+      _presenceSubs.remove(entry.key);
+      _rosterSubs[entry.key]?.cancel();
+      _rosterSubs.remove(entry.key);
+      _xmppMessageSubs[entry.key]?.cancel();
+      _xmppMessageSubs.remove(entry.key);
+      _jingleEventSubs[entry.key]?.cancel();
+      _jingleEventSubs.remove(entry.key);
+      _xmppStanzaSubs[entry.key]?.cancel();
+      _xmppStanzaSubs.remove(entry.key);
+      entry.value.dispose();
     }
     _xmppConnections.clear();
 
-    for (var sub in _xmppMessageSubs.values) {
-      sub.cancel();
+    for (var proxy in _xmppProxies.values) {
+      proxy.stop();
     }
-    _xmppMessageSubs.clear();
+    _xmppProxies.clear();
 
     _activeAccountId = null;
     _authenticatedAccountIds.clear();
