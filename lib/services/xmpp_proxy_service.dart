@@ -129,16 +129,26 @@ class XmppProxyService {
         });
 
         // Drain the handshake buffer
+        // Only strip the <stream:stream> opening tag from buffered data,
+        // since we already sent our own stream header during the secure
+        // handshake. Any other stanzas (like <auth>) must be forwarded.
         if (buffer.isNotEmpty) {
           debugPrint('Proxy: Analyzing ${buffer.length} buffered chunks for duplicate handshake tags...');
           for (final chunk in buffer) {
             final content = String.fromCharCodes(chunk);
-            if (content.contains('<stream:stream') && content.length < 200) {
-              debugPrint('Proxy: Handshake tag already sent inside secure tunnel. Skipping.');
-              continue;
+            if (content.contains('<stream:stream')) {
+              // Strip only the <stream:stream...> opening tag, keep the rest
+              final stripped = content.replaceAll(RegExp(r'<stream:stream[^>]*>'), '');
+              if (stripped.trim().isNotEmpty) {
+                debugPrint('Proxy: [C->S] XML (stripped stream header): ${stripped.length > 200 ? '${stripped.substring(0, 200)}...' : stripped}');
+                remoteSocket.add(Uint8List.fromList(utf8.encode(stripped)));
+              } else {
+                debugPrint('Proxy: Handshake tag only — skipping.');
+              }
+            } else {
+              debugPrint('Proxy: [C->S] XML: $content');
+              remoteSocket.add(chunk);
             }
-            debugPrint('Proxy: [C->S] XML: $content');
-            remoteSocket.add(chunk);
           }
           buffer.clear();
         }
@@ -333,7 +343,11 @@ class XmppProxyService {
          if (!completer.isCompleted) completer.completeError('Detected Web Server instead of XMPP');
          return true;
       }
-      if (accumulated.contains('<failure') || accumulated.contains('<error')) {
+      // Only treat <failure>/<error> as fatal during the initial connection
+      // phases (STARTTLS, etc.), not during stream re-open where SASL <failure>
+      // is a normal part of the authentication flow that the client should handle.
+      final isStreamReopen = markers.contains('<stream:stream') && accumulated.contains('<stream:features');
+      if (!isStreamReopen && (accumulated.contains('<failure') || accumulated.contains('<error'))) {
          sub?.cancel();
          if (!completer.isCompleted) completer.completeError('XMPP Error');
          return true;
