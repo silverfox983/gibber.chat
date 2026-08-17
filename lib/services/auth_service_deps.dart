@@ -6,6 +6,9 @@ import '../models/user_profile.dart';
 import 'secure_storage_service.dart';
 import 'xmpp_omemo_service.dart';
 import 'xmpp_room_service.dart';
+import 'otr_service.dart';
+import 'offline_queue_service.dart';
+import 'jingle_signaling_service.dart';
 
 abstract class AuthServiceContactDeps {
   Map<String, xmpp.Connection> get xmppConnections;
@@ -53,4 +56,16 @@ abstract class AuthServiceContactDeps {
   Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup = false, String? replyToId, MessageType type = MessageType.text});
   Future<void> connectXmpp({required String user, required String domain, required String pass, required int port, String? host, String? accountId, SavedAccount? configData});
   Future<void> logout();
+}
+
+abstract class AuthServiceMessageDeps {
+  Map<String, xmpp.Connection> get xmppConnections;
+  String? get activeAccountId;
+  Map<String, String> get xmppJids;
+  XmppOmemoService get omemoService;
+  OtrService get otrService;
+  OfflineQueueService get offlineQueue;
+  StreamController<ChatMessage> get messageStreamController;
+  StreamController<JingleEvent> get jingleEventController;
+  Map<String, String> get sentOriginIds;
 }

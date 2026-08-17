@@ -24,6 +24,7 @@ import './xmpp_room_service.dart';
 import './backend_config.dart';
 import './auth_service_deps.dart';
 import './xmpp_contact_service.dart';
+import './xmpp_message_service.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -177,6 +178,7 @@ class AuthService with ChangeNotifier {
   final OfflineQueueService _offlineQueue = OfflineQueueService();
   late final XmppRoomService _roomService;
   late final XmppContactService _contactService;
+  late final XmppMessageService _messageService;
 
   final Map<String, Set<String>> _serverFeatures = {};
 
@@ -241,8 +243,9 @@ class AuthService with ChangeNotifier {
     _roomService = XmppRoomService(_xmppConnections, _xmppJids);
     _roomService.setActiveAccountIdGetter(() => _activeAccountId);
     _contactService = XmppContactService(_AuthContactDeps(this));
+    _messageService = XmppMessageService(_AuthMessageDeps(this));
     _otr.injectMessage = (bareJid, text) {
-      sendMessage(_activeAccountId ?? '', bareJid, text, isGroup: false);
+      _messageService.sendMessage(_activeAccountId ?? '', bareJid, text, isGroup: false);
     };
   }
 
@@ -2232,177 +2235,15 @@ class AuthService with ChangeNotifier {
     String? fileName,
     String? replyToId,
     bool isGroup = false,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    final isOmemo = _omemoService.isOmemoEnabled(targetJid);
-    if (conn != null &&
-        (conn.state == xmpp.XmppConnectionState.Ready ||
-            conn.state == xmpp.XmppConnectionState.Resumed)) {
-      final msg = xmpp.MessageStanza(
-        DateTime.now().millisecondsSinceEpoch.toString(),
-        isGroup
-            ? xmpp.MessageStanzaType.GROUPCHAT
-            : xmpp.MessageStanzaType.CHAT,
+  }) =>
+      _messageService.sendXmppMessage(
+        targetJid, text,
+        accountId: accountId, type: type, filePath: filePath,
+        fileName: fileName, replyToId: replyToId, isGroup: isGroup,
       );
-      final finalTarget = isGroup ? targetJid.split('/').first : targetJid;
-      final bareTarget = targetJid.split('/').first;
-      msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
 
-      // XEP-0359: Add origin-id for carbon deduplication
-      final originId = msg.id ?? 'msg_${DateTime.now().microsecondsSinceEpoch}';
-      final originIdEl = xmpp.XmppElement();
-      originIdEl.name = 'origin-id';
-      originIdEl.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:sid:0'));
-      originIdEl.addAttribute(xmpp.XmppAttribute('id', originId));
-      msg.addChild(originIdEl);
-      _sentOriginIds[originId] = id ?? _activeAccountId ?? '';
-
-      // OMEMO Encryption Layer
-      if (isOmemo) {
-        final encryptedList = await _omemoService.encryptMessage(
-          targetJid,
-          text,
-          strict: _omemoService.isStrictVerificationEnabled,
-        );
-        if (encryptedList != null && encryptedList.isNotEmpty) {
-          for (var enc in encryptedList) {
-            msg.addChild(enc);
-          }
-          msg.body = '🔒 This message is encrypted with OMEMO.';
-        } else {
-          // If we are here, OMEMO is enabled but we found 0 devices.
-          // This usually means the contact's client doesn't support OMEMO or hasn't published keys.
-          throw Exception(
-            'OMEMO Encryption Failed: The recipient ($targetJid) does not have any OMEMO-capable devices. '
-            'Please disable OMEMO for this contact in the chat settings to send unencrypted messages.',
-          );
-        }
-      } else {
-        msg.body = isGroup
-            ? text
-            : _otr.processOutgoingMessage(bareTarget, text);
-      }
-
-      if (replyToId != null) {
-        final reply = xmpp.XmppElement();
-        reply.name = 'reply';
-        reply.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:reply:0'));
-        reply.addAttribute(xmpp.XmppAttribute('to', targetJid));
-        reply.addAttribute(xmpp.XmppAttribute('id', replyToId));
-        msg.addChild(reply);
-      }
-
-      // XEP-0184: Request Delivery Receipt
-      if (!isGroup) {
-        final requestEl = xmpp.XmppElement();
-        requestEl.name = 'request';
-        requestEl.addAttribute(
-          xmpp.XmppAttribute('xmlns', 'urn:xmpp:receipts'),
-        );
-        msg.addChild(requestEl);
-      }
-
-      conn.writeStanza(msg);
-
-      _messageStreamController.add(
-        ChatMessage(
-          id: msg.id ?? 'xmpp_${DateTime.now().microsecondsSinceEpoch}',
-          text: text,
-          timestamp: DateTime.now(),
-          isSent: true,
-          senderId: _xmppJids[id] ?? 'me',
-          accountId: id,
-          protocol: 'XMPP',
-          conversationId: targetJid.split('/').first.toLowerCase(),
-          type: type,
-          filePath: filePath,
-          fileName: fileName,
-          isGroup: isGroup,
-          status: MessageStatus.sending,
-          encryptionType: isOmemo ? 'omemo' : null,
-        ),
-      );
-    } else {
-      final qid = await _offlineQueue.enqueue(
-        targetJid: targetJid,
-        text: text,
-        accountId: id ?? _activeAccountId ?? '',
-        type: type,
-        filePath: filePath,
-        fileName: fileName,
-        replyToId: replyToId,
-        isGroup: isGroup,
-        encryptionType: isOmemo ? 'omemo' : null,
-      );
-      _messageStreamController.add(
-        ChatMessage(
-          id: qid,
-          text: text,
-          timestamp: DateTime.now(),
-          isSent: true,
-          senderId: _xmppJids[id] ?? 'me',
-          accountId: id,
-          protocol: 'XMPP',
-          conversationId: targetJid.split('/').first.toLowerCase(),
-          type: type,
-          filePath: filePath,
-          fileName: fileName,
-          isGroup: isGroup,
-          status: MessageStatus.sending,
-          encryptionType: isOmemo ? 'omemo' : null,
-        ),
-      );
-      debugPrint('XMPP: Message queued offline (id: $qid, target: $targetJid)');
-    }
-  }
-
-  Future<void> _flushPendingMessages(String accountId) async {
-    final pending = await _offlineQueue.getPendingForAccount(accountId);
-    if (pending.isEmpty) return;
-
-    debugPrint('XMPP: Flushing ${pending.length} pending messages for account $accountId');
-
-    for (final row in pending) {
-      final id = row['id'] as String;
-      final targetJid = row['target_jid'] as String;
-      final text = row['text'] as String;
-      final messageType = MessageType.values[(row['message_type'] as int?) ?? 0];
-      final filePath = row['file_path'] as String?;
-      final fileName = row['file_name'] as String?;
-      final replyToId = row['reply_to_id'] as String?;
-      final isGroup = (row['is_group'] as int?) == 1;
-      // encryptionType from queue: OMEMO state is determined by omemoService at send time
-      final _ = row['encryption_type'] as String?;
-
-      final conn = _xmppConnections[accountId];
-      if (conn == null || (conn.state != xmpp.XmppConnectionState.Ready && conn.state != xmpp.XmppConnectionState.Resumed)) {
-        debugPrint('XMPP: Connection lost during flush, will retry later');
-        await _offlineQueue.incrementRetryCount(id);
-        return;
-      }
-
-      try {
-        await sendXmppMessage(
-          targetJid,
-          text,
-          accountId: accountId,
-          type: messageType,
-          filePath: filePath,
-          fileName: fileName,
-          replyToId: replyToId,
-          isGroup: isGroup,
-        );
-        await _offlineQueue.dequeue(id);
-        debugPrint('XMPP: Flushed pending message $id');
-      } catch (e) {
-        debugPrint('XMPP: Failed to flush pending message $id: $e');
-        await _offlineQueue.incrementRetryCount(id);
-      }
-    }
-
-    await _offlineQueue.removeOldRetries();
-  }
+  Future<void> _flushPendingMessages(String accountId) =>
+      _messageService.flushPendingMessages(accountId);
 
   Future<void> sendEditedMessage(
     String targetJid,
@@ -2410,69 +2251,18 @@ class AuthService with ChangeNotifier {
     String newText, {
     String? accountId,
     bool isGroup = false,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn != null &&
-        (conn.state == xmpp.XmppConnectionState.Ready ||
-            conn.state == xmpp.XmppConnectionState.Resumed)) {
-      final msg = xmpp.MessageStanza(
-        DateTime.now().millisecondsSinceEpoch.toString(),
-        isGroup
-            ? xmpp.MessageStanzaType.GROUPCHAT
-            : xmpp.MessageStanzaType.CHAT,
-      );
-      final finalTarget = isGroup ? targetJid.split('/').first : targetJid;
-      msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
-      msg.body = newText;
-
-      // XEP-0308: Message Correction
-      final replace = xmpp.XmppElement();
-      replace.name = 'replace';
-      replace.addAttribute(
-        xmpp.XmppAttribute('xmlns', 'urn:xmpp:message-correct:0'),
-      );
-      replace.addAttribute(xmpp.XmppAttribute('id', originalMsgId));
-      msg.addChild(replace);
-
-      conn.writeStanza(msg);
-      debugPrint('AuthService: Sent edited message for $originalMsgId');
-    }
-  }
+  }) =>
+      _messageService.sendEditedMessage(targetJid, originalMsgId, newText, accountId: accountId, isGroup: isGroup);
 
   // XEP-0333: Chat Markers
   void sendChatMarker(
     String targetJid,
     String msgId,
-    String markerType, { // 'displayed', 'received', or 'acknowledged'
+    String markerType, {
     String? accountId,
     bool isGroup = false,
-  }) {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn != null &&
-        (conn.state == xmpp.XmppConnectionState.Ready ||
-            conn.state == xmpp.XmppConnectionState.Resumed)) {
-      final msg = xmpp.MessageStanza(
-        DateTime.now().millisecondsSinceEpoch.toString(),
-        isGroup
-            ? xmpp.MessageStanzaType.GROUPCHAT
-            : xmpp.MessageStanzaType.CHAT,
-      );
-      final finalTarget = isGroup ? targetJid.split('/').first : targetJid;
-      msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
-
-      final marker = xmpp.XmppElement();
-      marker.name = markerType;
-      marker.addAttribute(
-        xmpp.XmppAttribute('xmlns', 'urn:xmpp:chat-markers:0'),
-      );
-      marker.addAttribute(xmpp.XmppAttribute('id', msgId));
-      msg.addChild(marker);
-
-      conn.writeStanza(msg);
-    }
-  }
+  }) =>
+      _messageService.sendChatMarker(targetJid, msgId, markerType, accountId: accountId, isGroup: isGroup);
 
   Future<void> sendXmppReaction(
     String targetJid,
@@ -2480,49 +2270,8 @@ class AuthService with ChangeNotifier {
     String emoji, {
     String? accountId,
     bool isGroup = false,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn != null &&
-        (conn.state == xmpp.XmppConnectionState.Ready ||
-            conn.state == xmpp.XmppConnectionState.Resumed)) {
-      final msg = xmpp.MessageStanza(
-        DateTime.now().millisecondsSinceEpoch.toString(),
-        isGroup
-            ? xmpp.MessageStanzaType.GROUPCHAT
-            : xmpp.MessageStanzaType.CHAT,
-      );
-      final finalTarget = isGroup ? targetJid.split('/').first : targetJid;
-      msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
-
-      final reactions = xmpp.XmppElement();
-      reactions.name = 'reactions';
-      reactions.addAttribute(
-        xmpp.XmppAttribute('xmlns', 'urn:xmpp:reactions:0'),
-      );
-      reactions.addAttribute(xmpp.XmppAttribute('id', originalMsgId));
-
-      final reaction = xmpp.XmppElement();
-      reaction.name = 'reaction';
-      reaction.textValue = emoji;
-      reactions.addChild(reaction);
-
-      msg.addChild(reactions);
-      conn.writeStanza(msg);
-
-      // Update local state (Optimistic)
-      _jingleEventController.add(
-        JingleEvent(
-          action: JingleAction.transportInfo,
-          sessionId: 'reaction',
-          fromJid: _xmppJids[id] ?? 'me',
-          reason: originalMsgId,
-          sdp: emoji,
-          accountId: id,
-        ),
-      );
-    }
-  }
+  }) =>
+      _messageService.sendXmppReaction(targetJid, originalMsgId, emoji, accountId: accountId, isGroup: isGroup);
 
   void sendReaction(
     String chatId,
@@ -2530,18 +2279,8 @@ class AuthService with ChangeNotifier {
     String emoji, {
     String? accountId,
     bool isGroup = false,
-  }) {
-    final activeId = accountId ?? _activeAccountId;
-    if (_xmppConnections.containsKey(activeId)) {
-      sendXmppReaction(
-        chatId,
-        messageId,
-        emoji,
-        accountId: activeId,
-        isGroup: isGroup,
-      );
-    }
-  }
+  }) =>
+      _messageService.sendReaction(chatId, messageId, emoji, accountId: accountId, isGroup: isGroup);
 
   // Unified Message Sender (Standalone)
   Future<void> sendMessage(
@@ -2553,52 +2292,8 @@ class AuthService with ChangeNotifier {
     String? filePath,
     String? replyToId,
     bool isGroup = false,
-  }) async {
-    final conn = _xmppConnections[accountId];
-    if (conn != null &&
-        (conn.state == xmpp.XmppConnectionState.Ready ||
-            conn.state == xmpp.XmppConnectionState.Resumed)) {
-      await sendXmppMessage(
-        toId,
-        text,
-        accountId: accountId,
-        type: type,
-        filePath: filePath,
-        fileName: fileName,
-        replyToId: replyToId,
-        isGroup: isGroup,
-      );
-    } else {
-      final qid = await _offlineQueue.enqueue(
-        targetJid: toId,
-        text: text,
-        accountId: accountId,
-        type: type,
-        filePath: filePath,
-        fileName: fileName,
-        replyToId: replyToId,
-        isGroup: isGroup,
-      );
-      _messageStreamController.add(
-        ChatMessage(
-          id: qid,
-          text: text,
-          timestamp: DateTime.now(),
-          isSent: true,
-          senderId: _xmppJids[accountId] ?? 'me',
-          accountId: accountId,
-          protocol: 'XMPP',
-          conversationId: toId.split('/').first.toLowerCase(),
-          type: type,
-          filePath: filePath,
-          fileName: fileName,
-          isGroup: isGroup,
-          status: MessageStatus.sending,
-        ),
-      );
-      debugPrint('XMPP: Message queued offline via sendMessage (id: $qid, target: $toId)');
-    }
-  }
+  }) =>
+      _messageService.sendMessage(accountId, toId, text, type: type, fileName: fileName, filePath: filePath, replyToId: replyToId, isGroup: isGroup);
 
   // Retraction (XEP-0424)
   Future<void> retractXmppMessage(
@@ -2606,32 +2301,8 @@ class AuthService with ChangeNotifier {
     String messageId, {
     String? accountId,
     bool isGroup = false,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null) return;
-
-    final msg = xmpp.MessageStanza(
-      'retract_${DateTime.now().millisecondsSinceEpoch}',
-      isGroup ? xmpp.MessageStanzaType.GROUPCHAT : xmpp.MessageStanzaType.CHAT,
-    );
-    final finalTarget = isGroup ? targetJid.split('/').first : targetJid;
-    msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
-
-    final applyTo = xmpp.XmppElement();
-    applyTo.name = 'apply-to';
-    applyTo.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:fasten:0'));
-    applyTo.addAttribute(xmpp.XmppAttribute('id', messageId));
-
-    final retract = xmpp.XmppElement();
-    retract.name = 'retract';
-    retract.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:retract:0'));
-    applyTo.addChild(retract);
-    msg.addChild(applyTo);
-
-    conn.writeStanza(msg);
-    debugPrint('XMPP: Retracted message $messageId for $targetJid');
-  }
+  }) =>
+      _messageService.retractXmppMessage(targetJid, messageId, accountId: accountId, isGroup: isGroup);
 
   Future<String?> _getMyAvatarHash(String accountId) async {
     final myJid = _xmppJids[accountId];
@@ -2801,57 +2472,16 @@ class AuthService with ChangeNotifier {
     String state, {
     String? accountId,
     bool isGroup = false,
-  }) {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn != null &&
-        (conn.state == xmpp.XmppConnectionState.Ready ||
-            conn.state == xmpp.XmppConnectionState.Resumed)) {
-      final msg = xmpp.MessageStanza(
-        DateTime.now().millisecondsSinceEpoch.toString(),
-        isGroup
-            ? xmpp.MessageStanzaType.GROUPCHAT
-            : xmpp.MessageStanzaType.CHAT,
-      );
-      final finalTarget = isGroup ? targetJid.split('/').first : targetJid;
-      msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
-      final stateEl = xmpp.XmppElement();
-      stateEl.name = state;
-      stateEl.addAttribute(
-        xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/chatstates'),
-      );
-      msg.addChild(stateEl);
-
-      // Add no-store hint to avoid archiving typing notifications
-      final hint = xmpp.XmppElement();
-      hint.name = 'no-store';
-      hint.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:hints'));
-      msg.addChild(hint);
-
-      conn.writeStanza(msg);
-    }
-  }
+  }) =>
+      _messageService.sendChatState(targetJid, state, accountId: accountId, isGroup: isGroup);
 
   Future<void> forwardMessage(
     ChatMessage original,
     List<String> targetChatIds, {
     String? accountId,
     String? targetProtocol,
-  }) async {
-    final curAccountId = accountId ?? _activeAccountId;
-    if (curAccountId == null) return;
-    for (var targetId in targetChatIds) {
-      await Future.delayed(const Duration(milliseconds: 100));
-      await sendXmppMessage(
-        targetId,
-        original.text,
-        accountId: curAccountId,
-        type: original.type,
-        fileName: original.fileName,
-        filePath: original.filePath,
-      );
-    }
-  }
+  }) =>
+      _messageService.forwardMessage(original, targetChatIds, accountId: accountId, targetProtocol: targetProtocol);
 
   Future<List<Map<String, String>>> discoverMucRooms(String accountId, String serviceJid) async =>
       _roomService.discoverMucRooms(accountId, serviceJid);
@@ -3354,4 +2984,19 @@ class _AuthContactDeps implements AuthServiceContactDeps {
   Future<void> connectXmpp({required String user, required String domain, required String pass, required int port, String? host, String? accountId, SavedAccount? configData}) =>
       _auth.connectXmpp(user: user, domain: domain, pass: pass, port: port, host: host, accountId: accountId, configData: configData);
   Future<void> logout() => _auth.logout();
+}
+
+class _AuthMessageDeps implements AuthServiceMessageDeps {
+  final AuthService _auth;
+  _AuthMessageDeps(this._auth);
+
+  Map<String, xmpp.Connection> get xmppConnections => _auth._xmppConnections;
+  String? get activeAccountId => _auth.activeAccountId;
+  Map<String, String> get xmppJids => _auth._xmppJids;
+  XmppOmemoService get omemoService => _auth.omemoService;
+  OtrService get otrService => _auth._otr;
+  OfflineQueueService get offlineQueue => _auth._offlineQueue;
+  StreamController<ChatMessage> get messageStreamController => _auth._messageStreamController;
+  StreamController<JingleEvent> get jingleEventController => _auth._jingleEventController;
+  Map<String, String> get sentOriginIds => _auth._sentOriginIds;
 }
