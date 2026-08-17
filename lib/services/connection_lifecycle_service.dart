@@ -50,11 +50,13 @@ class ConnectionLifecycleService extends WidgetsBindingObserver {
       final id = entry.key;
       final conn = entry.value;
       final state = conn.state;
-      if (state == xmpp.XmppConnectionState.Closed ||
-          state == xmpp.XmppConnectionState.ForcefullyClosed ||
-          state == xmpp.XmppConnectionState.Idle) {
-        debugPrint('Lifecycle: Reconnecting account $id (state: $state)');
+      if (state == xmpp.XmppConnectionState.ForcefullyClosed) {
+        debugPrint('Lifecycle: Reconnecting account $id (forcefully closed)');
         conn.reconnect();
+      } else if (state == xmpp.XmppConnectionState.Idle ||
+          state == xmpp.XmppConnectionState.Closed) {
+        debugPrint('Lifecycle: Reconnecting account $id (state: $state)');
+        conn.connect();
       } else if (state == xmpp.XmppConnectionState.Ready ||
           state == xmpp.XmppConnectionState.Resumed) {
         debugPrint('Lifecycle: Account $id still connected, sending ping');
