@@ -822,7 +822,6 @@ class AuthService with ChangeNotifier {
 
       _xmppConnections[id] = conn;
       _xmppJids[id] = jid.fullJid ?? fullJidStr; // Store JID
-      _omemoService.registerConnection(id, conn, fullJidStr);
       ConnectionLifecycleService.instance.registerConnection(id, conn);
 
       _connectionStateSubs[id]?.cancel();
