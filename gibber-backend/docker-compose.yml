@@ -37,6 +37,7 @@ services:
       - GIBBER_REGISTRATION_MODE=xmpp
       - GIBBER_PROSODY_URL=http://prosody:5280
       - GIBBER_ENABLE_SASL2=1
+      - GIBBER_USE_DOCKER=1
       - GIBBER_JWT_SECRET=change-me-in-production-use-a-strong-random-string
       - GIBBER_WEB_DIR=/app/web
       - GIBBER_JANUS_URL=ws://janus:8188
