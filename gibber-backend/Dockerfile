@@ -22,4 +22,8 @@ COPY config/ /app/config/
 RUN mkdir -p /app/data /app/web
 
 EXPOSE 8080
-CMD ["/app/bin/server", "--host", "0.0.0.0", "--port", "8080", "--db-path", "/app/data/gibber_backend.db", "--config", "/app/config/prosody.cfg.lua", "--mode", "xmpp", "--web-dir", "/app/web"]
+
+COPY config/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
