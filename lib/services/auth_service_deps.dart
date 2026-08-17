@@ -69,3 +69,18 @@ abstract class AuthServiceMessageDeps {
   StreamController<JingleEvent> get jingleEventController;
   Map<String, String> get sentOriginIds;
 }
+
+abstract class AuthServiceStanzaDeps {
+  Map<String, xmpp.Connection> get xmppConnections;
+  Map<String, String> get xmppJids;
+  XmppOmemoService get omemoService;
+  OtrService get otrService;
+  StreamController<ChatMessage> get messageStreamController;
+  StreamController<JingleEvent> get jingleEventController;
+  Map<String, JingleSignalingService> get jingleServices;
+  XmppRoomService get roomService;
+  UserProfile? get currentProfile;
+  Map<String, String> get sentOriginIds;
+  void notifyListeners();
+  Future<void> refreshOmemoDevices(String chatId, {String? accountId});
+}
