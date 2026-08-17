@@ -101,3 +101,11 @@ abstract class AuthServiceVCardDeps {
   Future<void> updateMyStatus(ContactStatus status, {String? message});
   Future<void> fetchVCard(String accountId, String jid);
 }
+
+abstract class AuthServiceSyncDeps {
+  Map<String, xmpp.Connection> get xmppConnections;
+  Map<String, String> get xmppJids;
+  String? get activeAccountId;
+  Map<String, bool> get carbonsEnabled;
+  Future<void> fetchMyVCard({String? accountId});
+}
