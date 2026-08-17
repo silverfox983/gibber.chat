@@ -28,6 +28,7 @@ import './xmpp_message_service.dart';
 import './xmpp_stanza_handler.dart';
 import './xmpp_vcard_service.dart';
 import './xmpp_sync_service.dart';
+import './xmpp_upload_service.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -185,6 +186,7 @@ class AuthService with ChangeNotifier {
   late final XmppStanzaHandler _stanzaHandler;
   late final XmppVCardService _vcardService;
   late final XmppSyncService _syncService;
+  late final XmppUploadService _uploadServiceHandler;
 
   final Map<String, Set<String>> _serverFeatures = {};
 
@@ -253,6 +255,7 @@ class AuthService with ChangeNotifier {
     _stanzaHandler = XmppStanzaHandler(_AuthStanzaDeps(this));
     _vcardService = XmppVCardService(_AuthVCardDeps(this));
     _syncService = XmppSyncService(_AuthSyncDeps(this));
+    _uploadServiceHandler = XmppUploadService(_AuthUploadDeps(this));
     _otr.injectMessage = (bareJid, text) {
       _messageService.sendMessage(_activeAccountId ?? '', bareJid, text, isGroup: false);
     };
@@ -381,69 +384,17 @@ class AuthService with ChangeNotifier {
 
   // --- MEDIA & FILE TRANSFERS (XEP-0363) ---
 
-  Stream<double>? getUploadProgress(String? accountId) {
-    if (accountId == null) {
-      return null;
-    }
-    return _uploadServices[accountId]?.uploadProgress;
-  }
+  Stream<double>? getUploadProgress(String? accountId) =>
+      _uploadServiceHandler.getUploadProgress(accountId);
 
-  /// Sends a file to a recipient using XEP-0363 (HTTP File Upload)
   Future<void> sendFile(
     String accountId,
     String toJid,
     File file, {
     MessageType type = MessageType.image,
-  }) async {
-    final conn = _xmppConnections[accountId];
-    final uploadService = _uploadServices[accountId];
-    if (conn == null || uploadService == null) {
-      throw Exception('Upload service not available for this account.');
-    }
+  }) =>
+      _uploadServiceHandler.sendFile(accountId, toJid, file, type: type);
 
-    final fileName = file.path.split(RegExp(r'[/\\]')).last;
-    final size = await file.length();
-    final contentType = type == MessageType.image
-        ? 'image/jpeg'
-        : 'application/octet-stream';
-
-    debugPrint('XEP-0363: Requesting slot for $fileName ($size bytes)...');
-    final slot = await uploadService.requestUploadSlot(
-      fileName,
-      size,
-      contentType: contentType,
-    );
-
-    if (slot == null) {
-      throw Exception(
-        'Server rejected file upload request. (Slot request failed)',
-      );
-    }
-
-    final putUrl = slot['put']!;
-    final getUrl = slot['get']!;
-
-    debugPrint('XEP-0363: Uploading to $putUrl...');
-    final success = await uploadService.uploadFile(putUrl, file, contentType);
-
-    if (!success) {
-      throw Exception('Failed to upload file to the server.');
-    }
-
-    debugPrint('XEP-0363: Upload success. Sending URL to $toJid');
-
-    // Send the message with the GET URL
-    sendMessage(
-      accountId,
-      toJid,
-      getUrl,
-      type: type,
-      fileName: fileName,
-      filePath: file.path,
-    );
-  }
-
-  /// High-level method to send image/file with automatic protocol-specific handling
   Future<void> sendMediaMessage(
     String toJid,
     File file,
@@ -451,15 +402,8 @@ class AuthService with ChangeNotifier {
     String? accountId,
     bool isGroup = false,
     String? caption,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    if (id == null) return;
-
-    if (_xmppConnections.containsKey(id)) {
-      // XMPP: Use HTTP File Upload (XEP-0363)
-      await sendFile(id, toJid, file, type: type);
-    }
-  }
+  }) =>
+      _uploadServiceHandler.sendMediaMessage(toJid, file, type, accountId: accountId, isGroup: isGroup, caption: caption);
 
   Future<void> updateMyVCard({
     required String accountId,
@@ -2153,4 +2097,15 @@ class _AuthSyncDeps implements AuthServiceSyncDeps {
   String? get activeAccountId => _auth.activeAccountId;
   Map<String, bool> get carbonsEnabled => _auth.carbonsEnabled;
   Future<void> fetchMyVCard({String? accountId}) => _auth.fetchMyVCard(accountId: accountId);
+}
+
+class _AuthUploadDeps implements AuthServiceUploadDeps {
+  final AuthService _auth;
+  _AuthUploadDeps(this._auth);
+
+  Map<String, xmpp.Connection> get xmppConnections => _auth._xmppConnections;
+  String? get activeAccountId => _auth.activeAccountId;
+  Map<String, HttpUploadService> get uploadServices => _auth._uploadServices;
+  Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup = false, String? replyToId, MessageType type = MessageType.text}) =>
+      _auth._messageService.sendMessage(accountId, toJid, text, fileName: fileName, filePath: filePath, isGroup: isGroup, replyToId: replyToId, type: type);
 }

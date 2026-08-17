@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/chat_models.dart';
 import '../models/space_models.dart';
@@ -9,6 +10,7 @@ import 'xmpp_room_service.dart';
 import 'otr_service.dart';
 import 'offline_queue_service.dart';
 import 'jingle_signaling_service.dart';
+import 'http_upload_service.dart';
 
 abstract class AuthServiceContactDeps {
   Map<String, xmpp.Connection> get xmppConnections;
@@ -108,4 +110,11 @@ abstract class AuthServiceSyncDeps {
   String? get activeAccountId;
   Map<String, bool> get carbonsEnabled;
   Future<void> fetchMyVCard({String? accountId});
+}
+
+abstract class AuthServiceUploadDeps {
+  Map<String, xmpp.Connection> get xmppConnections;
+  String? get activeAccountId;
+  Map<String, HttpUploadService> get uploadServices;
+  Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup, String? replyToId, MessageType type});
 }
