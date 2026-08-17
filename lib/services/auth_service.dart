@@ -2924,7 +2924,10 @@ class AuthService with ChangeNotifier {
       await prefs.remove('joined_spaces');
     }
 
-    _cachedJoinedSpaces = await db.getJoinedSpaces();
+    final loaded = await db.getJoinedSpaces();
+    _cachedJoinedSpaces
+      ..clear()
+      ..addAll(loaded);
     _emitJoinedSpaces();
   }
   Future<void> _autoJoinRooms(String accountId) async => await _roomService.autoJoinRooms(accountId);
@@ -3307,18 +3310,18 @@ class _AuthContactDeps implements AuthServiceContactDeps {
   Map<String, xmpp.Connection> get xmppConnections => _auth._xmppConnections;
   Map<String, String> get xmppJids => _auth._xmppJids;
   String? get activeAccountId => _auth.activeAccountId;
-  List<Contact> get currentContacts => _auth.currentContacts;
+  List<Contact> get currentContacts => _auth._currentContacts;
   Map<String, StreamSubscription> get presenceSubs => _auth._presenceSubs;
   Map<String, StreamSubscription> get rosterSubs => _auth._rosterSubs;
   StreamController<List<Contact>> get contactStreamController => _auth._contactStreamController;
   Map<String, StreamSubscription> get xmppMessageSubs => _auth._xmppMessageSubs;
   Map<String, StreamSubscription> get jingleEventSubs => _auth._jingleEventSubs;
   Map<String, StreamSubscription> get xmppStanzaSubs => _auth._xmppStanzaSubs;
-  List<SavedAccount> get savedAccounts => _auth.savedAccounts;
+  List<SavedAccount> get savedAccounts => _auth._savedAccounts;
   XmppOmemoService get omemoService => _auth.omemoService;
   XmppRoomService get roomService => _auth.roomService;
   SecureStorageService get secureStorage => _auth.secureStorage;
-  List<Map<String, String>> get pendingSubscriptionRequests => _auth.currentSubscriptionRequests;
+  List<Map<String, String>> get pendingSubscriptionRequests => _auth._pendingSubscriptionRequests;
   StreamController<List<Map<String, String>>> get subscriptionRequestController => _auth._subscriptionRequestController;
   StreamController<ChatMessage> get messageStreamController => _auth._messageStreamController;
   StreamController<List<SpaceNode>> get joinedSpacesStreamController => _auth._joinedSpacesStreamController;
