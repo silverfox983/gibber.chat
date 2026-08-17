@@ -22,6 +22,8 @@ import './connection_lifecycle_service.dart';
 import './xmpp_omemo_service.dart';
 import './xmpp_room_service.dart';
 import './backend_config.dart';
+import './auth_service_deps.dart';
+import './xmpp_contact_service.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -90,6 +92,7 @@ class AuthService with ChangeNotifier {
 
   bool get isConnecting => _xmppConnecting;
   bool get isAuthenticated => _authenticatedAccountIds.isNotEmpty;
+  bool get xmppConnecting => _xmppConnecting;
 
   String? _lastDiagnostic;
   String? get lastDiagnostic => _lastDiagnostic;
@@ -156,17 +159,24 @@ class AuthService with ChangeNotifier {
 
   // Track failed vcard supports to avoid spamming feature-not-implemented
   final Set<String> _vCardUnsupportedJids = {};
+  Set<String> get vCardUnsupportedJids => _vCardUnsupportedJids;
 
   // XEP-0153: Track avatar hashes to avoid redundant fetches and trigger updates
   final Map<String, String> _contactAvatarHashes = {};
+  Map<String, String> get contactAvatarHashes => _contactAvatarHashes;
 
   final Map<String, JingleSignalingService> _jingleServices = {};
   final Map<String, HttpUploadService> _uploadServices = {};
   final Map<String, bool> _carbonsEnabled = {};
+  Map<String, bool> get carbonsEnabled => _carbonsEnabled;
   final Map<String, List<Map<String, dynamic>>> _accountIceServers = {};
+  Map<String, List<Map<String, dynamic>>> get accountIceServers => _accountIceServers;
+  Set<String> get pendingVCardFetches => _pendingVCardFetches;
+  Map<String, DateTime> get vCardLastFetch => _vCardLastFetch;
   final Map<String, SpacesService> _spacesServices = {};
   final OfflineQueueService _offlineQueue = OfflineQueueService();
   late final XmppRoomService _roomService;
+  late final XmppContactService _contactService;
 
   final Map<String, Set<String>> _serverFeatures = {};
 
@@ -230,6 +240,7 @@ class AuthService with ChangeNotifier {
   AuthService() {
     _roomService = XmppRoomService(_xmppConnections, _xmppJids);
     _roomService.setActiveAccountIdGetter(() => _activeAccountId);
+    _contactService = XmppContactService(_AuthContactDeps(this));
     _otr.injectMessage = (bareJid, text) {
       sendMessage(_activeAccountId ?? '', bareJid, text, isGroup: false);
     };
@@ -304,6 +315,7 @@ class AuthService with ChangeNotifier {
   Future<void> resetOmemoKeys(String accountId) => _omemoService.resetOmemoKeys(accountId);
 
   final _secureStorage = SecureStorageService.instance;
+  SecureStorageService get secureStorage => _secureStorage;
 
   // Helper to get Jingle service for call provider
   JingleSignalingService? get jingleSignaling => _activeAccountId != null
@@ -3521,7 +3533,9 @@ class AuthService with ChangeNotifier {
   final StreamController<List<String>> _blockedContactsController =
       StreamController<List<String>>.broadcast();
   Stream<List<String>> get blockedContacts => _blockedContactsController.stream;
+  StreamController<List<String>> get blockedContactsController => _blockedContactsController;
   final List<String> _currentBlockedContacts = [];
+  List<String> get currentBlockedContacts => _currentBlockedContacts;
 
   /// Fetches the list of blocked contacts (XEP-0191)
   Future<void> fetchBlockedContacts({String? accountId}) async {
@@ -3841,4 +3855,57 @@ class AuthService with ChangeNotifier {
     _currentProfile = null;
     notifyListeners();
   }
+}
+
+class _AuthContactDeps implements AuthServiceContactDeps {
+  final AuthService _auth;
+  _AuthContactDeps(this._auth);
+
+  Map<String, xmpp.Connection> get xmppConnections => _auth._xmppConnections;
+  Map<String, String> get xmppJids => _auth._xmppJids;
+  String? get activeAccountId => _auth.activeAccountId;
+  List<Contact> get currentContacts => _auth.currentContacts;
+  Map<String, StreamSubscription> get presenceSubs => _auth._presenceSubs;
+  Map<String, StreamSubscription> get rosterSubs => _auth._rosterSubs;
+  StreamController<List<Contact>> get contactStreamController => _auth._contactStreamController;
+  Map<String, StreamSubscription> get xmppMessageSubs => _auth._xmppMessageSubs;
+  Map<String, StreamSubscription> get jingleEventSubs => _auth._jingleEventSubs;
+  Map<String, StreamSubscription> get xmppStanzaSubs => _auth._xmppStanzaSubs;
+  List<SavedAccount> get savedAccounts => _auth.savedAccounts;
+  XmppOmemoService get omemoService => _auth.omemoService;
+  XmppRoomService get roomService => _auth.roomService;
+  SecureStorageService get secureStorage => _auth.secureStorage;
+  List<Map<String, String>> get pendingSubscriptionRequests => _auth.currentSubscriptionRequests;
+  StreamController<List<Map<String, String>>> get subscriptionRequestController => _auth._subscriptionRequestController;
+  StreamController<ChatMessage> get messageStreamController => _auth._messageStreamController;
+  StreamController<List<SpaceNode>> get joinedSpacesStreamController => _auth._joinedSpacesStreamController;
+  List<SpaceNode> get cachedJoinedSpaces => _auth._cachedJoinedSpaces;
+  Map<String, bool> get carbonsEnabled => _auth.carbonsEnabled;
+  Map<String, List<Map<String, dynamic>>> get accountIceServers => _auth.accountIceServers;
+  Set<String> get pendingVCardFetches => _auth.pendingVCardFetches;
+  Map<String, DateTime> get vCardLastFetch => _auth.vCardLastFetch;
+  Set<String> get vCardUnsupportedJids => _auth.vCardUnsupportedJids;
+  Map<String, String> get contactAvatarHashes => _auth.contactAvatarHashes;
+  StreamController<List<String>> get blockedContactsController => _auth._blockedContactsController;
+  List<String> get currentBlockedContacts => _auth._currentBlockedContacts;
+  bool get xmppConnecting => _auth.xmppConnecting;
+  String? get lastDiagnostic => _auth.lastDiagnostic;
+  ContactStatus get myStatus => _auth.myStatus;
+  String? get myStatusMessage => _auth.myStatusMessage;
+  UserProfile? get currentProfile => _auth.currentProfile;
+  set myStatus(ContactStatus value) => _auth._myStatus = value;
+  set myStatusMessage(String? value) => _auth._myStatusMessage = value;
+  set xmppConnecting(bool value) => _auth._xmppConnecting = value;
+  set lastDiagnostic(String? value) => _auth._lastDiagnostic = value;
+  set currentProfile(UserProfile? value) => _auth._currentProfile = value;
+  void notifyListeners() => _auth.notifyListeners();
+  Future<void> loadSavedAccounts() => _auth.loadSavedAccounts();
+  Future<void> setPresence(ContactStatus status, String? message) => _auth.setPresence(status, message);
+  Future<void> fetchMyVCard({String? accountId}) => _auth.fetchMyVCard(accountId: accountId);
+  Future<void> fetchContactVCard(String jid, {String? accountId}) => _auth.fetchContactVCard(jid, accountId: accountId);
+  Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup = false, String? replyToId, MessageType type = MessageType.text}) =>
+      _auth.sendMessage(accountId, toJid, text, fileName: fileName, filePath: filePath, isGroup: isGroup, replyToId: replyToId, type: type);
+  Future<void> connectXmpp({required String user, required String domain, required String pass, required int port, String? host, String? accountId, SavedAccount? configData}) =>
+      _auth.connectXmpp(user: user, domain: domain, pass: pass, port: port, host: host, accountId: accountId, configData: configData);
+  Future<void> logout() => _auth.logout();
 }
