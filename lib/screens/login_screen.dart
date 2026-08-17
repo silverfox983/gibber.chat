@@ -29,6 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _isConnecting = false;
   String? _errorMessage;
+  String? _connectionStatus;
   String? _selectedAccount;
 
   @override
@@ -165,6 +166,41 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ],
         ),
+
+        if (_connectionStatus != null) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    _connectionStatus!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
 
         if (_errorMessage != null) ...[
           const SizedBox(height: 16),
@@ -370,14 +406,24 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final port = kIsWeb ? 443 : 5222;
 
+    setState(() {
+      _errorMessage = null;
+      _connectionStatus = 'Connecting to $domain...';
+    });
+
     try {
       final backendConfig = Provider.of<BackendConfig>(context, listen: false);
+
+      setState(() => _connectionStatus = 'Authenticating...');
+
       await authService.connectXmpp(
         user: user,
         domain: domain,
         pass: _passController.text,
         port: port,
       ).timeout(const Duration(seconds: 30));
+
+      setState(() => _connectionStatus = 'Loading your data...');
 
       try {
         final loginResult = await RegistrationService.loginWithJwt(
@@ -397,6 +443,8 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       } catch (_) {}
 
+      setState(() => _connectionStatus = 'Almost ready...');
+
       if (_rememberMe) {
         await authService.saveAccount(
           SavedAccount(
@@ -408,6 +456,8 @@ class _LoginScreenState extends State<LoginScreen> {
           _passController.text,
         );
       }
+
+      setState(() => _connectionStatus = null);
 
       if (mounted && widget.isAddingAccount) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -458,6 +508,7 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() {
           _isConnecting = false;
           _errorMessage = errorMessage;
+          _connectionStatus = null;
         });
       }
     }
