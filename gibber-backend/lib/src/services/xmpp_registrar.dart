@@ -106,7 +106,7 @@ class XmppRegistrar {
 
                 final escapedUsername = _xmlEscape(username);
                 final escapedPassword = _xmlEscape(password);
-                final regIq = "<iq type='set' id='reg1'><query xmlns='jabber:iq:register'><username>$escapedUsername</username><password>$escapedPassword</password></query></iq>";
+                final regIq = "<iq type='set' id='reg1' xmlns='jabber:client'><query xmlns='jabber:iq:register'><username>$escapedUsername</username><password>$escapedPassword</password></query></iq>";
                 socket!.add(regIq);
               }
             } else if (!registrationSent) {
@@ -589,7 +589,7 @@ class XmppRegistrar {
           if (msg.contains('<stream:features') || msg.contains('<features')) {
             if (msg.contains('jabber:iq:register') || msg.contains("<register xmlns='http://jabber.org/features/iq-register'/>") || msg.contains('<register')) {
               if (!authenticated) {
-                final regIq = "<iq type='set' id='chg${iqId++}'><query xmlns='jabber:iq:register'><username>${_xmlEscape(username)}</username><password>${_xmlEscape(newPassword)}</password></query></iq>";
+                final regIq = "<iq type='set' id='chg${iqId++}' xmlns='jabber:client'><query xmlns='jabber:iq:register'><username>${_xmlEscape(username)}</username><password>${_xmlEscape(newPassword)}</password></query></iq>";
                 sendIq(regIq);
               }
             } else if (msg.contains('<mechanisms')) {
@@ -597,7 +597,7 @@ class XmppRegistrar {
               // But we don't have the current password here, so we use register IQ instead
               // Prosody allows password change via register IQ even without auth when allow_registration=true
               if (msg.contains('jabber:iq:register') || msg.contains("<register xmlns='http://jabber.org/features/iq-register'/>") || msg.contains('<register')) {
-                final regIq = "<iq type='set' id='chg${iqId++}'><query xmlns='jabber:iq:register'><username>${_xmlEscape(username)}</username><password>${_xmlEscape(newPassword)}</password></query></iq>";
+                final regIq = "<iq type='set' id='chg${iqId++}' xmlns='jabber:client'><query xmlns='jabber:iq:register'><username>${_xmlEscape(username)}</username><password>${_xmlEscape(newPassword)}</password></query></iq>";
                 sendIq(regIq);
               }
             }
