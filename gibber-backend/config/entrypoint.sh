@@ -97,7 +97,7 @@ provision_lets_encrypt_cert() {
         fi
     fi
 
-    ISSUE_ARGS="--issue -d $DOMAIN --keylength 4096 --force --email admin@$DOMAIN"
+    ISSUE_ARGS="--issue -d $DOMAIN --keylength 4096 --force --email admin@$DOMAIN --server letsencrypt"
     case "$DNS_PROVIDER" in
         cloudflare)
             ISSUE_ARGS="$ISSUE_ARGS --dns dns_cf"
@@ -150,34 +150,11 @@ generate_self_signed_cert() {
     fi
 }
 
-if ([ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]) || ([ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_API_KEY" ]); then
-    echo "DNS API credentials detected, attempting Let's Encrypt..."
-    if provision_lets_encrypt_cert; then
-        echo "Let's Encrypt certificate provisioned successfully"
-    else
-        echo "Let's Encrypt provisioning failed, falling back to self-signed..."
-        generate_self_signed_cert
-    fi
-else
-    echo "=== WARNING: No DNS API credentials configured ==="
-    echo "=== S2S federation will NOT work without Let's Encrypt certificates ==="
-    echo "To enable S2S federation, set one of these Railway environment variable pairs:"
-    echo "  Cloudflare (recommended): CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY"
-    echo "  Namecheap: NAMECHEAP_USERNAME + NAMECHEAP_API_KEY"
-    echo ""
-    generate_self_signed_cert
-fi
+setup_supervisord() {
+    mkdir -p /var/run/prosody /app/data /var/log/supervisor /etc/supervisor/conf.d
+    chown -R prosody:prosody /var/run/prosody /var/lib/prosody
 
-sed -i "s|/etc/prosody/certs/gibberapp.online.key|$LE_KEY|g" /etc/prosody/prosody.cfg.lua
-sed -i "s|/etc/prosody/certs/gibberapp.online.crt|$LE_CERT|g" /etc/prosody/prosody.cfg.lua
-
-mkdir -p /var/run/prosody /app/data /var/log/supervisor
-chown -R prosody:prosody /var/run/prosody /var/lib/prosody
-
-echo "Writing supervisord config..."
-mkdir -p /etc/supervisor/conf.d
-
-cat > /etc/supervisor/conf.d/gibber.conf << EOF
+    cat > /etc/supervisor/conf.d/gibber.conf << EOF
 [program:prosody]
 command=/usr/bin/prosody -F
 user=prosody
@@ -196,6 +173,78 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 redirect_stderr=true
 EOF
+}
 
-echo "Starting services..."
-exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
+wait_for_cert_and_reload() {
+    echo "Waiting for Let's Encrypt certificate to be issued (this may take a few minutes)..."
+    local max_wait=600
+    local waited=0
+
+    while [ ! -f "$LE_CERT" ] || [ ! -f "$LE_KEY" ]; do
+        sleep 5
+        waited=$((waited + 5))
+        if [ $waited -ge $max_wait ]; then
+            echo "TIMEOUT: Certificate not issued after ${max_wait}s"
+            return 1
+        fi
+        echo "Waiting... ${waited}s"
+    done
+
+    echo "Certificate issued! Installing to Prosody certificate directory..."
+    sed -i "s|/etc/prosody/certs/gibberapp.online.key|$LE_KEY|g" /etc/prosody/prosody.cfg.lua
+    sed -i "s|/etc/prosody/certs/gibberapp.online.crt|$LE_CERT|g" /etc/prosody/prosody.cfg.lua
+    chown prosody:prosody "$LE_KEY" "$LE_CERT" 2>/dev/null || true
+
+    echo "Reloading Prosody to use new certificate..."
+    prosodyctl reload
+    echo "Prosody reloaded with Let's Encrypt certificate!"
+    return 0
+}
+
+issue_cert_background() {
+    if provision_lets_encrypt_cert; then
+        echo "Let's Encrypt certificate provisioned successfully"
+        wait_for_cert_and_reload
+    else
+        echo "Let's Encrypt provisioning failed, falling back to self-signed..."
+        generate_self_signed_cert
+    fi
+}
+
+([ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]) || ([ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_API_KEY" ])
+
+NEEDS_CERT=$?
+
+if [ $NEEDS_CERT -eq 0 ]; then
+    echo "DNS API credentials detected, setting up services first (for healthcheck)..."
+    sed -i "s|/etc/prosody/certs/gibberapp.online.key|$LE_KEY|g" /etc/prosody/prosody.cfg.lua
+    sed -i "s|/etc/prosody/certs/gibberapp.online.crt|$LE_CERT|g" /etc/prosody/prosody.cfg.lua
+    setup_supervisord
+    echo "Starting services first (to pass healthcheck)..."
+    /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf &
+    SUPERVISOR_PID=$!
+    sleep 3
+
+    echo "Now attempting Let's Encrypt certificate issuance..."
+    issue_cert_background
+
+    if [ -n "$SUPERVISOR_PID" ]; then
+        echo "Restarting Prosody with proper certificate..."
+        kill -HUP $SUPERVISOR_PID 2>/dev/null || true
+        sleep 2
+    fi
+    echo "Services running with Let's Encrypt certificate!"
+else
+    echo "=== WARNING: No DNS API credentials configured ==="
+    echo "=== S2S federation will NOT work without Let's Encrypt certificates ==="
+    echo "To enable S2S federation, set one of these Railway environment variable pairs:"
+    echo "  Cloudflare (recommended): CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY"
+    echo "  Namecheap: NAMECHEAP_USERNAME + NAMECHEAP_API_KEY"
+    echo ""
+    generate_self_signed_cert
+    sed -i "s|/etc/prosody/certs/gibberapp.online.key|$LE_KEY|g" /etc/prosody/prosody.cfg.lua
+    sed -i "s|/etc/prosody/certs/gibberapp.online.crt|$LE_CERT|g" /etc/prosody/prosody.cfg.lua
+    setup_supervisord
+    echo "Starting services with self-signed certificate..."
+    exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
+fi
