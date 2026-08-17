@@ -26,6 +26,7 @@ import './auth_service_deps.dart';
 import './xmpp_contact_service.dart';
 import './xmpp_message_service.dart';
 import './xmpp_stanza_handler.dart';
+import './xmpp_vcard_service.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -181,6 +182,7 @@ class AuthService with ChangeNotifier {
   late final XmppContactService _contactService;
   late final XmppMessageService _messageService;
   late final XmppStanzaHandler _stanzaHandler;
+  late final XmppVCardService _vcardService;
 
   final Map<String, Set<String>> _serverFeatures = {};
 
@@ -247,6 +249,7 @@ class AuthService with ChangeNotifier {
     _contactService = XmppContactService(_AuthContactDeps(this));
     _messageService = XmppMessageService(_AuthMessageDeps(this));
     _stanzaHandler = XmppStanzaHandler(_AuthStanzaDeps(this));
+    _vcardService = XmppVCardService(_AuthVCardDeps(this));
     _otr.injectMessage = (bareJid, text) {
       _messageService.sendMessage(_activeAccountId ?? '', bareJid, text, isGroup: false);
     };
@@ -528,7 +531,6 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  // Update VCard (XEP-0054)
   Future<void> updateMyVCard({
     required String accountId,
     String? fullName,
@@ -541,201 +543,29 @@ class AuthService with ChangeNotifier {
     String? title,
     String? role,
     String? birthday,
-  }) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
-
-    final iq = xmpp.IqStanza(
-      DateTime.now().millisecondsSinceEpoch.toString(),
-      xmpp.IqStanzaType.SET,
-    );
-    final vcard = xmpp.XmppElement();
-    vcard.name = 'vCard';
-    vcard.addAttribute(xmpp.XmppAttribute('xmlns', 'vcard-temp'));
-
-    if (fullName != null) {
-      final fn = xmpp.XmppElement();
-      fn.name = 'FN';
-      fn.textValue = fullName;
-      vcard.addChild(fn);
-    }
-
-    if (nickName != null) {
-      final nick = xmpp.XmppElement();
-      nick.name = 'NICKNAME';
-      nick.textValue = nickName;
-      vcard.addChild(nick);
-    }
-
-    if (description != null) {
-      final desc = xmpp.XmppElement();
-      desc.name = 'DESC';
-      desc.textValue = description;
-      vcard.addChild(desc);
-    }
-
-    if (email != null) {
-      final el = xmpp.XmppElement()..name = 'EMAIL';
-      el.addChild(xmpp.XmppElement()..name = 'USERID'..textValue = email);
-      vcard.addChild(el);
-    }
-    if (phone != null) {
-      final el = xmpp.XmppElement()..name = 'TEL';
-      el.addChild(xmpp.XmppElement()..name = 'NUMBER'..textValue = phone);
-      vcard.addChild(el);
-    }
-    if (url != null) {
-      vcard.addChild(xmpp.XmppElement()..name = 'URL'..textValue = url);
-    }
-    if (organization != null) {
-      final el = xmpp.XmppElement()..name = 'ORG';
-      el.addChild(xmpp.XmppElement()..name = 'ORGNAME'..textValue = organization);
-      vcard.addChild(el);
-    }
-    if (title != null) {
-      vcard.addChild(xmpp.XmppElement()..name = 'TITLE'..textValue = title);
-    }
-    if (role != null) {
-      vcard.addChild(xmpp.XmppElement()..name = 'ROLE'..textValue = role);
-    }
-    if (birthday != null) {
-      vcard.addChild(xmpp.XmppElement()..name = 'BDAY'..textValue = birthday);
-    }
-
-    iq.addChild(vcard);
-    conn.writeStanza(iq);
-
-    // Refresh local cache
-    if (_currentProfile != null) {
-      _currentProfile!.displayName = fullName ?? _currentProfile!.displayName;
-      _currentProfile!.nickName = nickName ?? _currentProfile!.nickName;
-      _currentProfile!.bio = description ?? _currentProfile!.bio;
-      _currentProfile!.email = email ?? _currentProfile!.email;
-      _currentProfile!.phone = phone ?? _currentProfile!.phone;
-      _currentProfile!.url = url ?? _currentProfile!.url;
-      _currentProfile!.organization = organization ?? _currentProfile!.organization;
-      _currentProfile!.title = title ?? _currentProfile!.title;
-      _currentProfile!.role = role ?? _currentProfile!.role;
-      _currentProfile!.birthday = birthday ?? _currentProfile!.birthday;
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        'current_profile',
-        json.encode(_currentProfile!.toJson()),
+  }) =>
+      _vcardService.updateMyVCard(
+        accountId: accountId,
+        fullName: fullName,
+        nickName: nickName,
+        description: description,
+        email: email,
+        phone: phone,
+        url: url,
+        organization: organization,
+        title: title,
+        role: role,
+        birthday: birthday,
       );
-      notifyListeners();
-    }
-  }
 
-  Future<void> fetchMyVCard({String? accountId}) async {
-    final id = accountId ?? _activeAccountId;
-    if (id != null) {
-      await fetchVCard(id, _xmppJids[id]!.split('/').first);
-    }
-  }
+  Future<void> fetchMyVCard({String? accountId}) =>
+      _vcardService.fetchMyVCard(accountId: accountId);
 
-  // Set My Avatar (XEP-0054)
-  Future<void> setMyAvatar(String accountId, File image) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
+  Future<void> setMyAvatar(String accountId, File image) =>
+      _vcardService.setMyAvatar(accountId, image);
 
-    final bytes = await image.readAsBytes();
-    final photoBase64 = base64Encode(bytes);
-
-    final iq = xmpp.IqStanza(
-      DateTime.now().millisecondsSinceEpoch.toString(),
-      xmpp.IqStanzaType.SET,
-    );
-    final vcard = xmpp.XmppElement();
-    vcard.name = 'vCard';
-    vcard.addAttribute(xmpp.XmppAttribute('xmlns', 'vcard-temp'));
-
-    final photo = xmpp.XmppElement();
-    photo.name = 'PHOTO';
-    final type = xmpp.XmppElement();
-    type.name = 'TYPE';
-    type.textValue = 'image/jpeg';
-    photo.addChild(type);
-    final binval = xmpp.XmppElement();
-    binval.name = 'BINVAL';
-    binval.textValue = photoBase64;
-    photo.addChild(binval);
-    vcard.addChild(photo);
-
-    iq.addChild(vcard);
-    conn.writeStanza(iq);
-
-    // Cache locally as well
-    final myJid = _xmppJids[accountId];
-    if (myJid != null) {
-      await AvatarCacheService().saveAvatar(myJid.split('/').first, bytes);
-      notifyListeners();
-      
-      // XEP-0153: Broadcast new presence with updated avatar hash
-      await updateMyStatus(_myStatus, message: _myStatusMessage);
-    }
-  }
-
-  // Fetch VCard (XEP-0054)
-  Future<void> fetchVCard(String accountId, String jid) async {
-    if (jid.isEmpty) return;
-
-    // Normalize JID and check blacklist
-    String cleanJid = jid.toLowerCase();
-
-    // Fix common typos
-    if (cleanJid.endsWith('.vom')) {
-      cleanJid = cleanJid.replaceFirst('.vom', '.com');
-    }
-
-    final cacheKey = '$accountId:$cleanJid';
-
-    if (_vCardUnsupportedJids.contains(cleanJid)) return;
-
-    final now = DateTime.now();
-    if (_vCardLastFetch.containsKey(cacheKey)) {
-      if (now.difference(_vCardLastFetch[cacheKey]!) <
-          const Duration(hours: 1)) {
-        return; // Don't fetch more than once per hour
-      }
-    }
-
-    if (_pendingVCardFetches.contains(cacheKey)) return;
-    _pendingVCardFetches.add(cacheKey);
-
-    final conn = _xmppConnections[accountId];
-    if (conn == null) {
-      _pendingVCardFetches.remove(cacheKey);
-      return;
-    }
-
-    _vCardLastFetch[cacheKey] = now;
-
-    // Small random jitter to prevent simultaneous bursts
-    await Future.delayed(Duration(milliseconds: 50 + (jid.hashCode % 450)));
-
-    final iq = xmpp.IqStanza(
-      'vcard_${DateTime.now().millisecondsSinceEpoch}_${jid.hashCode}',
-      xmpp.IqStanzaType.GET,
-    );
-
-    // XEP-0054: Do NOT include a 'to' address when requesting your own vCard.
-    final myBareJid = _xmppJids[accountId]?.split('/').first.toLowerCase();
-    if (cleanJid != myBareJid) {
-      iq.toJid = xmpp.Jid.fromFullJid(jid);
-    }
-
-    final vcard = xmpp.XmppElement();
-    vcard.name = 'vCard';
-    vcard.addAttribute(xmpp.XmppAttribute('xmlns', 'vcard-temp'));
-    iq.addChild(vcard);
-    conn.writeStanza(iq);
-
-    // Keep it in pending for a bit to avoid rapid fire
-    Timer(const Duration(seconds: 15), () {
-      _pendingVCardFetches.remove(cacheKey);
-    });
-  }
+  Future<void> fetchVCard(String accountId, String jid) =>
+      _vcardService.fetchVCard(accountId, jid);
 
   // Function to connect to XMPP
   Future<void> connectXmpp({
@@ -2481,4 +2311,24 @@ class _AuthStanzaDeps implements AuthServiceStanzaDeps {
   Map<String, String> get sentOriginIds => _auth._sentOriginIds;
   void notifyListeners() => _auth.notifyListeners();
   Future<void> refreshOmemoDevices(String chatId, {String? accountId}) => _auth.refreshOmemoDevices(chatId, accountId: accountId);
+}
+
+class _AuthVCardDeps implements AuthServiceVCardDeps {
+  final AuthService _auth;
+  _AuthVCardDeps(this._auth);
+
+  Map<String, xmpp.Connection> get xmppConnections => _auth._xmppConnections;
+  Map<String, String> get xmppJids => _auth._xmppJids;
+  String? get activeAccountId => _auth.activeAccountId;
+  UserProfile? get currentProfile => _auth._currentProfile;
+  set currentProfile(UserProfile? value) => _auth._currentProfile = value;
+  Set<String> get vCardUnsupportedJids => _auth.vCardUnsupportedJids;
+  Map<String, DateTime> get vCardLastFetch => _auth.vCardLastFetch;
+  Set<String> get pendingVCardFetches => _auth.pendingVCardFetches;
+  Map<String, String> get contactAvatarHashes => _auth.contactAvatarHashes;
+  ContactStatus get myStatus => _auth.myStatus;
+  String? get myStatusMessage => _auth.myStatusMessage;
+  void notifyListeners() => _auth.notifyListeners();
+  Future<void> updateMyStatus(ContactStatus status, {String? message}) => _auth.updateMyStatus(status, message: message);
+  Future<void> fetchVCard(String accountId, String jid) => _auth.fetchVCard(accountId, jid);
 }

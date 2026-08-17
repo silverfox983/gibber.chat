@@ -84,3 +84,20 @@ abstract class AuthServiceStanzaDeps {
   void notifyListeners();
   Future<void> refreshOmemoDevices(String chatId, {String? accountId});
 }
+
+abstract class AuthServiceVCardDeps {
+  Map<String, xmpp.Connection> get xmppConnections;
+  Map<String, String> get xmppJids;
+  String? get activeAccountId;
+  UserProfile? get currentProfile;
+  set currentProfile(UserProfile? value);
+  Set<String> get vCardUnsupportedJids;
+  Map<String, DateTime> get vCardLastFetch;
+  Set<String> get pendingVCardFetches;
+  Map<String, String> get contactAvatarHashes;
+  ContactStatus get myStatus;
+  String? get myStatusMessage;
+  void notifyListeners();
+  Future<void> updateMyStatus(ContactStatus status, {String? message});
+  Future<void> fetchVCard(String accountId, String jid);
+}
