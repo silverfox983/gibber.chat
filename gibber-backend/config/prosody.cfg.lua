@@ -22,22 +22,25 @@ s2s_stanza_size_limit = 65536
 -- Storage backend
 storage = "internal"
 
--- Self-signed cert for development (replace with Let's Encrypt via Caddy in production)
+-- TLS/SSL certificates for S2S federation
+-- In Railway: acme.sh provisions Let's Encrypt certs via DNS-01 challenge
+-- In docker-compose: Caddy handles TLS, certs shared via volume mount
 ssl = {
     certificate = "/etc/prosody/certs/gibberapp.online.crt";
     key = "/etc/prosody/certs/gibberapp.online.key";
+    capath = "/etc/ssl/certs";
 }
 
 -- Client-to-server encryption
--- PLAIN auth allowed because the WS proxy strips STARTTLS; 
--- real TLS is handled by Caddy reverse proxy
+-- PLAIN auth allowed because the WS proxy strips STARTTLS;
+-- real TLS is handled by Caddy reverse proxy (docker-compose) or WSS from browser (Railway)
 c2s_require_encryption = false
 allow_unencrypted_plain_auth = true
 
--- S2S federation: allow encrypted connections and accept self-signed certs
+-- S2S federation: require encryption now that we have proper Let's Encrypt certs
 -- These MUST be global settings (not per-VirtualHost) to affect outbound S2S
-s2s_require_encryption = false
-s2s_secure_auth = false
+s2s_require_encryption = true
+s2s_secure_auth = true
 
 -- Server contact info (XEP-0157)
 contact_info = {

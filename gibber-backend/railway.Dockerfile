@@ -14,7 +14,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor \
     prosody \
     openssl \
+    curl \
+    socat \
+    git \
+    cron \
     && rm -rf /var/lib/apt/lists/*
+
+RUN git clone https://github.com/acmesh-official/acme.sh.git /opt/acme.sh \
+    && cd /opt/acme.sh \
+    && ./acme.sh --install \
+    && rm -rf /opt/acme.sh
 
 COPY --from=build /app/build/bundle/ /app/
 

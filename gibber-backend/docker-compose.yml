@@ -11,9 +11,16 @@ services:
     volumes:
       - ./config/prosody.cfg.lua:/etc/prosody/prosody.cfg.lua:ro
       - prosody_data:/var/lib/prosody
+      - prosody_certs:/etc/prosody/certs
+      - acme_data:/root/.acme.sh
     environment:
       LOCAL: gibber
       DOMAIN: gibberapp.online
+      NAMECHEAP_USERNAME: ${NAMECHEAP_USERNAME:-}
+      NAMECHEAP_API_KEY: ${NAMECHEAP_API_KEY:-}
+      CLOUDFLARE_EMAIL: ${CLOUDFLARE_EMAIL:-}
+      CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY:-}
+      CF_Token: ${CLOUDFLARE_API_KEY:-}
     networks:
       - gibber_net
 
@@ -105,6 +112,8 @@ services:
 
 volumes:
   prosody_data:
+  prosody_certs:
+  acme_data:
   caddy_data:
   caddy_config:
   web_build:

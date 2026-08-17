@@ -61,17 +61,118 @@ echo "Enable SASL2: $ENABLE_SASL2"
 
 sed -i "s/gibberapp\.online/$DOMAIN/g" /etc/prosody/prosody.cfg.lua
 
-if [ ! -f "/etc/prosody/certs/$DOMAIN.key" ]; then
-    echo "Generating self-signed certificate for $DOMAIN..."
-    openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
-        -keyout "/etc/prosody/certs/$DOMAIN.key" \
-        -out "/etc/prosody/certs/$DOMAIN.crt" \
-        -subj "/CN=$DOMAIN/O=Gibber/C=US" 2>/dev/null
-    chown prosody:prosody "/etc/prosody/certs/$DOMAIN.key" "/etc/prosody/certs/$DOMAIN.crt"
+CERT_DIR="/etc/prosody/certs"
+LE_CERT="$CERT_DIR/$DOMAIN.crt"
+LE_KEY="$CERT_DIR/$DOMAIN.key"
+
+provision_lets_encrypt_cert() {
+    echo "=== Let's Encrypt Certificate Provisioning ==="
+    echo "Domain: $DOMAIN"
+
+    ACME_HOME="/root/.acme.sh"
+    export ACME_HOME
+
+    DNS_PROVIDER=""
+    if [ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_API_KEY" ]; then
+        DNS_PROVIDER="cloudflare"
+        echo "DNS Provider: Cloudflare"
+        export CF_Token="$CLOUDFLARE_API_KEY"
+    elif [ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]; then
+        DNS_PROVIDER="namecheap"
+        echo "DNS Provider: Namecheap"
+        export NAMECHEAP_USERNAME
+        export NAMECHEAP_API_KEY
+    else
+        echo "ERROR: No DNS provider configured"
+        echo "Set either CLOUDFLARE_EMAIL+CLOUDFLARE_API_KEY or NAMECHEAP_USERNAME+NAMECHEAP_API_KEY"
+        return 1
+    fi
+
+    if [ -f "$LE_CERT" ] && [ -f "$LE_KEY" ]; then
+        echo "Certificate already exists at $LE_CERT"
+        CERT_INFO=$(openssl x509 -in "$LE_CERT" -noout -dates 2>/dev/null || echo "")
+        if [ -n "$CERT_INFO" ]; then
+            echo "Existing cert info:"
+            echo "$CERT_INFO"
+        fi
+    fi
+
+    ISSUE_ARGS="--issue -d $DOMAIN --keylength 4096 --force --email admin@$DOMAIN"
+    case "$DNS_PROVIDER" in
+        cloudflare)
+            ISSUE_ARGS="$ISSUE_ARGS --dns dns_cf"
+            ;;
+        namecheap)
+            ISSUE_ARGS="$ISSUE_ARGS --dns dns_namecheap"
+            ;;
+    esac
+
+    if [ ! -f "$LE_CERT" ] || [ ! -f "$LE_KEY" ]; then
+        echo "Issuing new Let's Encrypt certificate for $DOMAIN via DNS-01 challenge..."
+        /root/.acme.sh/acme.sh $ISSUE_ARGS \
+            || {
+                echo "ERROR: acme.sh certificate issuance failed"
+                return 1
+            }
+    else
+        echo "Certificate exists, checking for renewal..."
+        /root/.acme.sh/acme.sh --renew -d "$DOMAIN" --force \
+            || echo "Renewal check completed"
+    fi
+
+    echo "Installing certificate to Prosody certificate directory..."
+    /root/.acme.sh/acme.sh --install-cert \
+        -d "$DOMAIN" \
+        --key-file "$LE_KEY" \
+        --fullchain-file "$LE_CERT" \
+        --reloadcmd "prosodyctl reload" \
+        || {
+            echo "ERROR: Failed to install certificate"
+            return 1
+        }
+
+    chown prosody:prosody "$LE_KEY" "$LE_CERT" 2>/dev/null || true
+    echo "Certificate installed successfully"
+    return 0
+}
+
+generate_self_signed_cert() {
+    echo "=== Generating self-signed certificate (S2S federation will NOT work) ==="
+    if [ ! -f "$LE_KEY" ]; then
+        openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
+            -keyout "$LE_KEY" \
+            -out "$LE_CERT" \
+            -subj "/CN=$DOMAIN/O=Gibber/C=US" 2>/dev/null
+        chown prosody:prosody "$LE_KEY" "$LE_CERT" 2>/dev/null || true
+        echo "Self-signed certificate generated"
+    else
+        echo "Self-signed certificate already exists"
+    fi
+}
+
+if [ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]; then
+    echo "Namecheap API credentials detected, attempting Let's Encrypt..."
+    if provision_lets_encrypt_cert; then
+        echo "Let's Encrypt certificate provisioned successfully"
+    else
+        echo "Let's Encrypt provisioning failed, falling back to self-signed..."
+        generate_self_signed_cert
+    fi
+else
+    echo "=== WARNING: NAMECHEAP_USERNAME or NAMECHEAP_API_KEY not set ==="
+    echo "=== S2S federation will NOT work without Let's Encrypt certificates ==="
+    echo "To enable S2S federation, set these Railway environment variables:"
+    echo "  NAMECHEAP_USERNAME=<your_namecheap_username>"
+    echo "  NAMECHEAP_API_KEY=<your_namecheap_api_key>"
+    echo ""
+    echo "Note: You can also use Cloudflare DNS even if domain is registered at Namecheap."
+    echo "      Set CLOUDFLARE_EMAIL and CLOUDFLARE_API_KEY instead."
+    echo ""
+    generate_self_signed_cert
 fi
 
-sed -i "s|/etc/prosody/certs/gibberapp.online.key|/etc/prosody/certs/$DOMAIN.key|g" /etc/prosody/prosody.cfg.lua
-sed -i "s|/etc/prosody/certs/gibberapp.online.crt|/etc/prosody/certs/$DOMAIN.crt|g" /etc/prosody/prosody.cfg.lua
+sed -i "s|/etc/prosody/certs/gibberapp.online.key|$LE_KEY|g" /etc/prosody/prosody.cfg.lua
+sed -i "s|/etc/prosody/certs/gibberapp.online.crt|$LE_CERT|g" /etc/prosody/prosody.cfg.lua
 
 mkdir -p /var/run/prosody /app/data /var/log/supervisor
 chown -R prosody:prosody /var/run/prosody /var/lib/prosody
