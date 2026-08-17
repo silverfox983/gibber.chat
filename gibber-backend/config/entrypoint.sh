@@ -77,6 +77,11 @@ provision_lets_encrypt_cert() {
         DNS_PROVIDER="cloudflare"
         echo "DNS Provider: Cloudflare"
         export CF_Token="$CLOUDFLARE_API_KEY"
+        export CF_Email="$CLOUDFLARE_EMAIL"
+        if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            export CF_Account_ID="$CLOUDFLARE_ACCOUNT_ID"
+            echo "Cloudflare Account ID: $CLOUDFLARE_ACCOUNT_ID"
+        fi
     elif [ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]; then
         DNS_PROVIDER="namecheap"
         echo "DNS Provider: Namecheap"
@@ -97,7 +102,7 @@ provision_lets_encrypt_cert() {
         fi
     fi
 
-    ISSUE_ARGS="--issue -d $DOMAIN --keylength 4096 --force --email admin@$DOMAIN --server letsencrypt"
+    ISSUE_ARGS="--issue -d $DOMAIN --keylength 4096 --force --email admin@$DOMAIN --server letsencrypt --debug"
     case "$DNS_PROVIDER" in
         cloudflare)
             ISSUE_ARGS="$ISSUE_ARGS --dns dns_cf"
@@ -238,7 +243,7 @@ else
     echo "=== WARNING: No DNS API credentials configured ==="
     echo "=== S2S federation will NOT work without Let's Encrypt certificates ==="
     echo "To enable S2S federation, set one of these Railway environment variable pairs:"
-    echo "  Cloudflare (recommended): CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY"
+    echo "  Cloudflare (recommended): CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID"
     echo "  Namecheap: NAMECHEAP_USERNAME + NAMECHEAP_API_KEY"
     echo ""
     generate_self_signed_cert
