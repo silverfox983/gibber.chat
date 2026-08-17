@@ -90,6 +90,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } else if (password.length < 8) {
       _passwordError = 'Password must be at least 8 characters.';
       valid = false;
+    } else {
+      final hasLower = password.contains(RegExp(r'[a-z]'));
+      final hasUpper = password.contains(RegExp(r'[A-Z]'));
+      final hasDigit = password.contains(RegExp(r'[0-9]'));
+      if (!hasLower || !hasUpper || !hasDigit) {
+        _passwordError = 'Password must contain uppercase, lowercase, and numbers.';
+        valid = false;
+      }
     }
 
     if (confirm.isEmpty) {
@@ -310,7 +318,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           controller: _passwordController,
           label: 'Password',
           prefixIcon: Icons.lock_outline_rounded,
-          hint: 'At least 8 characters',
+          hint: 'At least 8 characters with uppercase, lowercase, and numbers',
           obscureText: _obscurePassword,
           isPassword: true,
           errorText: _passwordError,

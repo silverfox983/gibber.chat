@@ -310,6 +310,15 @@ class RegistrationService {
         message: 'Password must be at least 8 characters.',
       );
     }
+    final hasLower = password.contains(RegExp(r'[a-z]'));
+    final hasUpper = password.contains(RegExp(r'[A-Z]'));
+    final hasDigit = password.contains(RegExp(r'[0-9]'));
+    if (!hasLower || !hasUpper || !hasDigit) {
+      return const RegistrationResult(
+        status: RegistrationStatus.validationError,
+        message: 'Password must contain uppercase, lowercase, and numbers.',
+      );
+    }
     if (!RegExp(r'^[a-zA-Z0-9._-]+$').hasMatch(username)) {
       return const RegistrationResult(
         status: RegistrationStatus.validationError,

@@ -17,6 +17,12 @@ class InputValidator {
     if (password == null || password.isEmpty) return 'Password is required';
     if (password.length < 8) return 'Password must be at least 8 characters';
     if (password.length > 256) return 'Password must be at most 256 characters';
+    final hasLower = password.contains(RegExp(r'[a-z]'));
+    final hasUpper = password.contains(RegExp(r'[A-Z]'));
+    final hasDigit = password.contains(RegExp(r'[0-9]'));
+    if (!hasLower || !hasUpper || !hasDigit) {
+      return 'Password must contain uppercase, lowercase, and numbers';
+    }
     return null;
   }
 
