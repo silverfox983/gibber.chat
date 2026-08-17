@@ -279,18 +279,18 @@ class XmppProxyService {
       final startTlsTag = '<starttls xmlns="urn:ietf:params:xml:ns:xmpp-tls"/>';
       final written = rawSocket.write(utf8.encode(startTlsTag));
       print('!!! PROXY_DIAG: [Probe Write] Sending STARTTLS ($written bytes) -> $startTlsTag');
-      
+
       final r3 = await _pollRawUntil(rawSocket, ['<proceed'], existingSub: result.sub, initialData: result.accumulated);
       print('!!! PROXY_DIAG: Handshake proceed marker reached.');
-      
+
       final r4 = await _pollRawUntil(rawSocket, ['>'], existingSub: r3.sub, initialData: r3.accumulated);
       print('!!! PROXY_DIAG: Handshake proceed tag end reached.');
-      
+
       r4.sub?.onData(null);
       r4.sub?.resume();
       print('!!! PROXY_DIAG: Finalizing TLS upgrade with resumed subscription.');
       final rawSecure = await RawSecureSocket.secure(rawSocket, subscription: r4.sub as StreamSubscription<RawSocketEvent>?, onBadCertificate: (cert) => true).timeout(_connectionTimeout);
-      
+
       // FINAL VALIDATION: Ensure the tunnel actually speaks XMPP
       final secureResultFuture = _pollRawUntil(rawSecure, ['<stream:stream']);
       rawSecure.write(utf8.encode(cleanTag));
@@ -298,8 +298,9 @@ class XmppProxyService {
 
       return RawToSocket(rawSecure, secureResult.accumulated, secureResult.sub as StreamSubscription<RawSocketEvent>?);
     } else {
-      debugPrint('Proxy: Server does NOT offer STARTTLS. Falling back to unencrypted bridge.');
-      return RawToSocket(rawSocket, result.accumulated, result.sub as StreamSubscription<RawSocketEvent>?);
+      final featuresPreview = result.accumulated.length > 200 ? '${result.accumulated.substring(0, 200)}...' : result.accumulated;
+      debugPrint('Proxy: Server did not offer STARTTLS on $host:$port. Features: $featuresPreview');
+      throw Exception('STARTTLS not offered by server on $host:$port. Server requires TLS.');
     }
   }
 
