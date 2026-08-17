@@ -1255,7 +1255,6 @@ class AuthService with ChangeNotifier {
                         for (var conf in storage.children) {
                           if (conf.name == 'conference') {
                             final jid = conf.getAttribute('jid')?.value;
-                            final name = conf.getAttribute('name')?.value;
                             if (jid != null) {
                               final parts = jid.split('@');
                               if (parts.length == 2) {
@@ -1280,7 +1279,6 @@ class AuthService with ChangeNotifier {
                         final jid =
                             item.getAttribute('id')?.value ??
                             conf.getAttribute('jid')?.value;
-                        final name = conf.getAttribute('name')?.value;
                         if (jid != null) {
                           final parts = jid.split('@');
                           if (parts.length == 2) {
@@ -1702,8 +1700,6 @@ class AuthService with ChangeNotifier {
     return jid;
   }
 
-  Future<void> _saveJoinedRooms() async => await _roomService.saveJoinedRooms();
-  void _publishBookmarks() => _roomService.publishBookmarks();
   Future<void> _loadJoinedRooms() async {
     await _roomService.loadJoinedRooms();
 
