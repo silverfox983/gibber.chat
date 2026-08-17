@@ -533,10 +533,16 @@ class ApiRouter {
 
   Future<Response> _handleConfig(Request request) async {
     final prosodyUri = Uri.parse(xmppRegistrar.prosodyHttpUrl);
-    final wsScheme = prosodyUri.scheme == 'https' ? 'wss' : 'ws';
-    final wsPort = prosodyUri.port > 0 ? prosodyUri.port : (prosodyUri.scheme == 'https' ? 5281 : 5280);
-    final uploadUrl = '${prosodyUri.scheme}://${prosodyUri.host}:${prosodyUri.port > 0 ? prosodyUri.port : (prosodyUri.scheme == 'https' ? 5281 : 5280)}/upload';
-    final websocketUrl = '$wsScheme://${prosodyUri.host}:$wsPort/xmpp-websocket';
+
+    final hostHeader = request.headers['x-forwarded-host'] ?? request.headers['host'] ?? 'localhost';
+    final isHttps = request.headers['x-forwarded-proto'] == 'https' || request.headers['x-forwarded-proto'] == 'https';
+    final wsScheme = isHttps ? 'wss' : 'ws';
+    final wsPort = isHttps ? '' : ':8080';
+    final uploadScheme = isHttps ? 'https' : 'http';
+    final uploadPort = isHttps ? '' : ':8080';
+
+    final websocketUrl = '$wsScheme://$hostHeader$wsPort/xmpp-websocket';
+    final uploadUrl = '$uploadScheme://$hostHeader$uploadPort/upload';
 
     final config = <String, dynamic>{
       'captchaEnabled': captchaService.enabled,
