@@ -430,7 +430,9 @@ class _LoginScreenState extends State<LoginScreen> {
         if (errorStr.contains('SocketException') ||
             errorStr.contains('Connection refused') ||
             errorStr.contains('Connection timed out') ||
-            errorStr.contains('No route to host')) {
+            errorStr.contains('No route to host') ||
+            errorStr.contains('WebSocketChannelException') ||
+            errorStr.contains('WebSocketException')) {
           errorMessage = 'Could not reach the server. Please check your network connection.';
         } else if (errorStr.contains('HandshakeException') ||
             errorStr.contains('CERTIFICATE_VERIFY_FAILED') ||

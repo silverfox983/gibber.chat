@@ -106,6 +106,7 @@ class _ChatAppState extends State<ChatApp> {
 
       _errorSource = 'AuthService';
       _authService = AuthService();
+      _authService!.setBackendConfig(_backendConfig!);
 
       _errorSource = 'ChatProvider';
       _chatProvider = ChatProvider();

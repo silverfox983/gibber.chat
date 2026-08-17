@@ -21,6 +21,7 @@ import './offline_queue_service.dart';
 import './connection_lifecycle_service.dart';
 import './xmpp_omemo_service.dart';
 import './xmpp_room_service.dart';
+import './backend_config.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -248,6 +249,12 @@ class AuthService with ChangeNotifier {
   Future<String?> getActiveAccountPassword() async {
     if (_activeAccountId == null) return null;
     return await _secureStorage.read(key: 'pass_$_activeAccountId');
+  }
+
+  BackendConfig? _backendConfig;
+
+  void setBackendConfig(BackendConfig config) {
+    _backendConfig = config;
   }
 
   // Track accounts that are intentionally logged in, even if temporarily disconnected.
@@ -737,10 +744,23 @@ class AuthService with ChangeNotifier {
       late final xmpp.XmppAccountSettings accountSettings;
 
       if (kIsWeb) {
-        // Web: connect directly via WebSocket via reverse proxy (port 443)
-        final wsHost = host ?? domain;
-        const wsPort = 443;
-        final wsPath = configData?.wsPath ?? '/xmpp-websocket';
+        // Web: connect via WebSocket using BackendConfig URL if available
+        String wsHost;
+        int wsPort;
+        String wsPath;
+
+        if (_backendConfig != null) {
+          final wsUrl = _backendConfig!.derivedWebsocketUrl;
+          final uri = Uri.parse(wsUrl);
+          wsHost = uri.host;
+          wsPort = uri.port > 0 ? uri.port : (uri.scheme == 'wss' ? 443 : 80);
+          wsPath = uri.path.isNotEmpty ? uri.path : '/xmpp-websocket';
+        } else {
+          wsHost = host ?? domain;
+          wsPort = 443;
+          wsPath = configData?.wsPath ?? '/xmpp-websocket';
+        }
+
         accountSettings = xmpp.XmppAccountSettings(
           jid.fullJid ?? fullJidStr,
           jid.local,
@@ -752,6 +772,7 @@ class AuthService with ChangeNotifier {
           wsPath: wsPath,
         );
         accountSettings.wsProtocols = ['xmpp'];
+        debugPrint('XMPP: Web connection to $wsHost:$wsPort$wsPath');
       } else {
         // Native: connect via local TCP/TLS proxy
         _xmppProxies[id]?.stop();
