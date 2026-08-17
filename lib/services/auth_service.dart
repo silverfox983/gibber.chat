@@ -2720,10 +2720,26 @@ class AuthService with ChangeNotifier {
     final jsonList = _savedAccounts.map((a) => a.toJson()).toList();
     await prefs.setString('saved_accounts_json', json.encode(jsonList));
 
-    // Disconnect if currently connected
+    // Disconnect if currently connected — clean up all subscriptions and resources
     if (acc.protocol == 'XMPP' && _xmppConnections.containsKey(acc.fullJid)) {
-      _xmppConnections[acc.fullJid]?.close();
+      final conn = _xmppConnections[acc.fullJid]!;
+      xmpp.PingManager.removeInstance(conn);
       ConnectionLifecycleService.instance.unregisterConnection(acc.fullJid);
+      _connectionStateSubs[acc.fullJid]?.cancel();
+      _connectionStateSubs.remove(acc.fullJid);
+      _presenceSubs[acc.fullJid]?.cancel();
+      _presenceSubs.remove(acc.fullJid);
+      _rosterSubs[acc.fullJid]?.cancel();
+      _rosterSubs.remove(acc.fullJid);
+      _xmppMessageSubs[acc.fullJid]?.cancel();
+      _xmppMessageSubs.remove(acc.fullJid);
+      _jingleEventSubs[acc.fullJid]?.cancel();
+      _jingleEventSubs.remove(acc.fullJid);
+      _xmppStanzaSubs[acc.fullJid]?.cancel();
+      _xmppStanzaSubs.remove(acc.fullJid);
+      _xmppProxies[acc.fullJid]?.stop();
+      _xmppProxies.remove(acc.fullJid);
+      conn.dispose();
       _xmppConnections.remove(acc.fullJid);
     }
 
