@@ -1,24 +1,50 @@
 #!/bin/bash
 set -e
 
-# Source the baked-in config file FIRST so it takes precedence over Railway dashboard vars.
-# Railway may set GIBBER_REGISTRATION_MODE=internal or omit GIBBER_JWT_SECRET,
-# so we source the correct defaults from gibber.env which override Railway values.
+# NOTE: Railway may set GIBBER_JWT_SECRET="" (empty string) which overrides
+# the correct value in gibber.env. We handle this by reading all values
+# from environment FIRST, then applying gibber.env as a fallback for any
+# that are empty or wrong.
+
+# Step 1: Read Railway/docker-compose environment variables (these take precedence if non-empty)
+RAILWAY_GIBBER_JWT_SECRET="${GIBBER_JWT_SECRET:-}"
+RAILWAY_GIBBER_REGISTRATION_MODE="${GIBBER_REGISTRATION_MODE:-}"
+RAILWAY_GIBBER_USE_DOCKER="${GIBBER_USE_DOCKER:-}"
+RAILWAY_GIBBER_PROSODY_URL="${GIBBER_PROSODY_URL:-}"
+
+# Step 2: Source gibber.env to get correct defaults
 if [ -f /app/config/gibber.env ]; then
-    echo "Sourcing /app/config/gibber.env for correct defaults..."
-    set -a  # automatically export all sourced variables
+    echo "Sourcing /app/config/gibber.env for defaults..."
+    set -a
     source /app/config/gibber.env
     set +a
+else
+    echo "WARNING: /app/config/gibber.env not found!"
 fi
 
-# Now read Railway/docker-compose environment variables (may override gibber.env if set)
+# Step 3: Use Railway values if they are non-empty, otherwise keep gibber.env defaults
+JWT_SECRET="${RAILWAY_GIBBER_JWT_SECRET:-${GIBBER_JWT_SECRET:-}}"
+REGISTRATION_MODE="${RAILWAY_GIBBER_REGISTRATION_MODE:-${GIBBER_REGISTRATION_MODE:-xmpp}}"
+USE_DOCKER="${RAILWAY_GIBBER_USE_DOCKER:-${GIBBER_USE_DOCKER:-0}}"
+PROSODY_URL="${RAILWAY_GIBBER_PROSODY_URL:-${GIBBER_PROSODY_URL:-http://prosody:5280}}"
+
+# Step 4: Force correct values if Railway set wrong ones
+if [ "$REGISTRATION_MODE" = "internal" ] || [ -z "$REGISTRATION_MODE" ]; then
+    echo "WARNING: Railway override detected (REGISTRATION_MODE=$REGISTRATION_MODE). Forcing to xmpp."
+    REGISTRATION_MODE="xmpp"
+fi
+
+if [ "$USE_DOCKER" = "0" ] || [ -z "$USE_DOCKER" ]; then
+    if [ -f /app/bin/server ]; then
+        echo "WARNING: USE_DOCKER=$USE_DOCKER but running in container. Forcing to 1."
+        USE_DOCKER="1"
+    fi
+fi
+
+# Read remaining vars (these typically don't have Railway override issues)
 DOMAIN="${DOMAIN:-gibberapp.online}"
 PORT="${PORT:-8080}"
 ADMIN_KEY="${GIBBER_ADMIN_KEY:-gibber-admin-key-change-in-production}"
-JWT_SECRET="${GIBBER_JWT_SECRET:-}"
-REGISTRATION_MODE="${GIBBER_REGISTRATION_MODE:-xmpp}"
-USE_DOCKER="${GIBBER_USE_DOCKER:-0}"
-PROSODY_URL="${GIBBER_PROSODY_URL:-http://prosody:5280}"
 ENABLE_SASL2="${GIBBER_ENABLE_SASL2:-1}"
 TURNSTONE_SECRET="${TURNSTILE_SECRET_KEY:-}"
 TURNSTILE_ACTION="${TURNSTILE_ACTION:-signup}"
@@ -29,23 +55,8 @@ BTCPAY_URL="${BTCPAY_URL:-}"
 BTCPAY_API_KEY="${BTCPAY_API_KEY:-}"
 BTCPAY_STORE_ID="${BTCPAY_STORE_ID:-}"
 
-# If Railway set GIBBER_REGISTRATION_MODE=internal, force it to xmpp
-# (Railway may have cached the old value)
-if [ "$REGISTRATION_MODE" = "internal" ]; then
-    echo "WARNING: Railway override detected (REGISTRATION_MODE=internal). Forcing to xmpp."
-    REGISTRATION_MODE="xmpp"
-fi
-
-# If JWT_SECRET is still empty after all sourcing, set a default
 if [ -z "$JWT_SECRET" ]; then
-    echo "WARNING: JWT_SECRET not set. Using default (auth will be disabled)."
-    JWT_SECRET=""
-fi
-
-# If USE_DOCKER is 0 but we're in Docker (detected by /app/bin/server existence), force to 1
-if [ "$USE_DOCKER" = "0" ] && [ -f /app/bin/server ]; then
-    echo "WARNING: USE_DOCKER=0 but running in container. Forcing to 1."
-    USE_DOCKER="1"
+    echo "WARNING: JWT_SECRET not set. Auth will be disabled."
 fi
 
 echo "=== Gibber Entrypoint ==="
