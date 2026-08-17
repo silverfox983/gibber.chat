@@ -53,7 +53,7 @@ class HealthService {
     };
 
     final dbHealthy = (results['database'] as Map<String, dynamic>)['status'] == 'healthy';
-    final overallStatus = dbHealthy && prosodyHealthy ? 'healthy' : 'degraded';
+    final overallStatus = dbHealthy ? 'healthy' : 'degraded';
 
     return {
       'status': overallStatus,

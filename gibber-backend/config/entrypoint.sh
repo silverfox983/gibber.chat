@@ -11,7 +11,7 @@ RAILWAY_GIBBER_PROSODY_URL="${GIBBER_PROSODY_URL:-}"
 DEFAULT_JWT_SECRET="change-me-in-production-use-a-strong-random-string"
 DEFAULT_REGISTRATION_MODE="xmpp"
 DEFAULT_USE_DOCKER="1"
-DEFAULT_PROSODY_URL="http://prosody:5280"
+DEFAULT_PROSODY_URL="http://localhost:5280"
 
 # Use Railway value if non-empty, otherwise use default
 JWT_SECRET="${RAILWAY_GIBBER_JWT_SECRET:-$DEFAULT_JWT_SECRET}"
