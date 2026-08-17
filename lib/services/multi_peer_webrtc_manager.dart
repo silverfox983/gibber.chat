@@ -39,6 +39,10 @@ class MultiPeerWebRTCManager {
   bool get isDisposed => _isDisposed;
   MediaStream? get localStream => _localStream;
 
+  void setIceServers(List<Map<String, dynamic>> servers) {
+    _config['iceServers'] = servers;
+  }
+
   Future<bool> initLocalStream({bool isVideo = true}) async {
     if (_isDisposed) return false;
 
@@ -234,6 +238,22 @@ class MultiPeerWebRTCManager {
     _remoteStreams.remove(peerId);
     _remoteCandidatesQueue.remove(peerId);
     onRemoteStreamRemoved?.call(peerId);
+  }
+
+  void toggleMic(bool enabled) {
+    if (_localStream != null) {
+      for (var track in _localStream!.getAudioTracks()) {
+        track.enabled = enabled;
+      }
+    }
+  }
+
+  void toggleCamera(bool enabled) {
+    if (_localStream != null) {
+      for (var track in _localStream!.getVideoTracks()) {
+        track.enabled = enabled;
+      }
+    }
   }
 
   Future<void> dispose() async {

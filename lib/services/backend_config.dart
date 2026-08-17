@@ -12,6 +12,9 @@ class BackendConfig extends ChangeNotifier {
   String? _uploadUrl;
   String? _websocketUrl;
   int _maxUploadSize = 52428800;
+  String? _sfuUrl;
+  String? _sfuApiKey;
+  List<Map<String, dynamic>> _iceServers = [];
 
   static const String _apiUrlKey = 'gibber_backend_api_url';
   static const String _poolUrlKey = 'gibber_backend_pool_url';
@@ -26,6 +29,9 @@ class BackendConfig extends ChangeNotifier {
   String? get uploadUrl => _uploadUrl;
   int get maxUploadSize => _maxUploadSize;
   String? get websocketUrl => _websocketUrl;
+  String? get sfuUrl => _sfuUrl;
+  String? get sfuApiKey => _sfuApiKey;
+  List<Map<String, dynamic>> get iceServers => _iceServers;
 
   String get derivedWebsocketUrl {
     if (_websocketUrl != null) return _websocketUrl!;
@@ -33,6 +39,14 @@ class BackendConfig extends ChangeNotifier {
     final wsScheme = uri.scheme == 'https' ? 'wss' : 'ws';
     final port = uri.port > 0 ? ':${uri.port}' : '';
     return '$wsScheme://${uri.host}$port/xmpp-websocket';
+  }
+
+  String get derivedSfuUrl {
+    if (_sfuUrl != null) return _sfuUrl!;
+    final uri = Uri.parse(_apiUrl);
+    final wsScheme = uri.scheme == 'https' ? 'wss' : 'ws';
+    final port = uri.port > 0 ? ':${uri.port}' : '';
+    return '$wsScheme://${uri.host}$port/janus';
   }
 
   BackendConfig() {
@@ -62,6 +76,12 @@ class BackendConfig extends ChangeNotifier {
         _uploadUrl = data['uploadUrl'] as String?;
         _websocketUrl = data['websocketUrl'] as String?;
         _maxUploadSize = (data['maxUploadSize'] as int?) ?? 52428800;
+        _sfuUrl = data['sfuUrl'] as String?;
+        _sfuApiKey = data['sfuApiKey'] as String?;
+        final ice = data['iceServers'] as List<dynamic>?;
+        if (ice != null) {
+          _iceServers = ice.cast<Map<String, dynamic>>();
+        }
         notifyListeners();
       }
     } catch (_) {}

@@ -113,6 +113,7 @@ class _ChatAppState extends State<ChatApp> {
 
       _errorSource = 'CallProvider';
       _callProvider = CallProvider();
+      _callProvider!.setBackendConfig(_backendConfig!);
 
       _errorSource = 'CallHistoryService';
       _callHistoryService = CallHistoryService();

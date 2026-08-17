@@ -1,0 +1,48 @@
+{
+    "general": {
+        "server_name": "gibberapp.online",
+        "log_to_stdout": true,
+        "log_level": 5,
+        "daemon": false,
+        "interface": "0.0.0.0",
+        "api_secret": "janus-api-key-change-in-production",
+        "token_auth": true,
+        "token_auth_secret": "gibber-janus-token-secret",
+        "admin_port": 7088,
+        "admin_secret": "janus-admin-secret-change-in-production"
+    },
+    "media": {
+        "rtp_port_range": "10000-10020",
+        "ice_udp_port_range": "10000-10020",
+        "ice_tcp": false
+    },
+    "nat": {
+        "stun_server": "stun.l.google.com",
+        "stun_port": 19302,
+        "turn_rest_api": "http://coturn:3478"
+    },
+    "transports": {
+        "janus-transport-websockets.jcfg": {
+            "enabled": true,
+            "ws": true,
+            "ws_port": 8188,
+            "wss": false
+        },
+        "janus-transport-http.jcfg": {
+            "enabled": true,
+            "port": 8088,
+            "https": false
+        }
+    },
+    "plugins": {
+        "janus.plugin.videoroom.jcfg": {
+            "enabled": true
+        },
+        "janus.plugin.audiobridge.jcfg": {
+            "enabled": true
+        },
+        "janus.plugin.echotest.jcfg": {
+            "enabled": true
+        }
+    }
+}

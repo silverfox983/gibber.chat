@@ -39,6 +39,11 @@ services:
       - GIBBER_ENABLE_SASL2=1
       - GIBBER_JWT_SECRET=change-me-in-production-use-a-strong-random-string
       - GIBBER_WEB_DIR=/app/web
+      - GIBBER_JANUS_URL=ws://janus:8188
+      - GIBBER_JANUS_API_KEY=janus-api-key-change-in-production
+      - GIBBER_TURN_URL=turn:gibberapp.online:3478
+      - GIBBER_TURN_USER=gibber
+      - GIBBER_TURN_PASS=gibber-turn-secret-change-in-production
     depends_on:
       - prosody
     networks:
@@ -59,6 +64,41 @@ services:
       - ../build/web:/srv/gibber-web:ro
     depends_on:
       - gibber-backend
+    networks:
+      - gibber_net
+
+  janus:
+    image: canyan/janus-gateway:latest
+    container_name: gibber_janus
+    restart: unless-stopped
+    ports:
+      - "8188:8188"   # Janus WebSocket (janus-transport-websockets)
+      - "8088:8088"   # Janus HTTP API (janus-transport-http)
+      - "10000-10020:10000-10020/udp"  # RTP/RTCP media ports
+    volumes:
+      - ./config/janus:/etc/janus:ro
+    environment:
+      - JANUS_LOG_LEVEL=5
+    networks:
+      - gibber_net
+
+  coturn:
+    image: coturn/coturn:latest
+    container_name: gibber_coturn
+    restart: unless-stopped
+    ports:
+      - "3478:3478"     # STUN/TURN
+      - "3478:3478/udp" # STUN/TURN
+      - "5349:5349"     # TURNS (TLS)
+      - "5349:5349/udp" # TURNS (DTLS)
+      - "49152-49200:49152-49200/udp"  # Media relay ports
+    command:
+      - "--realm=gibberapp.online"
+      - "--server-name=gibberapp.online"
+      - "--lt-cred-mech"
+      - "--user=gibber:gibber-turn-secret-change-in-production"
+      - "--no-multicast-peers"
+      - "--no-cli"
     networks:
       - gibber_net
 

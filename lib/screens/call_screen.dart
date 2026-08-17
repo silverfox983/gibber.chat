@@ -6,6 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import 'dart:math' as math;
 import '../providers/call_provider.dart';
+import '../models/group_call_models.dart';
 import '../services/transcription_service.dart';
 import '../services/assistant_service.dart';
 import '../widgets/live_captions_panel.dart';
@@ -26,6 +27,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
   bool _showDtmfPad = false;
   bool _showCaptions = false;
   bool _showAssistant = false;
+  bool _showParticipants = false;
   final TextEditingController _assistantController = TextEditingController();
   bool get isCallActive => _callProvider.state == CallState.active;
 
@@ -244,42 +246,75 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildGroupVideoGrid(CallProvider call) {
+    final session = call.groupCallSession;
     final renderers = call.groupRenderers;
-    // We also want to show our local video in the grid if camera is on
+    final participants = session?.participants ?? {};
     final showLocal = call.isVideo && !call.isCameraOff;
     final totalCount = renderers.length + (showLocal ? 1 : 0);
 
     if (totalCount == 0) {
-      return Container(color: Theme.of(context).colorScheme.surface);
+      return Container(
+        color: Theme.of(context).colorScheme.surface,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.people_outline_rounded, size: 64, color: Theme.of(context).colorScheme.onSurfaceVariant),
+              const SizedBox(height: 16),
+              Text(
+                'Waiting for participants...',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (session != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '${session.participantCount + 1} in call',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
     }
 
-    // Determine grid columns
     int crossAxisCount = 1;
-    if (totalCount > 4) {
+    if (totalCount > 6) {
       crossAxisCount = 3;
-    } else if (totalCount >= 2) {
+    } else if (totalCount > 2) {
       crossAxisCount = 2;
     }
 
     final children = <Widget>[];
 
-    // Local Video Tile
     if (showLocal) {
       children.add(_buildGridTile(
         renderer: call.localRenderer,
         name: 'You',
         mirror: true,
+        isMuted: call.isMicMuted,
       ));
     }
 
-    // Remote Video Tiles
     for (final entry in renderers.entries) {
       final peerId = entry.key;
       final renderer = entry.value;
+      final participant = participants[peerId];
+      final name = participant?.displayName ?? peerId.split('@').first.split('/').last;
+      final isMuted = participant != null && !participant.audioEnabled;
       children.add(_buildGridTile(
         renderer: renderer,
-        name: peerId.split('/').last,
+        name: name,
         mirror: false,
+        isMuted: isMuted,
+        isSpeaking: call.groupAudioLevels[peerId] != null && (call.groupAudioLevels[peerId] ?? 0) > 0.3,
       ));
     }
 
@@ -299,12 +334,19 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     required RTCVideoRenderer renderer,
     required String name,
     required bool mirror,
+    bool isMuted = false,
+    bool isSpeaking = false,
   }) {
     final theme = Theme.of(context);
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          border: isSpeaking
+              ? Border.all(color: theme.colorScheme.primary, width: 3)
+              : null,
+        ),
         child: Stack(
           children: [
             Positioned.fill(
@@ -317,6 +359,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             Positioned(
               bottom: 8,
               left: 8,
+              right: 8,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: BackdropFilter(
@@ -324,19 +367,136 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     color: theme.colorScheme.surface.withValues(alpha: 0.5),
-                    child: Text(
-                      name,
-                      style: TextStyle(
-                        color: theme.colorScheme.onSurface,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            name,
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurface,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (isMuted) ...[
+                          const SizedBox(width: 4),
+                          Icon(Icons.mic_off_rounded, size: 14, color: theme.colorScheme.error),
+                        ],
+                      ],
                     ),
                   ),
                 ),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildParticipantsPanel(CallProvider call) {
+    final theme = Theme.of(context);
+    final session = call.groupCallSession;
+    final participants = session?.participants ?? <String, JanusParticipant>{};
+    final myName = call.groupCallSession?.displayName ?? 'You';
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), bottomLeft: Radius.circular(20)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          color: theme.colorScheme.surface.withValues(alpha: 0.85),
+          child: Column(
+            children: [
+              const SizedBox(height: 60),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Participants (${participants.length + 1})',
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close_rounded, color: theme.colorScheme.onSurfaceVariant, size: 20),
+                      onPressed: () => setState(() => _showParticipants = false),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+
+          // GROUP CALL PARTICIPANTS PANEL
+          if (call.isGroupCall && _showParticipants)
+            Positioned(
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: 280,
+              child: _buildParticipantsPanel(call),
+            ),
+        ],
+      ),
+              ),
+              Divider(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.2), height: 1),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  children: [
+                    ListTile(
+                      leading: CircleAvatar(
+                        radius: 16,
+                        backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.2),
+                        child: Text(myName[0].toUpperCase(), style: TextStyle(color: theme.colorScheme.primary, fontSize: 14, fontWeight: FontWeight.w800)),
+                      ),
+                      title: Text('$myName (You)', style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14, fontWeight: FontWeight.w700)),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(call.isMicMuted ? Icons.mic_off_rounded : Icons.mic_rounded, size: 16, color: call.isMicMuted ? theme.colorScheme.error : theme.colorScheme.primary),
+                          if (call.isVideo && !call.isCameraOff) ...[
+                            const SizedBox(width: 8),
+                            Icon(Icons.videocam_rounded, size: 16, color: theme.colorScheme.primary),
+                          ],
+                        ],
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                      dense: true,
+                    ),
+                    ...participants.entries.map((entry) {
+                      final p = entry.value;
+                      return ListTile(
+                        leading: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: theme.colorScheme.secondary.withValues(alpha: 0.2),
+                          child: Text(p.displayName[0].toUpperCase(), style: TextStyle(color: theme.colorScheme.secondary, fontSize: 14, fontWeight: FontWeight.w800)),
+                        ),
+                        title: Text(p.displayName, style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14, fontWeight: FontWeight.w700)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (!p.audioEnabled) Icon(Icons.mic_off_rounded, size: 16, color: theme.colorScheme.error),
+                            if (!p.videoEnabled) ...[
+                              const SizedBox(width: 4),
+                              Icon(Icons.videocam_off_rounded, size: 16, color: theme.colorScheme.onSurfaceVariant),
+                            ],
+                          ],
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                        dense: true,
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -354,6 +514,13 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
       statusText = _formatDuration(_callDuration);
     }
 
+    final displayName = call.isGroupCall
+        ? (call.groupCallSession?.roomJid.split('@').first ?? 'Group Call')
+        : (call.remoteJid?.split('@').first ?? 'Private Caller');
+    final participantCount = call.isGroupCall && call.groupCallSession != null
+        ? call.groupCallSession!.participantCount + 1
+        : null;
+
     return Column(
       children: [
         Row(
@@ -365,10 +532,10 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             ],
             Flexible(
               child: Text(
-                call.remoteJid?.split('@').first ?? 'Private Caller',
+                displayName,
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurface,
-                  fontSize: 28,
+                  fontSize: call.isGroupCall ? 22 : 28,
                   fontWeight: FontWeight.w900,
                   letterSpacing: -0.5,
                 ),
@@ -377,7 +544,24 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
+        if (call.isGroupCall && participantCount != null)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.people_rounded, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
+              const SizedBox(width: 4),
+              Text(
+                '$participantCount ${participantCount == 1 ? "participant" : "participants"}',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        const SizedBox(height: 4),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -659,6 +843,17 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                   onPressed: () {
                     HapticFeedback.lightImpact();
                     _showAddParticipantDialog(call);
+                  },
+                ),
+              if (call.isGroupCall && call.state == CallState.active)
+                _enhancedCircleButton(
+                  icon: Icons.people_rounded,
+                  label: '${(call.groupCallSession?.participantCount ?? 0) + 1}',
+                  isActive: _showParticipants,
+                  activeColor: Colors.teal,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    setState(() => _showParticipants = !_showParticipants);
                   },
                 ),
               if (call.state == CallState.active)

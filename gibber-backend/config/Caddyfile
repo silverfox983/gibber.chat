@@ -67,6 +67,18 @@ gibberapp.online {
     # Account deletion endpoint
     reverse_proxy /account/* gibber-backend:8080
 
+    # SFU (Janus WebSocket)
+    reverse_proxy /janus janus:8188 {
+        header_up Connection {>Connection}
+        header_up Upgrade {>Upgrade}
+    }
+
+    # SFU API endpoints
+    reverse_proxy /sfu/* gibber-backend:8080 {
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+    }
+
     # Static web frontend (Flutter web build)
     root * /srv/gibber-web
     try_files {path} /index.html

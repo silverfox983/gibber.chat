@@ -71,6 +71,7 @@ modules_enabled = {
     "websocket";
     "smacks";
     "http_file_share";
+    "extdisco";
 }
 
 -- MAM (XEP-0313): Archive messages for offline retrieval
@@ -81,6 +82,32 @@ http_file_share_size_limit = 50 * 1024 * 1024  -- 50 MB
 http_file_share_expire_after = 7 * 86400  -- 7 days
 http_paths = {
     file_share = "/upload";
+}
+
+-- External Service Discovery (XEP-0215) - STUN/TURN for WebRTC
+external_services = {
+    {
+        type = "stun",
+        transport = "udp",
+        host = "gibberapp.online",
+        port = 3478
+    },
+    {
+        type = "turn",
+        transport = "udp",
+        host = "gibberapp.online",
+        port = 3478,
+        username = "gibber",
+        password = "gibber-turn-secret-change-in-production"
+    },
+    {
+        type = "turns",
+        transport = "tcp",
+        host = "gibberapp.online",
+        port = 5349,
+        username = "gibber",
+        password = "gibber-turn-secret-change-in-production"
+    }
 }
 
 -- Stream Management (XEP-0198)

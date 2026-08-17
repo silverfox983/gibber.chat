@@ -17,7 +17,10 @@ import '../services/multi_peer_webrtc_manager.dart';
 import '../services/audio_effects_service.dart';
 import '../services/call_audio_playback_service.dart';
 import '../services/resource_scheduler_service.dart';
+import '../services/janus_service.dart';
+import '../services/backend_config.dart';
 import '../models/call_log.dart';
+import '../models/group_call_models.dart';
 import '../models/chat_models.dart' as chat;
 
 bool isPhoneNumber(String input) {
@@ -61,6 +64,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   StreamSubscription? _proximitySub;
   StreamSubscription? _sipCallStateSub;
   StreamSubscription? _roomParticipantSub;
+  StreamSubscription? _janusSpeakingSub;
+  StreamSubscription? _janusRemoteTrackSub;
   Timer? _callTimeoutTimer;
   Timer? _iceDebugTimer;
   int _candidateSendCount = 0;
@@ -75,6 +80,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   final Map<String, RTCVideoRenderer> _groupRenderers = {};
   final Map<String, double> _groupAudioLevels = {};
   MultiPeerWebRTCManager? _multiPeerManager;
+
+  JanusService? _janusService;
+  GroupCallSession? _groupCallSession;
+  BackendConfig? _backendConfig;
 
   final AudioEffectsService _audioEffects = AudioEffectsService.instance;
   final CallAudioPlaybackService _audioPlayback = CallAudioPlaybackService.instance;
@@ -104,6 +113,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   SipService? get sipService => _sipService;
   
   bool get isGroupCall => _isGroupCall;
+  GroupCallSession? get groupCallSession => _groupCallSession;
   Map<String, RTCVideoRenderer> get groupRenderers => _groupRenderers;
   Map<String, double> get groupAudioLevels => _groupAudioLevels;
   AudioEffectsService get audioEffects => _audioEffects;
@@ -161,6 +171,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     // ATTACH: Forward service notifications to UI
     _audioEffects.addListener(_onAudioEffectsChanged);
     _audioPlayback.addListener(_onAudioPlaybackChanged);
+  }
+
+  void setBackendConfig(BackendConfig config) {
+    _backendConfig = config;
   }
 
   void _onAudioEffectsChanged() {
@@ -253,6 +267,193 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   }
 
   Future<void> _startMucCall(
+    String roomJid, {
+    String? accountId,
+    bool isVideo = true,
+  }) async {
+    debugPrint('CallProvider: === STARTING GROUP CALL (SFU) ===');
+
+    final sfuUrl = _backendConfig?.derivedSfuUrl;
+    if (sfuUrl == null || sfuUrl.isEmpty) {
+      debugPrint('CallProvider: No SFU URL configured, falling back to mesh');
+      await _startMucCallMesh(roomJid, accountId: accountId, isVideo: isVideo);
+      return;
+    }
+
+    _state = CallState.outgoing;
+    _remoteJid = roomJid;
+    _isVideo = isVideo;
+    _callAccountId = accountId;
+    _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
+    _isGroupCall = true;
+    _log('Outgoing group ${_isVideo ? "video" : "voice"} call started (SFU)', isSent: true);
+    notifyListeners();
+
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.microphone,
+      if (isVideo) Permission.camera,
+    ].request();
+    if (statuses[Permission.microphone] != PermissionStatus.granted ||
+        (isVideo && statuses[Permission.camera] != PermissionStatus.granted)) {
+      _permissionError = 'Microphone/Camera permission denied';
+      _state = CallState.idle;
+      notifyListeners();
+      return;
+    }
+
+    await _soundService.setCallAudioContext(isVideo: isVideo);
+    _applyDefaultSpeakerRoute(isVideo: isVideo, source: 'start_sfu_call');
+
+    for (var r in _groupRenderers.values) {
+      r.srcObject = null;
+      r.dispose();
+    }
+    _groupRenderers.clear();
+    _groupAudioLevels.clear();
+
+    _multiPeerManager?.dispose();
+    _multiPeerManager = MultiPeerWebRTCManager();
+
+    final iceServers = <Map<String, dynamic>>[];
+    if (_backendConfig != null) {
+      final configIce = _backendConfig!.iceServers;
+      if (configIce.isNotEmpty) {
+        iceServers.addAll(configIce);
+      }
+    }
+    if (iceServers.isEmpty && _authService != null) {
+      final fetched = await _authService!.fetchIceServers(accountId ?? '');
+      iceServers.addAll(fetched);
+    }
+    if (iceServers.isNotEmpty) {
+      _multiPeerManager!.setIceServers(iceServers);
+    }
+
+    await _multiPeerManager!.initLocalStream(isVideo: _isVideo);
+    _localRenderer.srcObject = _multiPeerManager!.localStream;
+
+    _janusService?.dispose();
+    _janusService = JanusService();
+
+    final sfuApiKey = _backendConfig?.sfuApiKey;
+    try {
+      await _janusService!.connect(sfuUrl, apiSecret: sfuApiKey);
+      debugPrint('CallProvider: Connected to Janus SFU at $sfuUrl');
+    } catch (e) {
+      debugPrint('CallProvider: Failed to connect to Janus: $e');
+      _lastError = 'Failed to connect to call server';
+      _cleanup(reason: 'sfu_connect_failed');
+      return;
+    }
+
+    final displayName = _authService?.activeAccountId?.split('@').first ?? 'User';
+    final roomId = roomJid.split('@').first.hashCode.abs().toString();
+
+    final handleId = await _janusService!.joinRoom(roomId, displayName);
+    if (handleId == null) {
+      _lastError = 'Failed to join call room';
+      _cleanup(reason: 'sfu_join_failed');
+      return;
+    }
+
+    _groupCallSession = GroupCallSession(
+      roomId: roomId,
+      roomJid: roomJid,
+      accountId: accountId ?? _authService?.activeAccountId ?? '',
+      janusSessionId: _janusService!.sessionId ?? '',
+      publisherHandle: handleId,
+      displayName: displayName,
+      isAudioOnly: !isVideo,
+      sfuUrl: sfuUrl,
+    );
+
+    _setupJanusListeners();
+
+    final offer = await _multiPeerManager!.createOffer('publisher_$handleId');
+    if (offer.sdp != null) {
+      final published = await _janusService!.publishStream(handleId, offer.sdp!);
+      if (!published) {
+        debugPrint('CallProvider: Failed to publish stream to SFU');
+      }
+    }
+
+    _callStartTime = DateTime.now();
+    _state = CallState.active;
+    _acquireSchedulerForCall();
+    _stopAllSounds();
+    notifyListeners();
+  }
+
+  void _setupJanusListeners() {
+    _janusService?.onParticipantJoined = (participant) {
+      debugPrint('CallProvider: SFU participant joined: ${participant.displayName}');
+      _groupCallSession?.participants[participant.id] = participant;
+      notifyListeners();
+
+      _subscribeToSfuParticipant(participant.id);
+    };
+
+    _janusService?.onParticipantLeft = (participantId) {
+      debugPrint('CallProvider: SFU participant left: $participantId');
+      _groupCallSession?.participants.remove(participantId);
+      final renderer = _groupRenderers.remove(participantId);
+      if (renderer != null) {
+        renderer.srcObject = null;
+        renderer.dispose();
+      }
+      _groupAudioLevels.remove(participantId);
+      notifyListeners();
+    };
+
+    _janusRemoteTrackSub?.cancel();
+    _janusRemoteTrackSub = _janusService?.onRemoteTrack.listen((data) async {
+      final handleId = data['handle_id'] as String?;
+      final jsep = data['jsep'] as Map<String, dynamic>?;
+      if (handleId == null || jsep == null) return;
+
+      final sdp = jsep['sdp'] as String? ?? '';
+      final type = jsep['type'] as String? ?? 'answer';
+
+      if (_multiPeerManager != null) {
+        try {
+          await _multiPeerManager!.setRemoteDescription(
+            handleId,
+            RTCSessionDescription(sdp, type),
+          );
+        } catch (e) {
+          debugPrint('CallProvider: Error setting SFU remote description: $e');
+        }
+      }
+    });
+
+    _janusService?.onRoomDestroyed = (roomId) {
+      debugPrint('CallProvider: SFU room destroyed: $roomId');
+      endCall();
+    };
+
+    _janusSpeakingSub?.cancel();
+    _janusSpeakingSub = _janusService?.onSpeaking.listen((speakingMap) {
+      for (var entry in speakingMap.entries) {
+        _groupAudioLevels[entry.key] = entry.value ? 1.0 : 0.0;
+      }
+      notifyListeners();
+    });
+  }
+
+  Future<void> _subscribeToSfuParticipant(String feedId) async {
+    if (_janusService == null || _groupCallSession == null) return;
+
+    final subscribed = await _janusService!.subscribeToParticipant(
+      _groupCallSession!.roomId,
+      feedId,
+      feedId,
+    );
+    if (!subscribed) {
+      debugPrint('CallProvider: Failed to subscribe to feed $feedId');
+    }
+  }
+
+  Future<void> _startMucCallMesh(
     String roomJid, {
     String? accountId,
     bool isVideo = true,
@@ -692,6 +893,13 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     _isMicMuted = !_isMicMuted;
     _rtcManager.toggleMic(!_isMicMuted);
+    _multiPeerManager?.toggleMic(!_isMicMuted);
+    if (_isGroupCall && _janusService != null && _groupCallSession != null) {
+      _janusService!.configurePublisher(
+        _groupCallSession!.publisherHandle,
+        audio: !_isMicMuted,
+      );
+    }
     _log('Microphone ${_isMicMuted ? "Muted" : "Active"}', isSent: true);
     notifyListeners();
   }
@@ -725,7 +933,14 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
   void toggleCamera() {
     _isCameraOff = !_isCameraOff;
+    if (_isGroupCall && _janusService != null && _groupCallSession != null) {
+      _janusService!.configurePublisher(
+        _groupCallSession!.publisherHandle,
+        video: !_isCameraOff,
+      );
+    }
     _rtcManager.toggleCamera(!_isCameraOff);
+    _multiPeerManager?.toggleCamera(!_isCameraOff);
     _log('Camera ${_isCameraOff ? "Off" : "On"}', isSent: true);
     notifyListeners();
   }
@@ -1598,6 +1813,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _statsSub?.cancel();
     _roomParticipantSub?.cancel();
     _roomParticipantSub = null;
+    _janusSpeakingSub?.cancel();
+    _janusSpeakingSub = null;
+    _janusRemoteTrackSub?.cancel();
+    _janusRemoteTrackSub = null;
     _callTimeoutTimer?.cancel();
     _callTimeoutTimer = null;
     _iceDebugTimer?.cancel();
@@ -1639,6 +1858,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     await _multiPeerManager?.dispose();
     _multiPeerManager = null;
     _isGroupCall = false;
+    _groupCallSession = null;
+
+    _janusService?.disconnect();
+    _janusService?.dispose();
+    _janusService = null;
 
     _state = CallState.idle;
     notifyListeners(); // Immediate UI update to prevent race conditions during async dispose
@@ -1718,6 +1942,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _audioPlayback.removeListener(_onAudioPlaybackChanged);
     _sipService?.dispose();
     _sipService = null;
+    _janusSpeakingSub?.cancel();
+    _janusRemoteTrackSub?.cancel();
     _cleanup(reason: 'provider disposed');
     _localRenderer.dispose();
     _remoteRenderer.dispose();
@@ -1726,6 +1952,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
     _groupRenderers.clear();
     _multiPeerManager?.dispose();
+    _janusService?.dispose();
+    _janusService = null;
     super.dispose();
   }
 }

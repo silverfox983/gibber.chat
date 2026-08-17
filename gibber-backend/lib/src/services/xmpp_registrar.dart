@@ -393,10 +393,7 @@ class XmppRegistrar {
     final jidDomain = host ?? _domain;
     switch (_mode) {
       case RegistrationMode.xmpp:
-        // In-band registration: let Prosody handle conflict detection.
-        // Always return false so the client can attempt registration;
-        // Prosody will return <conflict/> if the username is taken.
-        return false;
+        return _userExistsViaHttp(username, jidDomain);
       case RegistrationMode.http:
         return _userExistsViaHttp(username, jidDomain);
       case RegistrationMode.internal:
@@ -409,11 +406,17 @@ class XmppRegistrar {
   Future<bool> _userExistsViaHttp(String username, String domain) async {
     try {
       final client = HttpClient();
-      final request = await client.getUrl(Uri.parse('$_prosodyHttpUrl/register/$domain?username=$username'));
+      final request = await client.getUrl(Uri.parse('$_prosodyHttpUrl/check/?username=$username&host=$domain'));
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       client.close();
-      return body.contains('exists');
+      if (response.statusCode == 200) {
+        try {
+          final data = jsonDecode(body) as Map<String, dynamic>;
+          return data['available'] == false || data['exists'] == true;
+        } catch (_) {}
+      }
+      return body.contains('exists') || body.contains('conflict') || body.contains('not-available');
     } catch (_) {
       return false;
     }

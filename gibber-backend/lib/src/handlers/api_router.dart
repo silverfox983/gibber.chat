@@ -47,6 +47,14 @@ class ApiRouter {
   final RateLimiter _entitlementLimiter = RateLimiter(maxRequests: 30, window: Duration(minutes: 1));
   final RateLimiter _redeemLimiter = RateLimiter(maxRequests: 5, window: Duration(hours: 1));
   final RateLimiter _authLimiter = RateLimiter(maxRequests: 10, window: Duration(minutes: 1));
+  final RateLimiter _sfuLimiter = RateLimiter(maxRequests: 30, window: Duration(minutes: 1));
+  final String? janusApiKey;
+  final String? janusUrl;
+
+  String? get _effectiveJanusApiKey =>
+      janusApiKey ?? const String.fromEnvironment('GIBBER_JANUS_API_KEY', defaultValue: '');
+  String? get _effectiveJanusUrl =>
+      janusUrl ?? const String.fromEnvironment('GIBBER_JANUS_URL', defaultValue: '');
 
   ApiRouter({
     required this.db,
@@ -55,8 +63,10 @@ class ApiRouter {
     required this.entitlementService,
     required this.paymentService,
     this.adminApiKey = 'gibber-admin-key',
+    this.janusApiKey,
+    this.janusUrl,
     CaptchaService? captchaService,
-    JwtService? jwtService,
+     JwtService? jwtService,
   }) : captchaService = captchaService ?? CaptchaService(),
        jwtService = jwtService,
        healthService = HealthService(db: db, xmppRegistrar: xmppRegistrar) {
@@ -92,6 +102,9 @@ class ApiRouter {
     _router.post('/account/delete', _handleAccountDelete);
     _router.post('/codes', _handleGenerateCode);
     _router.get('/codes', _handleListCodes);
+    _router.post('/sfu/create-room', _handleSfuCreateRoom);
+    _router.post('/sfu/token', _handleSfuToken);
+    _router.get('/sfu/ice-servers', _handleSfuIceServers);
     _router.get('/health', _handleHealth);
   }
 
@@ -153,6 +166,8 @@ class ApiRouter {
           headers: _jsonHeaders,
         );
       }
+    } on FormatException catch (_) {
+      return Response.badRequest(body: jsonEncode({'error': 'Invalid JSON body'}), headers: _jsonHeaders);
     } catch (e) {
       print('Registration error: $e');
       return Response.internalServerError(
@@ -188,6 +203,8 @@ class ApiRouter {
         jsonEncode({'available': !exists}),
         headers: _jsonHeaders,
       );
+    } on FormatException catch (_) {
+      return Response.badRequest(body: jsonEncode({'error': 'Invalid JSON body'}), headers: _jsonHeaders);
     } catch (e) {
       return Response.internalServerError(
         body: jsonEncode({'error': e.toString()}),
@@ -497,14 +514,170 @@ class ApiRouter {
     final wsPort = prosodyUri.port > 0 ? prosodyUri.port : (prosodyUri.scheme == 'https' ? 5281 : 5280);
     final uploadUrl = '${prosodyUri.scheme}://${prosodyUri.host}:${prosodyUri.port > 0 ? prosodyUri.port : (prosodyUri.scheme == 'https' ? 5281 : 5280)}/upload';
     final websocketUrl = '$wsScheme://${prosodyUri.host}:$wsPort/xmpp-websocket';
+
+    final config = <String, dynamic>{
+      'captchaEnabled': captchaService.enabled,
+      'domain': xmppRegistrar.domain,
+      'uploadUrl': uploadUrl,
+      'websocketUrl': websocketUrl,
+      'maxUploadSize': 52428800,
+    };
+
+    if (_effectiveJanusUrl != null && _effectiveJanusUrl!.isNotEmpty) {
+      config['sfuUrl'] = _effectiveJanusUrl;
+    }
+    if (_effectiveJanusApiKey != null && _effectiveJanusApiKey!.isNotEmpty) {
+      config['sfuApiKey'] = _effectiveJanusApiKey;
+    }
+
+    final iceServers = _buildIceServers(prosodyUri.host);
+    if (iceServers.isNotEmpty) {
+      config['iceServers'] = iceServers;
+    }
+
     return Response.ok(
-      jsonEncode({
-        'captchaEnabled': captchaService.enabled,
-        'domain': xmppRegistrar.domain,
-        'uploadUrl': uploadUrl,
-        'websocketUrl': websocketUrl,
-        'maxUploadSize': 52428800,
-      }),
+      jsonEncode(config),
+      headers: _jsonHeaders,
+    );
+  }
+
+  List<Map<String, dynamic>> _buildIceServers(String host) {
+    final servers = <Map<String, dynamic>>[
+      {'urls': 'stun:$host:3478'},
+      {'urls': 'stun:stun.l.google.com:19302'},
+    ];
+
+    final turnUrl = const String.fromEnvironment('GIBBER_TURN_URL', defaultValue: '');
+    final turnUser = const String.fromEnvironment('GIBBER_TURN_USER', defaultValue: '');
+    final turnPass = const String.fromEnvironment('GIBBER_TURN_PASS', defaultValue: '');
+
+    if (turnUrl.isNotEmpty) {
+      servers.add({
+        'urls': 'turn:$turnUrl',
+        'username': turnUser,
+        'credential': turnPass,
+      });
+    }
+
+    return servers;
+  }
+
+  Future<Response> _handleSfuCreateRoom(Request request) async {
+    if (!_sfuLimiter.allow(request.ip ?? 'unknown')) {
+      return Response(429, body: jsonEncode({'error': 'Rate limit exceeded'}), headers: _jsonHeaders);
+    }
+
+    final authHeader = request.headers['authorization'];
+    if (authHeader == null || !authHeader.startsWith('Bearer ')) {
+      return Response(401, body: jsonEncode({'error': 'Unauthorized'}), headers: _jsonHeaders);
+    }
+
+    final token = authHeader.substring(7);
+    final payload = jwtService?.verifyToken(token);
+    if (payload == null) {
+      return Response(401, body: jsonEncode({'error': 'Invalid token'}), headers: _jsonHeaders);
+    }
+
+    final jid = payload.jid;
+    if (jid.isEmpty) {
+      return Response(401, body: jsonEncode({'error': 'Invalid token'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final body = await request.readAsString();
+      final data = jsonDecode(body) as Map<String, dynamic>;
+      final roomId = data['room_id'] as String? ?? 'room_${DateTime.now().millisecondsSinceEpoch}';
+      final description = data['description'] as String? ?? '';
+      final maxPublishers = data['max_publishers'] as int? ?? 6;
+      final secret = data['secret'] as String? ?? _uuid.v4().substring(0, 16);
+      final isPrivate = data['private'] as bool? ?? false;
+
+      final roomConfig = <String, dynamic>{
+        'room': roomId,
+        'description': description,
+        'max_publishers': maxPublishers,
+        'secret': secret,
+        'is_private': isPrivate,
+        'created_by': jid,
+        'created_at': DateTime.now().toIso8601String(),
+      };
+
+      if (_effectiveJanusApiKey != null && _effectiveJanusApiKey!.isNotEmpty) {
+        roomConfig['janus_api_key'] = _effectiveJanusApiKey;
+      }
+      if (_effectiveJanusUrl != null && _effectiveJanusUrl!.isNotEmpty) {
+        roomConfig['janus_url'] = _effectiveJanusUrl;
+      }
+
+      return Response.ok(
+        jsonEncode(roomConfig),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.badRequest(
+        body: jsonEncode({'error': 'Invalid request body'}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleSfuToken(Request request) async {
+    if (!_sfuLimiter.allow(request.ip ?? 'unknown')) {
+      return Response(429, body: jsonEncode({'error': 'Rate limit exceeded'}), headers: _jsonHeaders);
+    }
+
+    final authHeader = request.headers['authorization'];
+    if (authHeader == null || !authHeader.startsWith('Bearer ')) {
+      return Response(401, body: jsonEncode({'error': 'Unauthorized'}), headers: _jsonHeaders);
+    }
+
+    final token = authHeader.substring(7);
+    final payload = jwtService?.verifyToken(token);
+    if (payload == null) {
+      return Response(401, body: jsonEncode({'error': 'Invalid token'}), headers: _jsonHeaders);
+    }
+
+    final jid = payload.jid;
+    if (jid.isEmpty) {
+      return Response(401, body: jsonEncode({'error': 'Invalid token'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final body = await request.readAsString();
+      final data = jsonDecode(body) as Map<String, dynamic>;
+      final roomId = data['room_id'] as String?;
+      if (roomId == null) {
+        return Response.badRequest(
+          body: jsonEncode({'error': 'room_id required'}),
+          headers: _jsonHeaders,
+        );
+      }
+
+      final displayName = data['display_name'] as String? ?? jid.split('@').first;
+      final sfuToken = jwtService?.generateToken(jid, tier: 'sfu');
+
+      return Response.ok(
+        jsonEncode({
+          'token': sfuToken,
+          'room_id': roomId,
+          'display_name': displayName,
+          'janus_url': _effectiveJanusUrl,
+        }),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.badRequest(
+        body: jsonEncode({'error': 'Invalid request body'}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleSfuIceServers(Request request) async {
+    final host = xmppRegistrar.domain;
+    final servers = _buildIceServers(host);
+    return Response.ok(
+      jsonEncode({'iceServers': servers}),
       headers: _jsonHeaders,
     );
   }
@@ -546,6 +719,10 @@ class ApiRouter {
       if (password == null || password.isEmpty) {
         return Response.badRequest(body: jsonEncode({'error': 'Password is required'}), headers: _jsonHeaders);
       }
+      final hostError = InputValidator.validateHost(host);
+      if (hostError != null) {
+        return Response.badRequest(body: jsonEncode({'error': hostError}), headers: _jsonHeaders);
+      }
 
       final domain = host ?? xmppRegistrar.domain;
       final jid = '$username@$domain';
@@ -570,6 +747,8 @@ class ApiRouter {
         }),
         headers: _jsonHeaders,
       );
+    } on FormatException catch (_) {
+      return Response.badRequest(body: jsonEncode({'error': 'Invalid JSON body'}), headers: _jsonHeaders);
     } catch (e) {
       return Response.internalServerError(
         body: jsonEncode({'error': e.toString()}),
@@ -581,6 +760,11 @@ class ApiRouter {
   Future<Response> _handleAuthRefresh(Request request) async {
     if (jwtService == null) {
       return Response(503, body: jsonEncode({'error': 'JWT auth not configured'}), headers: _jsonHeaders);
+    }
+
+    final clientIp = request.ip ?? 'unknown';
+    if (!_authLimiter.allow(clientIp)) {
+      return Response(429, body: jsonEncode({'error': 'Too many auth attempts'}), headers: _jsonHeaders);
     }
 
     try {
@@ -595,9 +779,14 @@ class ApiRouter {
       if (payload == null) {
         return Response(401, body: jsonEncode({'error': 'Invalid or expired refresh token'}), headers: _jsonHeaders);
       }
+      if (payload.jid.isEmpty) {
+        return Response(401, body: jsonEncode({'error': 'Invalid refresh token'}), headers: _jsonHeaders);
+      }
 
       final entitlement = await entitlementService.getEntitlement(payload.jid);
       final newAccessToken = jwtService!.generateToken(payload.jid, tier: entitlement.tier);
+
+      _ensureUser(payload.jid);
 
       return Response.ok(
         jsonEncode({
@@ -607,6 +796,8 @@ class ApiRouter {
         }),
         headers: _jsonHeaders,
       );
+    } on FormatException catch (_) {
+      return Response.badRequest(body: jsonEncode({'error': 'Invalid JSON body'}), headers: _jsonHeaders);
     } catch (e) {
       return Response.internalServerError(
         body: jsonEncode({'error': e.toString()}),
