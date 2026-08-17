@@ -1,28 +1,32 @@
 #!/bin/bash
 set -e
 
-# NOTE: Railway may set GIBBER_JWT_SECRET="" (empty string) which overrides
-# the correct value in gibber.env. We handle this by reading all values
-# from environment FIRST, then applying gibber.env as a fallback for any
-# that are empty or wrong.
-
-# Step 1: Read Railway/docker-compose environment variables (these take precedence if non-empty)
+# Step 1: Read Railway/docker-compose environment variables FIRST (these take precedence if non-empty)
 RAILWAY_GIBBER_JWT_SECRET="${GIBBER_JWT_SECRET:-}"
 RAILWAY_GIBBER_REGISTRATION_MODE="${GIBBER_REGISTRATION_MODE:-}"
 RAILWAY_GIBBER_USE_DOCKER="${GIBBER_USE_DOCKER:-}"
 RAILWAY_GIBBER_PROSODY_URL="${GIBBER_PROSODY_URL:-}"
 
-# Step 2: Source gibber.env to get correct defaults
+# Step 2: Source gibber.env if it exists
 if [ -f /app/config/gibber.env ]; then
-    echo "Sourcing /app/config/gibber.env for defaults..."
+    echo "Sourcing /app/config/gibber.env..."
     set -a
     source /app/config/gibber.env
     set +a
 else
-    echo "WARNING: /app/config/gibber.env not found!"
+    echo "WARNING: /app/config/gibber.env not found in image. Creating with defaults..."
+    # Create the file with correct defaults so it persists and can be checked
+    cat > /app/config/gibber.env << 'ENDFILE'
+GIBBER_REGISTRATION_MODE=xmpp
+GIBBER_USE_DOCKER=1
+GIBBER_JWT_SECRET=change-me-in-production-use-a-strong-random-string
+GIBBER_PROSODY_URL=http://prosody:5280
+GIBBER_ENABLE_SASL2=1
+ENDFILE
+    echo "Created /app/config/gibber.env with defaults."
 fi
 
-# Step 3: Use Railway values if they are non-empty, otherwise keep gibber.env defaults
+# Step 3: Use nested parameter expansion - prefer Railway if non-empty, else gibber.env
 JWT_SECRET="${RAILWAY_GIBBER_JWT_SECRET:-${GIBBER_JWT_SECRET:-}}"
 REGISTRATION_MODE="${RAILWAY_GIBBER_REGISTRATION_MODE:-${GIBBER_REGISTRATION_MODE:-xmpp}}"
 USE_DOCKER="${RAILWAY_GIBBER_USE_DOCKER:-${GIBBER_USE_DOCKER:-0}}"
