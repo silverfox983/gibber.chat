@@ -1,38 +1,25 @@
 #!/bin/bash
 set -e
 
-# Step 1: Read Railway/docker-compose environment variables FIRST (these take precedence if non-empty)
+# Read Railway/docker-compose environment variables
 RAILWAY_GIBBER_JWT_SECRET="${GIBBER_JWT_SECRET:-}"
 RAILWAY_GIBBER_REGISTRATION_MODE="${GIBBER_REGISTRATION_MODE:-}"
 RAILWAY_GIBBER_USE_DOCKER="${GIBBER_USE_DOCKER:-}"
 RAILWAY_GIBBER_PROSODY_URL="${GIBBER_PROSODY_URL:-}"
 
-# Step 2: Source gibber.env if it exists
-if [ -f /app/config/gibber.env ]; then
-    echo "Sourcing /app/config/gibber.env..."
-    set -a
-    source /app/config/gibber.env
-    set +a
-else
-    echo "WARNING: /app/config/gibber.env not found in image. Creating with defaults..."
-    # Create the file with correct defaults so it persists and can be checked
-    cat > /app/config/gibber.env << 'ENDFILE'
-GIBBER_REGISTRATION_MODE=xmpp
-GIBBER_USE_DOCKER=1
-GIBBER_JWT_SECRET=change-me-in-production-use-a-strong-random-string
-GIBBER_PROSODY_URL=http://prosody:5280
-GIBBER_ENABLE_SASL2=1
-ENDFILE
-    echo "Created /app/config/gibber.env with defaults."
-fi
+# Default values (used when Railway sets empty or wrong values)
+DEFAULT_JWT_SECRET="change-me-in-production-use-a-strong-random-string"
+DEFAULT_REGISTRATION_MODE="xmpp"
+DEFAULT_USE_DOCKER="1"
+DEFAULT_PROSODY_URL="http://prosody:5280"
 
-# Step 3: Use nested parameter expansion - prefer Railway if non-empty, else gibber.env
-JWT_SECRET="${RAILWAY_GIBBER_JWT_SECRET:-${GIBBER_JWT_SECRET:-}}"
-REGISTRATION_MODE="${RAILWAY_GIBBER_REGISTRATION_MODE:-${GIBBER_REGISTRATION_MODE:-xmpp}}"
-USE_DOCKER="${RAILWAY_GIBBER_USE_DOCKER:-${GIBBER_USE_DOCKER:-0}}"
-PROSODY_URL="${RAILWAY_GIBBER_PROSODY_URL:-${GIBBER_PROSODY_URL:-http://prosody:5280}}"
+# Use Railway value if non-empty, otherwise use default
+JWT_SECRET="${RAILWAY_GIBBER_JWT_SECRET:-$DEFAULT_JWT_SECRET}"
+REGISTRATION_MODE="${RAILWAY_GIBBER_REGISTRATION_MODE:-$DEFAULT_REGISTRATION_MODE}"
+USE_DOCKER="${RAILWAY_GIBBER_USE_DOCKER:-$DEFAULT_USE_DOCKER}"
+PROSODY_URL="${RAILWAY_GIBBER_PROSODY_URL:-$DEFAULT_PROSODY_URL}"
 
-# Step 4: Force correct values if Railway set wrong ones
+# Force correct values if Railway set wrong ones
 if [ "$REGISTRATION_MODE" = "internal" ] || [ -z "$REGISTRATION_MODE" ]; then
     echo "WARNING: Railway override detected (REGISTRATION_MODE=$REGISTRATION_MODE). Forcing to xmpp."
     REGISTRATION_MODE="xmpp"
@@ -45,7 +32,7 @@ if [ "$USE_DOCKER" = "0" ] || [ -z "$USE_DOCKER" ]; then
     fi
 fi
 
-# Read remaining vars (these typically don't have Railway override issues)
+# Read remaining vars
 DOMAIN="${DOMAIN:-gibberapp.online}"
 PORT="${PORT:-8080}"
 ADMIN_KEY="${GIBBER_ADMIN_KEY:-gibber-admin-key-change-in-production}"
