@@ -65,7 +65,56 @@ CERT_DIR="/etc/prosody/certs"
 LE_CERT="$CERT_DIR/$DOMAIN.crt"
 LE_KEY="$CERT_DIR/$DOMAIN.key"
 
-provision_lets_encrypt_cert() {
+# Always generate a self-signed cert first so Prosody can start immediately.
+# If Let's Encrypt succeeds later, we overwrite this and reload Prosody.
+if [ ! -f "$LE_KEY" ] || [ ! -f "$LE_CERT" ]; then
+    echo "Generating temporary self-signed certificate (will be replaced by LE if DNS API is configured)..."
+    openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
+        -keyout "$LE_KEY" \
+        -out "$LE_CERT" \
+        -subj "/CN=$DOMAIN/O=Gibber/C=US" 2>/dev/null
+    chown prosody:prosody "$LE_KEY" "$LE_CERT" 2>/dev/null || true
+fi
+
+sed -i "s|/etc/prosody/certs/gibberapp.online.key|$LE_KEY|g" /etc/prosody/prosody.cfg.lua
+sed -i "s|/etc/prosody/certs/gibberapp.online.crt|$LE_CERT|g" /etc/prosody/prosody.cfg.lua
+
+mkdir -p /var/run/prosody /app/data /var/log/supervisor /etc/supervisor/conf.d
+chown -R prosody:prosody /var/run/prosody /var/lib/prosody
+
+echo "Writing supervisord config..."
+cat > /etc/supervisor/conf.d/gibber.conf << EOF
+[program:prosody]
+command=/usr/bin/prosody -F
+user=prosody
+autostart=true
+autorestart=true
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+redirect_stderr=true
+
+[program:gibber-backend]
+command=/app/bin/server --host 0.0.0.0 --port ${PORT} --db-path /app/data/gibber_backend.db --config /etc/prosody/prosody.cfg.lua --mode "${REGISTRATION_MODE}" --use-docker "${USE_DOCKER}" --prosody-url "${PROSODY_URL}" --enable-sasl2 "${ENABLE_SASL2}" --jwt-secret "${JWT_SECRET}" --web-dir /app/web --turnstile-secret "${TURNSTONE_SECRET}" --turnstile-action "${TURNSTILE_ACTION}" --turnstile-hostnames "${TURNSTILE_HOSTNAMES}" --stripe-secret "${STRIPE_SECRET}" --stripe-webhook-secret "${STRIPE_WEBHOOK_SECRET}" --btcpay-url "${BTCPAY_URL}" --btcpay-api-key "${BTCPAY_API_KEY}" --btcpay-store-id "${BTCPAY_STORE_ID}"
+environment=GIBBER_ADMIN_KEY="${ADMIN_KEY}",DOMAIN="${DOMAIN}",GIBBER_JWT_SECRET="${JWT_SECRET}",GIBBER_REGISTRATION_MODE="${REGISTRATION_MODE}",GIBBER_USE_DOCKER="${USE_DOCKER}",GIBBER_PROSODY_URL="${PROSODY_URL}",GIBBER_ENABLE_SASL2="${ENABLE_SASL2}",TURNSTILE_SECRET_KEY="${TURNSTONE_SECRET}",TURNSTILE_ACTION="${TURNSTILE_ACTION}",TURNSTILE_HOSTNAMES="${TURNSTILE_HOSTNAMES}",STRIPE_SECRET_KEY="${STRIPE_SECRET}",STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}",BTCPAY_URL="${BTCPAY_URL}",BTCPAY_API_KEY="${BTCPAY_API_KEY}",BTCPAY_STORE_ID="${BTCPAY_STORE_ID}"
+autostart=true
+autorestart=true
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+redirect_stderr=true
+EOF
+
+echo "Starting services with temporary certificate..."
+/usr/bin/supervisord -c /etc/supervisor/supervisord.conf &
+SUPERVISOR_PID=$!
+sleep 3
+
+# Now attempt Let's Encrypt if DNS API credentials are configured
+HAVE_DNS_CREDENTIALS=false
+if ([ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_API_KEY" ]) || ([ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]); then
+    HAVE_DNS_CREDENTIALS=true
+fi
+
+if $HAVE_DNS_CREDENTIALS; then
     echo "=== Let's Encrypt Certificate Provisioning ==="
     echo "Domain: $DOMAIN"
 
@@ -87,19 +136,6 @@ provision_lets_encrypt_cert() {
         echo "DNS Provider: Namecheap"
         export NAMECHEAP_USERNAME
         export NAMECHEAP_API_KEY
-    else
-        echo "ERROR: No DNS provider configured"
-        echo "Set either CLOUDFLARE_EMAIL+CLOUDFLARE_API_KEY or NAMECHEAP_USERNAME+NAMECHEAP_API_KEY"
-        return 1
-    fi
-
-    if [ -f "$LE_CERT" ] && [ -f "$LE_KEY" ]; then
-        echo "Certificate already exists at $LE_CERT"
-        CERT_INFO=$(openssl x509 -in "$LE_CERT" -noout -dates 2>/dev/null || echo "")
-        if [ -n "$CERT_INFO" ]; then
-            echo "Existing cert info:"
-            echo "$CERT_INFO"
-        fi
     fi
 
     ISSUE_ARGS="--issue -d $DOMAIN --keylength 4096 --force --email admin@$DOMAIN --server letsencrypt --debug"
@@ -112,133 +148,27 @@ provision_lets_encrypt_cert() {
             ;;
     esac
 
-    if [ ! -f "$LE_CERT" ] || [ ! -f "$LE_KEY" ]; then
-        echo "Issuing new Let's Encrypt certificate for $DOMAIN via DNS-01 challenge..."
-        /root/.acme.sh/acme.sh $ISSUE_ARGS \
-            || {
-                echo "ERROR: acme.sh certificate issuance failed"
-                return 1
-            }
-    else
-        echo "Certificate exists, checking for renewal..."
-        /root/.acme.sh/acme.sh --renew -d "$DOMAIN" --force \
-            || echo "Renewal check completed"
-    fi
+    echo "Issuing Let's Encrypt certificate for $DOMAIN via DNS-01 challenge..."
+    if /root/.acme.sh/acme.sh $ISSUE_ARGS; then
+        echo "Certificate issued! Installing to Prosody certificate directory..."
+        if /root/.acme.sh/acme.sh --install-cert \
+            -d "$DOMAIN" \
+            --key-file "$LE_KEY" \
+            --fullchain-file "$LE_CERT" \
+            --reloadcmd "prosodyctl reload"; then
+            chown prosody:prosody "$LE_KEY" "$LE_CERT" 2>/dev/null || true
+            echo "Let's Encrypt certificate installed successfully!"
 
-    echo "Installing certificate to Prosody certificate directory..."
-    /root/.acme.sh/acme.sh --install-cert \
-        -d "$DOMAIN" \
-        --key-file "$LE_KEY" \
-        --fullchain-file "$LE_CERT" \
-        --reloadcmd "prosodyctl reload" \
-        || {
-            echo "ERROR: Failed to install certificate"
-            return 1
-        }
-
-    chown prosody:prosody "$LE_KEY" "$LE_CERT" 2>/dev/null || true
-    echo "Certificate installed successfully"
-    return 0
-}
-
-generate_self_signed_cert() {
-    echo "=== Generating self-signed certificate (S2S federation will NOT work) ==="
-    if [ ! -f "$LE_KEY" ]; then
-        openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
-            -keyout "$LE_KEY" \
-            -out "$LE_CERT" \
-            -subj "/CN=$DOMAIN/O=Gibber/C=US" 2>/dev/null
-        chown prosody:prosody "$LE_KEY" "$LE_CERT" 2>/dev/null || true
-        echo "Self-signed certificate generated"
-    else
-        echo "Self-signed certificate already exists"
-    fi
-}
-
-setup_supervisord() {
-    mkdir -p /var/run/prosody /app/data /var/log/supervisor /etc/supervisor/conf.d
-    chown -R prosody:prosody /var/run/prosody /var/lib/prosody
-
-    cat > /etc/supervisor/conf.d/gibber.conf << EOF
-[program:prosody]
-command=/usr/bin/prosody -F
-user=prosody
-autostart=true
-autorestart=true
-stdout_logfile=/dev/fd/1
-stdout_logfile_maxbytes=0
-redirect_stderr=true
-
-[program:gibber-backend]
-command=/app/bin/server --host 0.0.0.0 --port ${PORT} --db-path /app/data/gibber_backend.db --config /etc/prosody/prosody.cfg.lua --mode "${REGISTRATION_MODE}" --use-docker "${USE_DOCKER}" --prosody-url "${PROSODY_URL}" --enable-sasl2 "${ENABLE_SASL2}" --jwt-secret "${JWT_SECRET}" --web-dir /app/web --turnstile-secret "${TURNSTONE_SECRET}" --turnstile-action "${TURNSTILE_ACTION}" --turnstile-hostnames "${TURNSTILE_HOSTNAMES}" --stripe-secret "${STRIPE_SECRET}" --stripe-webhook-secret "${STRIPE_WEBHOOK_SECRET}" --btcpay-url "${BTCPAY_URL}" --btcpay-api-key "${BTCPAY_API_KEY}" --btcpay-store-id "${BTCPAY_STORE_ID}"
-environment=GIBBER_ADMIN_KEY="${ADMIN_KEY}",DOMAIN="${DOMAIN}",GIBBER_JWT_SECRET="${JWT_SECRET}",GIBBER_REGISTRATION_MODE="${REGISTRATION_MODE}",GIBBER_USE_DOCKER="${USE_DOCKER}",GIBBER_PROSODY_URL="${PROSODY_URL}",GIBBER_ENABLE_SASL2="${ENABLE_SASL2}",TURNSTILE_SECRET_KEY="${TURNSTONE_SECRET}",TURNSTILE_ACTION="${TURNSTILE_ACTION}",TURNSTILE_HOSTNAMES="${TURNSTILE_HOSTNAMES}",STRIPE_SECRET_KEY="${STRIPE_SECRET}",STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}",BTCPAY_URL="${BTCPAY_URL}",BTCPAY_API_KEY="${BTCPAY_API_KEY}",BTCPAY_STORE_ID="${BTCPAY_STORE_ID}"
-autostart=true
-autorestart=true
-stdout_logfile=/dev/fd/1
-stdout_logfile_maxbytes=0
-redirect_stderr=true
-EOF
-}
-
-wait_for_cert_and_reload() {
-    echo "Waiting for Let's Encrypt certificate to be issued (this may take a few minutes)..."
-    local max_wait=600
-    local waited=0
-
-    while [ ! -f "$LE_CERT" ] || [ ! -f "$LE_KEY" ]; do
-        sleep 5
-        waited=$((waited + 5))
-        if [ $waited -ge $max_wait ]; then
-            echo "TIMEOUT: Certificate not issued after ${max_wait}s"
-            return 1
+            echo "Reloading Prosody to use Let's Encrypt certificate..."
+            prosodyctl reload 2>/dev/null || true
+            echo "Prosody reloaded with Let's Encrypt certificate!"
+        else
+            echo "WARNING: Failed to install Let's Encrypt certificate, keeping self-signed"
         fi
-        echo "Waiting... ${waited}s"
-    done
-
-    echo "Certificate issued! Installing to Prosody certificate directory..."
-    sed -i "s|/etc/prosody/certs/gibberapp.online.key|$LE_KEY|g" /etc/prosody/prosody.cfg.lua
-    sed -i "s|/etc/prosody/certs/gibberapp.online.crt|$LE_CERT|g" /etc/prosody/prosody.cfg.lua
-    chown prosody:prosody "$LE_KEY" "$LE_CERT" 2>/dev/null || true
-
-    echo "Reloading Prosody to use new certificate..."
-    prosodyctl reload
-    echo "Prosody reloaded with Let's Encrypt certificate!"
-    return 0
-}
-
-issue_cert_background() {
-    if provision_lets_encrypt_cert; then
-        echo "Let's Encrypt certificate provisioned successfully"
-        wait_for_cert_and_reload
     else
-        echo "Let's Encrypt provisioning failed, falling back to self-signed..."
-        generate_self_signed_cert
+        echo "WARNING: Let's Encrypt issuance failed, keeping self-signed certificate"
+        echo "S2S federation will NOT work with a self-signed certificate"
     fi
-}
-
-([ -n "$NAMECHEAP_USERNAME" ] && [ -n "$NAMECHEAP_API_KEY" ]) || ([ -n "$CLOUDFLARE_EMAIL" ] && [ -n "$CLOUDFLARE_API_KEY" ])
-
-NEEDS_CERT=$?
-
-if [ $NEEDS_CERT -eq 0 ]; then
-    echo "DNS API credentials detected, setting up services first (for healthcheck)..."
-    sed -i "s|/etc/prosody/certs/gibberapp.online.key|$LE_KEY|g" /etc/prosody/prosody.cfg.lua
-    sed -i "s|/etc/prosody/certs/gibberapp.online.crt|$LE_CERT|g" /etc/prosody/prosody.cfg.lua
-    setup_supervisord
-    echo "Starting services first (to pass healthcheck)..."
-    /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf &
-    SUPERVISOR_PID=$!
-    sleep 3
-
-    echo "Now attempting Let's Encrypt certificate issuance..."
-    issue_cert_background
-
-    if [ -n "$SUPERVISOR_PID" ]; then
-        echo "Restarting Prosody with proper certificate..."
-        kill -HUP $SUPERVISOR_PID 2>/dev/null || true
-        sleep 2
-    fi
-    echo "Services running with Let's Encrypt certificate!"
 else
     echo "=== WARNING: No DNS API credentials configured ==="
     echo "=== S2S federation will NOT work without Let's Encrypt certificates ==="
@@ -246,10 +176,8 @@ else
     echo "  Cloudflare (recommended): CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID"
     echo "  Namecheap: NAMECHEAP_USERNAME + NAMECHEAP_API_KEY"
     echo ""
-    generate_self_signed_cert
-    sed -i "s|/etc/prosody/certs/gibberapp.online.key|$LE_KEY|g" /etc/prosody/prosody.cfg.lua
-    sed -i "s|/etc/prosody/certs/gibberapp.online.crt|$LE_CERT|g" /etc/prosody/prosody.cfg.lua
-    setup_supervisord
-    echo "Starting services with self-signed certificate..."
-    exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
+    echo "Using self-signed certificate (S2S federation will NOT work)"
 fi
+
+echo "=== Startup complete ==="
+wait $SUPERVISOR_PID
