@@ -312,6 +312,9 @@ class XmppRegistrar {
       }
 
       print('XmppRegistrar [internal]: User $jid registered successfully');
+
+      await _reloadProsody();
+
       return XmppRegistrationResult(
         success: true,
         jid: jid,
@@ -337,6 +340,20 @@ class XmppRegistrar {
       }
     } catch (e) {
       print('XmppRegistrar [internal]: chown exception: $e');
+    }
+  }
+
+  Future<void> _reloadProsody() async {
+    try {
+      if (_useDocker && _dockerContainer != null) {
+        final result = await Process.run('docker', ['exec', _dockerContainer!, 'prosodyctl', 'reload']);
+        print('XmppRegistrar: docker exec prosodyctl reload exitCode=${result.exitCode}');
+      } else {
+        final result = await Process.run(_prosodyCtlPath, ['reload']);
+        print('XmppRegistrar: prosodyctl reload exitCode=${result.exitCode}');
+      }
+    } catch (e) {
+      print('XmppRegistrar: prosodyctl reload failed (non-fatal): $e');
     }
   }
 

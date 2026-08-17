@@ -444,7 +444,11 @@ class _LoginScreenState extends State<LoginScreen> {
           errorMessage = 'Invalid username or password.';
         } else if (errorStr.contains('forcefully closed') ||
             errorStr.contains('Connection closed')) {
-          errorMessage = 'The server closed the connection before login completed.';
+          errorMessage = 'Connection lost during login. Please try again.';
+        } else if (errorStr.contains('All connection paths') ||
+            errorStr.contains('probe') ||
+            errorStr.contains('Socket closed unexpectedly')) {
+          errorMessage = 'Could not establish a secure connection to the server.';
         } else {
           errorMessage = errorStr.replaceAll('Exception: ', '');
         }
