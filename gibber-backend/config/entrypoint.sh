@@ -1,6 +1,17 @@
 #!/bin/bash
 set -e
 
+# Source the baked-in config file FIRST so it takes precedence over Railway dashboard vars.
+# Railway may set GIBBER_REGISTRATION_MODE=internal or omit GIBBER_JWT_SECRET,
+# so we source the correct defaults from gibber.env which override Railway values.
+if [ -f /app/config/gibber.env ]; then
+    echo "Sourcing /app/config/gibber.env for correct defaults..."
+    set -a  # automatically export all sourced variables
+    source /app/config/gibber.env
+    set +a
+fi
+
+# Now read Railway/docker-compose environment variables (may override gibber.env if set)
 DOMAIN="${DOMAIN:-gibberapp.online}"
 PORT="${PORT:-8080}"
 ADMIN_KEY="${GIBBER_ADMIN_KEY:-gibber-admin-key-change-in-production}"
@@ -18,12 +29,28 @@ BTCPAY_URL="${BTCPAY_URL:-}"
 BTCPAY_API_KEY="${BTCPAY_API_KEY:-}"
 BTCPAY_STORE_ID="${BTCPAY_STORE_ID:-}"
 
+# If Railway set GIBBER_REGISTRATION_MODE=internal, force it to xmpp
+# (Railway may have cached the old value)
+if [ "$REGISTRATION_MODE" = "internal" ]; then
+    echo "WARNING: Railway override detected (REGISTRATION_MODE=internal). Forcing to xmpp."
+    REGISTRATION_MODE="xmpp"
+fi
+
+# If JWT_SECRET is still empty after all sourcing, set a default
+if [ -z "$JWT_SECRET" ]; then
+    echo "WARNING: JWT_SECRET not set. Using default (auth will be disabled)."
+    JWT_SECRET=""
+fi
+
+# If USE_DOCKER is 0 but we're in Docker (detected by /app/bin/server existence), force to 1
+if [ "$USE_DOCKER" = "0" ] && [ -f /app/bin/server ]; then
+    echo "WARNING: USE_DOCKER=0 but running in container. Forcing to 1."
+    USE_DOCKER="1"
+fi
+
 echo "=== Gibber Entrypoint ==="
 echo "Domain: $DOMAIN"
 echo "Port: $PORT"
-echo "=== Environment Debug ==="
-env | grep GIBBER || echo "No GIBBER env vars found!"
-echo "=== End Environment Debug ==="
 echo "Registration Mode: $REGISTRATION_MODE"
 echo "JWT Secret Set: $([ -n "$JWT_SECRET" ] && echo 'yes' || echo 'no')"
 echo "Use Docker: $USE_DOCKER"
@@ -50,11 +77,6 @@ chown -R prosody:prosody /var/run/prosody /var/lib/prosody
 echo "Writing supervisord config..."
 mkdir -p /etc/supervisor/conf.d
 
-JWT_SECRET_ARG=""
-if [ -n "$JWT_SECRET" ]; then
-    JWT_SECRET_ARG="--jwt-secret $JWT_SECRET"
-fi
-
 cat > /etc/supervisor/conf.d/gibber.conf << EOF
 [program:prosody]
 command=/usr/bin/prosody -F
@@ -66,8 +88,8 @@ stdout_logfile_maxbytes=0
 redirect_stderr=true
 
 [program:gibber-backend]
-command=/app/bin/server --host 0.0.0.0 --port ${PORT} --db-path /app/data/gibber_backend.db --config /etc/prosody/prosody.cfg.lua --mode "${REGISTRATION_MODE}" --use-docker "${USE_DOCKER}" --prosody-url "${PROSODY_URL}" --enable-sasl2 "${ENABLE_SASL2}" --jwt-secret "${JWT_SECRET}" --web-dir /app/web --turnstile-secret "${TURNSTILE_SECRET}" --turnstile-action "${TURNSTILE_ACTION}" --turnstile-hostnames "${TURNSTILE_HOSTNAMES}" --stripe-secret "${STRIPE_SECRET}" --stripe-webhook-secret "${STRIPE_WEBHOOK_SECRET}" --btcpay-url "${BTCPAY_URL}" --btcpay-api-key "${BTCPAY_API_KEY}" --btcpay-store-id "${BTCPAY_STORE_ID}"
-environment=GIBBER_ADMIN_KEY="${ADMIN_KEY}",DOMAIN="${DOMAIN}",GIBBER_JWT_SECRET="${JWT_SECRET}",GIBBER_REGISTRATION_MODE="${REGISTRATION_MODE}",GIBBER_USE_DOCKER="${USE_DOCKER}",GIBBER_PROSODY_URL="${PROSODY_URL}",GIBBER_ENABLE_SASL2="${ENABLE_SASL2}",TURNSTILE_SECRET_KEY="${TURNSTILE_SECRET}",TURNSTILE_ACTION="${TURNSTILE_ACTION}",TURNSTILE_HOSTNAMES="${TURNSTILE_HOSTNAMES}",STRIPE_SECRET_KEY="${STRIPE_SECRET}",STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}",BTCPAY_URL="${BTCPAY_URL}",BTCPAY_API_KEY="${BTCPAY_API_KEY}",BTCPAY_STORE_ID="${BTCPAY_STORE_ID}"
+command=/app/bin/server --host 0.0.0.0 --port ${PORT} --db-path /app/data/gibber_backend.db --config /etc/prosody/prosody.cfg.lua --mode "${REGISTRATION_MODE}" --use-docker "${USE_DOCKER}" --prosody-url "${PROSODY_URL}" --enable-sasl2 "${ENABLE_SASL2}" --jwt-secret "${JWT_SECRET}" --web-dir /app/web --turnstile-secret "${TURNSTONE_SECRET}" --turnstile-action "${TURNSTILE_ACTION}" --turnstile-hostnames "${TURNSTILE_HOSTNAMES}" --stripe-secret "${STRIPE_SECRET}" --stripe-webhook-secret "${STRIPE_WEBHOOK_SECRET}" --btcpay-url "${BTCPAY_URL}" --btcpay-api-key "${BTCPAY_API_KEY}" --btcpay-store-id "${BTCPAY_STORE_ID}"
+environment=GIBBER_ADMIN_KEY="${ADMIN_KEY}",DOMAIN="${DOMAIN}",GIBBER_JWT_SECRET="${JWT_SECRET}",GIBBER_REGISTRATION_MODE="${REGISTRATION_MODE}",GIBBER_USE_DOCKER="${USE_DOCKER}",GIBBER_PROSODY_URL="${PROSODY_URL}",GIBBER_ENABLE_SASL2="${ENABLE_SASL2}",TURNSTILE_SECRET_KEY="${TURNSTONE_SECRET}",TURNSTILE_ACTION="${TURNSTILE_ACTION}",TURNSTILE_HOSTNAMES="${TURNSTILE_HOSTNAMES}",STRIPE_SECRET_KEY="${STRIPE_SECRET}",STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}",BTCPAY_URL="${BTCPAY_URL}",BTCPAY_API_KEY="${BTCPAY_API_KEY}",BTCPAY_STORE_ID="${BTCPAY_STORE_ID}"
 autostart=true
 autorestart=true
 stdout_logfile=/dev/fd/1
