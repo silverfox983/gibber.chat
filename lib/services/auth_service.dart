@@ -3029,44 +3029,7 @@ class AuthService with ChangeNotifier {
   }
 
   // Legacy compatibility for single-account UI parts
-  Future<bool> autoLogin() async {
-    await loadSavedAccounts();
-    if (_savedAccounts.isEmpty) return false;
-
-    // For now, auto-login the first account found
-    final acc = _savedAccounts.first;
-    final pass = await _secureStorage.read(key: 'pass_${acc.fullJid}');
-
-    // Restore Presence
-    final prefs = await SharedPreferences.getInstance();
-    final savedStatusIdx = prefs.getInt('my_presence_status');
-    if (savedStatusIdx != null) {
-      _myStatus = ContactStatus.values[savedStatusIdx];
-    }
-    _myStatusMessage = prefs.getString('my_presence_message');
-
-    if (pass != null) {
-      try {
-        await connectXmpp(
-          user: acc.user,
-          domain: acc.domain,
-          pass: pass,
-          port: acc.port,
-          host: acc.host,
-          accountId: acc.fullJid,
-          configData: acc,
-        );
-
-        // Broadcast presence after connection
-        setPresence(_myStatus, _myStatusMessage);
-
-        return true;
-      } catch (e) {
-        return false;
-      }
-    }
-    return false;
-  }
+  Future<bool> autoLogin() => _contactService.autoLogin();
 
   Future<String> testSocketConnection(String host, int port) async {
     if (kIsWeb) {
@@ -3111,27 +3074,8 @@ class AuthService with ChangeNotifier {
     debugPrint('XEP-0280: Carbons enabled for $accountId');
   }
 
-  Future<void> fetchXmppHistory(
-    String jid, {
-    String? accountId,
-    DateTime? since,
-  }) async {
-    final id = accountId ?? _activeAccountId;
-    final conn = _xmppConnections[id];
-    if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) return;
-    try {
-      final mamManager = xmpp.MessageArchiveManager.getInstance(conn);
-      mamManager.queryByTime(jid: xmpp.Jid.fromFullJid(jid), start: since);
-
-      // The results will come through the normal message stream from the server,
-      // but they will have archived attributes which we should already handle.
-      debugPrint(
-        'MAM: Requested history for $jid ${since != null ? "since $since" : ""}',
-      );
-    } catch (e) {
-      debugPrint('MAM Error: $e');
-    }
-  }
+  Future<void> fetchXmppHistory(String jid, {String? accountId, DateTime? since}) =>
+      _contactService.fetchXmppHistory(jid, accountId: accountId, since: since);
 
   void _syncAllXmppData(String accountId, xmpp.Connection conn) {
     debugPrint('SYNC: Triggering full account sync for $accountId');
@@ -3845,16 +3789,7 @@ class AuthService with ChangeNotifier {
     );
   }
 
-  Future<void> clearAllData() async {
-    await logout();
-     await _omemoService.clearDatabase();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-    await _secureStorage.deleteAll();
-    _savedAccounts.clear();
-    _currentProfile = null;
-    notifyListeners();
-  }
+  Future<void> clearAllData() => _contactService.clearAllData();
 }
 
 class _AuthContactDeps implements AuthServiceContactDeps {
