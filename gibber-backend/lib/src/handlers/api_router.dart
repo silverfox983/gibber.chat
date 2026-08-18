@@ -108,6 +108,10 @@ class ApiRouter {
     _router.post('/sfu/token', _handleSfuToken);
     _router.get('/sfu/ice-servers', _handleSfuIceServers);
     _router.get('/health', _handleHealth);
+    _router.get('/gateways', _handleListGateways);
+    _router.post('/gateways/configure', _handleConfigureGateway);
+    _router.post('/gateways/enable', _handleEnableGateway);
+    _router.post('/gateways/disable', _handleDisableGateway);
   }
 
   // XMPP Registration
@@ -1225,6 +1229,236 @@ class ApiRouter {
       await paymentService.cancelSubscription(subscription.providerId);
       return Response.ok(
         jsonEncode({'cancelled': true}),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  static final _availableGateways = {
+    'telegram': {
+      'name': 'Telegram',
+      'description': 'Bridge to Telegram messenger',
+      'icon': 'telegram',
+      'requiresConfig': ['api_id', 'api_hash'],
+      'componentJid': 'telegram',
+      'slidgeImage': 'ghcr.io/regretfulswan/slidgram:latest',
+    },
+    'discord': {
+      'name': 'Discord',
+      'description': 'Bridge to Discord servers and channels',
+      'icon': 'discord',
+      'requiresConfig': ['bot_token'],
+      'componentJid': 'discord',
+      'slidgeImage': 'ghcr.io/regretfulswan/slidcord:latest',
+    },
+    'irc': {
+      'name': 'IRC',
+      'description': 'Bridge to IRC networks',
+      'icon': 'irc',
+      'requiresConfig': [],
+      'componentJid': 'irc',
+      'slidgeImage': 'ghcr.io/regretfulswan/slidirc:latest',
+    },
+    'matrix': {
+      'name': 'Matrix',
+      'description': 'Bridge to Matrix homeservers',
+      'icon': 'matrix',
+      'requiresConfig': ['homeserver'],
+      'componentJid': 'matrix',
+      'slidgeImage': 'ghcr.io/regretfulswan/matridge:latest',
+    },
+    'whatsapp': {
+      'name': 'WhatsApp',
+      'description': 'Bridge to WhatsApp (via linked device)',
+      'icon': 'whatsapp',
+      'requiresConfig': ['phone_number'],
+      'componentJid': 'whatsapp',
+      'slidgeImage': 'ghcr.io/regretfulswan/slidge-whatsapp:latest',
+    },
+  };
+
+  Future<Response> _handleListGateways(Request request) async {
+    final enabledGateways = _getEnabledGateways();
+    final configuredGateways = _getConfiguredGateways();
+    
+    final gateways = <String, Map<String, dynamic>>{};
+    for (final entry in _availableGateways.entries) {
+      final key = entry.key;
+      final info = Map<String, dynamic>.from(entry.value);
+      info['enabled'] = enabledGateways.contains(key);
+      info['configured'] = configuredGateways.contains(key);
+      info['status'] = _getGatewayStatus(key);
+      gateways[key] = info;
+    }
+
+    return Response.ok(
+      jsonEncode({'gateways': gateways}),
+      headers: _jsonHeaders,
+    );
+  }
+
+  Set<String> _getEnabledGateways() {
+    final enabled = <String>{};
+    final envVars = Platform.environment;
+    if (envVars['GIBBER_SLIDGRAM_ENABLED'] == 'true') enabled.add('telegram');
+    if (envVars['GIBBER_SLIDCORD_ENABLED'] == 'true') enabled.add('discord');
+    if (envVars['GIBBER_SLIDIRC_ENABLED'] == 'true') enabled.add('irc');
+    if (envVars['GIBBER_MATRIDGE_ENABLED'] == 'true') enabled.add('matrix');
+    if (envVars['GIBBER_SLIDGEWHATSAPPER_ENABLED'] == 'true') enabled.add('whatsapp');
+    return enabled;
+  }
+
+  Set<String> _getConfiguredGateways() {
+    final configured = <String>{};
+    final envVars = Platform.environment;
+    if (envVars['TG_API_ID'] != null && envVars['TG_API_ID']!.isNotEmpty) configured.add('telegram');
+    if (envVars['DISCORD_BOT_TOKEN'] != null && envVars['DISCORD_BOT_TOKEN']!.isNotEmpty) configured.add('discord');
+    if (envVars['MATRIX_HOMESERVER'] != null && envVars['MATRIX_HOMESERVER']!.isNotEmpty) configured.add('matrix');
+    return configured;
+  }
+
+  String _getGatewayStatus(String gateway) {
+    final enabled = _getEnabledGateways();
+    if (!enabled.contains(gateway)) return 'disabled';
+    final configured = _getConfiguredGateways();
+    if (!configured.contains(gateway)) return 'not_configured';
+    return 'ready';
+  }
+
+  Future<Response> _handleConfigureGateway(Request request) async {
+    if (!_verifyAdminKey(request)) {
+      return Response(403, body: jsonEncode({'error': 'Admin key required'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final gateway = body['gateway'] as String?;
+      final config = body['config'] as Map<String, dynamic>?;
+
+      if (gateway == null || !_availableGateways.containsKey(gateway)) {
+        return Response.badRequest(body: jsonEncode({'error': 'Invalid gateway type'}), headers: _jsonHeaders);
+      }
+
+      return Response.ok(
+        jsonEncode({
+          'gateway': gateway,
+          'config': config ?? {},
+          'dockerComposeSnippet': _generateDockerCompose(gateway, config ?? {}),
+          'environmentVars': _generateEnvVars(gateway, config ?? {}),
+        }),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  String _generateDockerCompose(String gateway, Map<String, dynamic> config) {
+    final info = _availableGateways[gateway]!;
+    final componentJid = '${info['componentJid']}.\${DOMAIN:-gibberapp.online}';
+
+    final buffer = StringBuffer();
+    buffer.writeln('  # ${info['name']} Gateway');
+    buffer.writeln('  ${info['componentJid']}:');
+    buffer.writeln('    image: ${info['slidgeImage']}');
+    buffer.writeln('    container_name: gibber-${info['componentJid']}');
+    buffer.writeln('    restart: unless-stopped');
+    buffer.writeln('    environment:');
+    buffer.writeln('      - SLIDGE_COMPONENT_JID=${componentJid}');
+    buffer.writeln('      - SLIDGE_XMPP_SERVER=\${XMPP_SERVER:-prosody}');
+    buffer.writeln('      - SLIDGE_XMPP_PORT=\${XMPP_PORT:-5270}');
+
+    for (final key in info['requiresConfig'] as List) {
+      final envKey = key.toString().toUpperCase();
+      if (config.containsKey(key)) {
+        buffer.writeln('      - ${envKey}=\${${gateway.toUpperCase()}_${envKey}:-${config[key]}}');
+      }
+    }
+
+    buffer.writeln('    networks:');
+    buffer.writeln('      - gibber_transports');
+    buffer.writeln('    depends_on:');
+    buffer.writeln('      - prosody');
+
+    return buffer.toString();
+  }
+
+  Map<String, String> _generateEnvVars(String gateway, Map<String, dynamic> config) {
+    final info = _availableGateways[gateway]!;
+    final prefix = gateway.toUpperCase();
+    final envVars = <String, String>{
+      'GIBBER_${prefix}_ENABLED': 'true',
+      '${prefix}_SECRET': '\${SLIDGE_COMPONENT_SECRET}',
+    };
+
+    for (final key in info['requiresConfig'] as List) {
+      final envKey = key.toString().toUpperCase();
+      if (config.containsKey(key)) {
+        envVars['${prefix}_${envKey}'] = config[key].toString();
+      }
+    }
+
+    return envVars;
+  }
+
+  Future<Response> _handleEnableGateway(Request request) async {
+    if (!_verifyAdminKey(request)) {
+      return Response(403, body: jsonEncode({'error': 'Admin key required'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final gateway = body['gateway'] as String?;
+
+      if (gateway == null || !_availableGateways.containsKey(gateway)) {
+        return Response.badRequest(body: jsonEncode({'error': 'Invalid gateway type'}), headers: _jsonHeaders);
+      }
+
+      return Response.ok(
+        jsonEncode({
+          'gateway': gateway,
+          'message': 'Gateway ${_availableGateways[gateway]!['name']} enabled',
+          'action': 'restart_required',
+          'restartCommand': 'supervisorctl restart prosody',
+        }),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleDisableGateway(Request request) async {
+    if (!_verifyAdminKey(request)) {
+      return Response(403, body: jsonEncode({'error': 'Admin key required'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final gateway = body['gateway'] as String?;
+
+      if (gateway == null || !_availableGateways.containsKey(gateway)) {
+        return Response.badRequest(body: jsonEncode({'error': 'Invalid gateway type'}), headers: _jsonHeaders);
+      }
+
+      return Response.ok(
+        jsonEncode({
+          'gateway': gateway,
+          'message': 'Gateway ${_availableGateways[gateway]!['name']} disabled',
+          'action': 'restart_required',
+          'restartCommand': 'supervisorctl restart prosody',
+        }),
         headers: _jsonHeaders,
       );
     } catch (e) {

@@ -119,10 +119,9 @@ muc_room_default_history_length = 50
 muc_room_locking = false
 muc_room_default_anonymous = false
 
--- Gateway transports (require backend authorization)
--- Component "slack.gibberapp.online" "slack_bridge"
--- Component "discord.gibberapp.online" "discord_bridge"
--- Component "irc.gibberapp.online" "irc_gateway"
+-- Gateway transports via Slidge (external components)
+-- Component secrets are loaded from environment variables or slidge-providers.conf
+include "slidge-providers.conf"
 
 -- Logging
 log = {

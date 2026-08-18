@@ -1,0 +1,102 @@
+# Slidge Gateway Transports - Docker Compose Configuration
+# Deploys gateway components for Telegram, Discord, IRC, and Matrix
+#
+# Usage:
+#   docker compose -f slidge-compose.yml up -d
+#   docker compose -f slidge-compose.yml stop/start/restart/down
+#
+# Environment variables for each gateway are in .env.slidge
+
+version: '3.8'
+
+services:
+  # =======================
+  # Telegram Gateway (Slidgram)
+  # =======================
+  slidgram:
+    image: ghcr.io/regretfulswan/slidgram:latest
+    container_name: gibber-slidgram
+    restart: unless-stopped
+    environment:
+      - SLIDGE_COMPONENT_JID=${SLIDGRAM_JID:-telegram.gibberapp.online}
+      - SLIDGE_COMPONENT_SECRET=${SLIDGRAM_SECRET:-change-me}
+      - SLIDGE_XMPP_SERVER=${XMPP_SERVER:-prosody}
+      - SLIDGE_XMPP_PORT=${XMPP_PORT:-5270}
+      - SLIDGE_REGISTRATION_OPEN=${SLIDGRAM_OPEN:-false}
+      # Telegram-specific
+      - TG_API_ID=${TG_API_ID:-}
+      - TG_API_HASH=${TG_API_HASH:-}
+    env_file:
+      - .env.slidge
+    networks:
+      - gibber_transports
+    depends_on:
+      - prosody
+
+  # =======================
+  # Discord Gateway (Slidcord)
+  # =======================
+  slidcord:
+    image: ghcr.io/regretfulswan/slidcord:latest
+    container_name: gibber-slidcord
+    restart: unless-stopped
+    environment:
+      - SLIDGE_COMPONENT_JID=${SLIDCORD_JID:-discord.gibberapp.online}
+      - SLIDGE_COMPONENT_SECRET=${SLIDCORD_SECRET:-change-me}
+      - SLIDGE_XMPP_SERVER=${XMPP_SERVER:-prosody}
+      - SLIDGE_XMPP_PORT=${XMPP_PORT:-5270}
+      - SLIDGE_REGISTRATION_OPEN=${SLIDCORD_OPEN:-false}
+      # Discord-specific
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+    env_file:
+      - .env.slidge
+    networks:
+      - gibber_transports
+    depends_on:
+      - prosody
+
+  # =======================
+  # IRC Gateway
+  # =======================
+  slidirc:
+    image: ghcr.io/regretfulswan/slidirc:latest
+    container_name: gibber-slidirc
+    restart: unless-stopped
+    environment:
+      - SLIDGE_COMPONENT_JID=${SLIDIRC_JID:-irc.gibberapp.online}
+      - SLIDGE_COMPONENT_SECRET=${SLIDIRC_SECRET:-change-me}
+      - SLIDGE_XMPP_SERVER=${XMPP_SERVER:-prosody}
+      - SLIDGE_XMPP_PORT=${XMPP_PORT:-5270}
+      - SLIDGE_REGISTRATION_OPEN=${SLIDIRC_OPEN:-false}
+    env_file:
+      - .env.slidge
+    networks:
+      - gibber_transports
+    depends_on:
+      - prosody
+
+  # =======================
+  # Matrix Gateway (Matridge)
+  # =======================
+  matridge:
+    image: ghcr.io/regretfulswan/matridge:latest
+    container_name: gibber-matridge
+    restart: unless-stopped
+    environment:
+      - SLIDGE_COMPONENT_JID=${MATRIDGE_JID:-matrix.gibberapp.online}
+      - SLIDGE_COMPONENT_SECRET=${MATRIDGE_SECRET:-change-me}
+      - SLIDGE_XMPP_SERVER=${XMPP_SERVER:-prosody}
+      - SLIDGE_XMPP_PORT=${XMPP_PORT:-5270}
+      - SLIDGE_REGISTRATION_OPEN=${MATRIDGE_OPEN:-false}
+      # Matrix-specific
+      - MATRIX_HOMESERVER=${MATRIX_HOMESERVER:-https://matrix.org}
+    env_file:
+      - .env.slidge
+    networks:
+      - gibber_transports
+    depends_on:
+      - prosody
+
+networks:
+  gibber_transports:
+    driver: bridge
