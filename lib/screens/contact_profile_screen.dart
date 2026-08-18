@@ -43,6 +43,12 @@ class ContactProfileScreen extends StatelessWidget {
               onSelected: (val) {
                 if (val == 'rename') _showRenameDialog(context, chatProvider, authService);
                 if (val == 'share') _showShareQRDialog(context);
+                if (val == 'refresh') {
+                  authService.fetchContactVCard(contact.id);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Refreshing profile...'), duration: Duration(seconds: 1)),
+                  );
+                }
                 if (val == 'block') {
                    chatProvider.blockContact(contact.id, authService);
                    Navigator.pop(context);
@@ -54,6 +60,7 @@ class ContactProfileScreen extends StatelessWidget {
               },
               itemBuilder: (context) => [
                 const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.edit_rounded, size: 18), title: Text('Rename'), dense: true)),
+                const PopupMenuItem(value: 'refresh', child: ListTile(leading: Icon(Icons.refresh_rounded, size: 18), title: Text('Refresh Profile'), dense: true)),
                 const PopupMenuItem(value: 'share', child: ListTile(leading: Icon(Icons.qr_code_rounded, size: 18), title: Text('Share via QR'), dense: true)),
                 const PopupMenuItem(value: 'block', child: ListTile(leading: Icon(Icons.block_rounded, size: 18, color: Colors.redAccent), title: Text('Block'), dense: true)),
                 const PopupMenuItem(value: 'remove', child: ListTile(leading: Icon(Icons.delete_forever_rounded, size: 18, color: Colors.redAccent), title: Text('Remove'), dense: true)),

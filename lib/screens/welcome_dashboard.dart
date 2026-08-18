@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../providers/chat_provider.dart';
 import '../services/auth_service.dart';
 import '../services/entitlement_service.dart';
+import '../services/avatar_cache_service.dart';
 import '../models/chat_models.dart';
 
 class WelcomeDashboard extends StatefulWidget {
@@ -78,21 +79,26 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
             border: Border.all(color: statusColor, width: 3),
           ),
           child: Builder(builder: (context) {
-            final p = profile;
-            final avatarPath = p?.avatarPath;
-            final hasAvatar = avatarPath != null && avatarPath.isNotEmpty;
-            return hasAvatar
-                ? ClipOval(child: Image.asset(avatarPath, fit: BoxFit.cover))
-                : Center(
-                    child: Text(
-                      displayName.isNotEmpty ? displayName[0].toUpperCase() : 'G',
-                      style: TextStyle(
-                        fontSize: isMobile ? 20 : 24,
-                        fontWeight: FontWeight.w800,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
+            final jid = authService.activeAccountId ?? '';
+            return FutureBuilder(
+              future: AvatarCacheService().getAvatar(jid),
+              builder: (context, snapshot) {
+                final bytes = snapshot.data;
+                if (bytes != null) {
+                  return ClipOval(child: Image.memory(bytes, fit: BoxFit.cover));
+                }
+                return Center(
+                  child: Text(
+                    displayName.isNotEmpty ? displayName[0].toUpperCase() : 'G',
+                    style: TextStyle(
+                      fontSize: isMobile ? 20 : 24,
+                      fontWeight: FontWeight.w800,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
-                  );
+                  ),
+                );
+              },
+            );
           }),
         ),
         SizedBox(width: isMobile ? 12 : 16),

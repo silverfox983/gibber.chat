@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:flutter/foundation.dart';
@@ -31,8 +30,13 @@ class AvatarCacheService {
     return '${id.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_')}.png';
   }
 
+  String _normalizeJid(String id) {
+    return id.split('/').first.toLowerCase();
+  }
+
   Future<Uint8List?> getAvatar(String id, {String? protocol}) async {
-    final fileName = _getFileName(id, protocol: protocol);
+    final normalized = _normalizeJid(id);
+    final fileName = _getFileName(normalized, protocol: protocol);
     if (_memoryCache.containsKey(fileName)) {
       return _memoryCache[fileName];
     }
@@ -64,7 +68,8 @@ class AvatarCacheService {
   }
 
   Future<void> saveAvatar(String id, Uint8List bytes, {String? protocol}) async {
-    final fileName = _getFileName(id, protocol: protocol);
+    final normalized = _normalizeJid(id);
+    final fileName = _getFileName(normalized, protocol: protocol);
     _memoryCache[fileName] = bytes;
 
     if (kIsWeb) {
@@ -83,12 +88,13 @@ class AvatarCacheService {
   }
 
   Future<bool> hasAvatar(String id, {String? protocol}) async {
+    final normalized = _normalizeJid(id);
     if (kIsWeb) {
       _prefs ??= await SharedPreferences.getInstance();
-      return _prefs!.containsKey('avatar_${_getFileName(id, protocol: protocol)}');
+      return _prefs!.containsKey('avatar_${_getFileName(normalized, protocol: protocol)}');
     }
     if (_cacheDir == null) await init();
-    final file = File(p.join(_cacheDir!.path, _getFileName(id, protocol: protocol)));
+    final file = File(p.join(_cacheDir!.path, _getFileName(normalized, protocol: protocol)));
     return await file.exists();
   }
 

@@ -1,9 +1,10 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/chat_models.dart';
 import '../models/space_models.dart';
 import '../models/user_profile.dart';
+import 'database_service.dart';
 import 'secure_storage_service.dart';
 import 'xmpp_omemo_service.dart';
 import 'xmpp_room_service.dart';
@@ -51,10 +52,11 @@ abstract class AuthServiceContactDeps {
   set lastDiagnostic(String? value);
   set currentProfile(UserProfile? value);
   void notifyListeners();
-  Future<void> loadSavedAccounts();
-  Future<void> setPresence(ContactStatus status, String? message);
+  void clearVCardState();
   Future<void> fetchMyVCard({String? accountId});
   Future<void> fetchContactVCard(String jid, {String? accountId});
+  Future<void> loadSavedAccounts();
+  Future<void> setPresence(ContactStatus status, String? message);
   Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup = false, String? replyToId, MessageType type = MessageType.text});
   Future<void> connectXmpp({required String user, required String domain, required String pass, required int port, String? host, String? accountId, SavedAccount? configData});
   Future<void> logout();
@@ -70,6 +72,7 @@ abstract class AuthServiceMessageDeps {
   StreamController<ChatMessage> get messageStreamController;
   StreamController<JingleEvent> get jingleEventController;
   Map<String, String> get sentOriginIds;
+  DatabaseService get databaseService;
 }
 
 abstract class AuthServiceStanzaDeps {
@@ -102,6 +105,20 @@ abstract class AuthServiceVCardDeps {
   void notifyListeners();
   Future<void> updateMyStatus(ContactStatus status, {String? message});
   Future<void> fetchVCard(String accountId, String jid);
+  Future<bool> updateMyVCard({
+    required String accountId,
+    String? fullName,
+    String? nickName,
+    String? description,
+    String? email,
+    String? phone,
+    String? url,
+    String? organization,
+    String? title,
+    String? role,
+    String? birthday,
+  });
+  Future<bool> setMyAvatarBytes(String accountId, Uint8List bytes);
 }
 
 abstract class AuthServiceSyncDeps {

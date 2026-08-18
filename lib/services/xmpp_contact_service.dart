@@ -8,6 +8,7 @@ import '../models/chat_models.dart';
 import '../models/user_profile.dart';
 import '../models/space_models.dart';
 import 'auth_service_deps.dart';
+import 'avatar_cache_service.dart';
 import 'database_service.dart';
 import 'secure_storage_service.dart';
 import 'xmpp_omemo_service.dart';
@@ -933,12 +934,15 @@ class XmppContactService {
 
   Future<void> clearAllData() async {
     await _auth.logout();
-     await _d.omemoService.clearDatabase();
+    await _d.omemoService.clearDatabase();
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     await _d.secureStorage.deleteAll();
     _d.savedAccounts.clear();
     _auth.currentProfile = null;
+    _auth.clearVCardState();
+    await AvatarCacheService().clearCache();
+    await DatabaseService().clearContactVcards();
     _auth.notifyListeners();
   }
 }

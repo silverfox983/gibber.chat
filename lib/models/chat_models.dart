@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 enum MessageType { text, image, file, voice, stream, call, system, location }
 
-enum MessageStatus { sending, sent, delivered, read }
+enum MessageStatus { sending, sent, delivered, read, failed }
 
 enum ContactStatus { online, offline, away, dnd, xa }
 
@@ -51,6 +51,8 @@ class Contact {
     'id': id,
     'name': name,
     'protocol': protocol,
+    'status': status.index,
+    'presenceMessage': presenceMessage,
     'bio': bio,
     'fullName': fullName,
     'groups': groups,
@@ -67,6 +69,8 @@ class Contact {
     id: json['id'],
     name: json['name'],
     protocol: json['protocol'] ?? 'XMPP',
+    status: ContactStatus.values[json['status'] as int? ?? 5],
+    presenceMessage: json['presenceMessage'] as String?,
     bio: json['bio'] as String?,
     fullName: json['fullName'] as String?,
     groups: List<String>.from(json['groups'] ?? []),

@@ -182,16 +182,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
          _avatarBytes = bytes;
       });
-      
+
       // Auto-save avatar if we have a selected account
       if (_selectedAccountId != null && mounted) {
          final authService = Provider.of<AuthService>(context, listen: false);
          await authService.setMyAvatar(_selectedAccountId!, file);
       }
     } else if (result != null && kIsWeb && result.files.single.bytes != null) {
+      final bytes = result.files.single.bytes!;
       setState(() {
-         _avatarBytes = result.files.single.bytes!;
+         _avatarBytes = bytes;
       });
+      // On web, auto-upload via setMyAvatarBytes
+      if (_selectedAccountId != null && mounted) {
+        final authService = Provider.of<AuthService>(context, listen: false);
+        await authService.setMyAvatarBytes(_selectedAccountId!, bytes);
+      }
     }
   }
 
@@ -225,6 +231,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
             )
           else ...[
+            IconButton(
+              icon: Icon(Icons.refresh_rounded, color: Theme.of(context).colorScheme.onPrimary),
+              onPressed: () {
+                final authService = Provider.of<AuthService>(context, listen: false);
+                authService.fetchMyVCard(accountId: _selectedAccountId);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Refreshing profile...'), duration: Duration(seconds: 1)),
+                );
+              },
+              tooltip: 'Refresh Profile',
+            ),
             IconButton(
               icon: Icon(Icons.qr_code_rounded, color: Theme.of(context).colorScheme.onPrimary),
               onPressed: _showMyQRCode,

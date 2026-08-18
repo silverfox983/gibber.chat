@@ -29,7 +29,7 @@ class DatabaseService {
     }
     return await openDatabase(
       path,
-      version: 16,
+      version: 17,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -161,6 +161,25 @@ class DatabaseService {
         await db.execute(
           'CREATE INDEX IF NOT EXISTS idx_pending_messages_created ON pending_messages(created_at)',
         );
+        await db.execute('''
+          CREATE TABLE contact_vcards(
+            jid TEXT PRIMARY KEY,
+            full_name TEXT,
+            nick_name TEXT,
+            avatar_hash TEXT,
+            avatar_data TEXT,
+            email TEXT,
+            phone TEXT,
+            url TEXT,
+            bio TEXT,
+            org_name TEXT,
+            org_unit TEXT,
+            title TEXT,
+            role TEXT,
+            vcard_xml TEXT,
+            fetched_at TEXT
+          )
+        ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 3) {
@@ -337,6 +356,27 @@ class DatabaseService {
               password TEXT,
               account_id TEXT,
               registered_at TEXT DEFAULT (datetime('now'))
+            )
+          ''');
+        }
+        if (oldVersion < 17) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS contact_vcards(
+              jid TEXT PRIMARY KEY,
+              full_name TEXT,
+              nick_name TEXT,
+              avatar_hash TEXT,
+              avatar_data TEXT,
+              email TEXT,
+              phone TEXT,
+              url TEXT,
+              bio TEXT,
+              org_name TEXT,
+              org_unit TEXT,
+              title TEXT,
+              role TEXT,
+              vcard_xml TEXT,
+              fetched_at TEXT
             )
           ''');
         }
@@ -766,6 +806,64 @@ class DatabaseService {
       where: 'LOWER(id) = LOWER(?)',
       whereArgs: [conversationId.toLowerCase()],
     );
+  }
+
+  Future<void> clearContactVcards() async {
+    final db = await database;
+    await db.delete('contact_vcards');
+  }
+
+  // --- Contact vCard Persistence ---
+
+  Future<void> upsertContactVCard({
+    required String jid,
+    String? fullName,
+    String? nickName,
+    String? avatarHash,
+    String? avatarData,
+    String? email,
+    String? phone,
+    String? url,
+    String? bio,
+    String? orgName,
+    String? orgUnit,
+    String? title,
+    String? role,
+    String? vcardXml,
+  }) async {
+    final db = await database;
+    await db.insert(
+      'contact_vcards',
+      {
+        'jid': jid.toLowerCase(),
+        'full_name': fullName,
+        'nick_name': nickName,
+        'avatar_hash': avatarHash,
+        'avatar_data': avatarData,
+        'email': email,
+        'phone': phone,
+        'url': url,
+        'bio': bio,
+        'org_name': orgName,
+        'org_unit': orgUnit,
+        'title': title,
+        'role': role,
+        'vcard_xml': vcardXml,
+        'fetched_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Map<String, dynamic>?> getContactVCard(String jid) async {
+    final db = await database;
+    final results = await db.query(
+      'contact_vcards',
+      where: 'jid = ?',
+      whereArgs: [jid.toLowerCase()],
+    );
+    if (results.isEmpty) return null;
+    return results.first;
   }
 
   // --- Export / Import ---

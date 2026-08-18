@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -382,8 +383,30 @@ class AuthService with ChangeNotifier {
     conn.writeStanza(msg);
   }
 
-  Future<void> setPresence(ContactStatus status, String? message) async {
-    await updateMyStatus(status, message: message);
+  Future<void> setPresence(ContactStatus status, String? message, {String? accountId}) async {
+    if (accountId != null) {
+      final conn = _xmppConnections[accountId];
+      if (conn == null ||
+          (conn.state != xmpp.XmppConnectionState.Ready &&
+              conn.state != xmpp.XmppConnectionState.Resumed)) {
+        return;
+      }
+      final hash = await _getMyAvatarHash(accountId);
+      final presence = xmpp.PresenceStanza();
+      presence.show = _mapShowToPresence(status);
+      presence.status = message ?? '';
+      final xUpdate = xmpp.XmppElement();
+      xUpdate.name = 'x';
+      xUpdate.addAttribute(xmpp.XmppAttribute('xmlns', 'vcard-temp:x:update'));
+      final photo = xmpp.XmppElement();
+      photo.name = 'photo';
+      if (hash != null) photo.textValue = hash;
+      xUpdate.addChild(photo);
+      presence.addChild(xUpdate);
+      conn.writeStanza(presence);
+    } else {
+      await updateMyStatus(status, message: message);
+    }
   }
 
   // --- MEDIA & FILE TRANSFERS (XEP-0363) ---
@@ -409,7 +432,7 @@ class AuthService with ChangeNotifier {
   }) =>
       _uploadServiceHandler.sendMediaMessage(toJid, file, type, accountId: accountId, isGroup: isGroup, caption: caption);
 
-  Future<void> updateMyVCard({
+  Future<bool> updateMyVCard({
     required String accountId,
     String? fullName,
     String? nickName,
@@ -436,14 +459,23 @@ class AuthService with ChangeNotifier {
         birthday: birthday,
       );
 
+  Future<bool> setMyAvatar(String accountId, File image) async {
+    final bytes = await image.readAsBytes();
+    return _vcardService.setMyAvatar(accountId, bytes);
+  }
+
+  Future<bool> setMyAvatarBytes(String accountId, Uint8List bytes) async {
+    return _vcardService.setMyAvatarBytes(accountId, bytes);
+  }
+
   Future<void> fetchMyVCard({String? accountId}) =>
       _vcardService.fetchMyVCard(accountId: accountId);
 
-  Future<void> setMyAvatar(String accountId, File image) =>
-      _vcardService.setMyAvatar(accountId, image);
-
   Future<void> fetchVCard(String accountId, String jid) =>
       _vcardService.fetchVCard(accountId, jid);
+
+  Future<void> fetchContactVCard(String jid, {String? accountId}) =>
+      _vcardService.fetchVCard(accountId ?? _activeAccountId ?? '', jid);
 
   // Function to connect to XMPP
   Future<void> connectXmpp({
@@ -979,6 +1011,7 @@ class AuthService with ChangeNotifier {
                 final phone = vcard.getChild('TEL')?.getChild('NUMBER')?.textValue;
                 final url = vcard.getChild('URL')?.textValue;
                 final org = vcard.getChild('ORG')?.getChild('ORGNAME')?.textValue;
+                final orgUnit = vcard.getChild('ORG')?.getChild('ORGUNIT')?.textValue;
                 final title = vcard.getChild('TITLE')?.textValue;
                 final role = vcard.getChild('ROLE')?.textValue;
                 final bday = vcard.getChild('BDAY')?.textValue;
@@ -1003,6 +1036,7 @@ class AuthService with ChangeNotifier {
                       stanza.fromJid?.fullJid ??
                       _xmppJids[id]?.split('/').first ??
                       '';
+                  final bareResponseJid = responseJid.split('/').first.toLowerCase();
 
                   if (photo != null) {
                     try {
@@ -1014,6 +1048,30 @@ class AuthService with ChangeNotifier {
                       debugPrint('VCard PHOTO DECODE ERROR: $e');
                     }
                   }
+
+                  // Persist contact vCard to SQLite
+                  final db = DatabaseService();
+                  await db.upsertContactVCard(
+                    jid: bareResponseJid,
+                    fullName: fullName,
+                    nickName: nick,
+                    avatarHash: photo != null ? sha256.convert(base64Decode(photo.replaceAll(RegExp(r'\s+'), ''))).toString() : null,
+                    avatarData: photo,
+                    email: email,
+                    phone: phone,
+                    url: url,
+                    bio: desc,
+                    orgName: org,
+                    orgUnit: orgUnit,
+                    title: title,
+                    role: role,
+                    vcardXml: vcard.toString(),
+                  );
+
+                  // Clear pending fetch for this JID
+                  final cacheKey = '$id:$bareResponseJid';
+                  _pendingVCardFetches.remove(cacheKey);
+                  _vCardLastFetch[cacheKey] = DateTime.now();
 
                   // Update local profile if it's our JID
                   final myJid = _xmppJids[id];
@@ -1034,6 +1092,11 @@ class AuthService with ChangeNotifier {
                       _currentProfile!.title = title;
                       _currentProfile!.role = role;
                       _currentProfile!.birthday = bday;
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString(
+                        'current_profile',
+                        json.encode(_currentProfile!.toJson()),
+                      );
                       notifyListeners();
                       debugPrint(
                         'SYNC: Synced local profile avatar/vCard from server.',
@@ -1042,7 +1105,6 @@ class AuthService with ChangeNotifier {
                   }
 
                   // Update Contact object if it exists
-                  final bareResponseJid = responseJid.split('/').first.toLowerCase();
                   final contactIndex = _currentContacts.indexWhere((c) => c.id.toLowerCase().split('/').first == bareResponseJid);
                   if (contactIndex != -1) {
                     _currentContacts[contactIndex].fullName = fullName;
@@ -1301,6 +1363,21 @@ class AuthService with ChangeNotifier {
             }
             if (stanza is xmpp.MessageStanza) {
               await _stanzaHandler.handleMessageStanza(stanza as xmpp.MessageStanza, id, conn);
+            }
+
+            if (stanza is xmpp.IqStanza) {
+              final iqId = stanza.id ?? '';
+              if (iqId.startsWith('vcard_set_') || iqId.startsWith('vcard_avatar_')) {
+                final isError = stanza.type == xmpp.IqStanzaType.ERROR;
+                String? errorText;
+                if (isError) {
+                  final errorEl = stanza.getChild('error');
+                  errorText = errorEl?.children.isNotEmpty == true
+                      ? errorEl!.children.first.name
+                      : 'unknown';
+                }
+                _vcardService.handleVCardSetResult(iqId, !isError, errorText);
+              }
             }
           });
 
@@ -1575,6 +1652,12 @@ class AuthService with ChangeNotifier {
     notifyListeners();
   }
 
+  void clearVCardState() {
+    _pendingVCardFetches.clear();
+    _vCardLastFetch.clear();
+    _vCardUnsupportedJids.clear();
+  }
+
   Future<void> deleteSavedAccount(SavedAccount acc) async {
     final prefs = await SharedPreferences.getInstance();
     _savedAccounts.removeWhere((a) => a.fullJid == acc.fullJid);
@@ -1811,9 +1894,11 @@ class AuthService with ChangeNotifier {
         return xmpp.PresenceShowElement.CHAT;
       case ContactStatus.away:
         return xmpp.PresenceShowElement.AWAY;
+      case ContactStatus.xa:
+        return xmpp.PresenceShowElement.XA;
       case ContactStatus.dnd:
         return xmpp.PresenceShowElement.DND;
-      default:
+      case ContactStatus.offline:
         return xmpp.PresenceShowElement.CHAT;
     }
   }
@@ -1824,12 +1909,11 @@ class AuthService with ChangeNotifier {
     } else if (show == xmpp.PresenceShowElement.AWAY) {
       return ContactStatus.away;
     } else if (show == xmpp.PresenceShowElement.XA) {
-      return ContactStatus.xa; // Correctly distinguish Extended Away
+      return ContactStatus.xa;
     } else if (show == xmpp.PresenceShowElement.DND) {
       return ContactStatus.dnd;
-    } else {
-      return ContactStatus.offline;
     }
+    return ContactStatus.offline;
   }
 
   void _handleXmppStreamError(dynamic e) {
@@ -1919,9 +2003,6 @@ class AuthService with ChangeNotifier {
   Future<void> importContacts(List<dynamic> contactsJson) => _contactService.importContacts(contactsJson);
   Future<Map<String, dynamic>> exportSettings() => _contactService.exportSettings();
   Future<void> importSettings(Map<String, dynamic> settings) => _contactService.importSettings(settings);
-
-  Future<void> fetchContactVCard(String jid, {String? accountId}) =>
-      _contactService.fetchContactVCard(jid, accountId: accountId);
 
   void _fetchAllVCards(String accountId) {
     // Collect unique JIDs from the current contacts for this account
@@ -2034,10 +2115,11 @@ class _AuthContactDeps implements AuthServiceContactDeps {
   set lastDiagnostic(String? value) => _auth._lastDiagnostic = value;
   set currentProfile(UserProfile? value) => _auth._currentProfile = value;
   void notifyListeners() => _auth.notifyListeners();
-  Future<void> loadSavedAccounts() => _auth.loadSavedAccounts();
-  Future<void> setPresence(ContactStatus status, String? message) => _auth.setPresence(status, message);
+  void clearVCardState() => _auth.clearVCardState();
   Future<void> fetchMyVCard({String? accountId}) => _auth.fetchMyVCard(accountId: accountId);
   Future<void> fetchContactVCard(String jid, {String? accountId}) => _auth.fetchContactVCard(jid, accountId: accountId);
+  Future<void> loadSavedAccounts() => _auth.loadSavedAccounts();
+  Future<void> setPresence(ContactStatus status, String? message) => _auth.setPresence(status, message);
   Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup = false, String? replyToId, MessageType type = MessageType.text}) =>
       _auth.sendMessage(accountId, toJid, text, fileName: fileName, filePath: filePath, isGroup: isGroup, replyToId: replyToId, type: type);
   Future<void> connectXmpp({required String user, required String domain, required String pass, required int port, String? host, String? accountId, SavedAccount? configData}) =>
@@ -2058,6 +2140,7 @@ class _AuthMessageDeps implements AuthServiceMessageDeps {
   StreamController<ChatMessage> get messageStreamController => _auth._messageStreamController;
   StreamController<JingleEvent> get jingleEventController => _auth._jingleEventController;
   Map<String, String> get sentOriginIds => _auth._sentOriginIds;
+  DatabaseService get databaseService => DatabaseService();
 }
 
 class _AuthStanzaDeps implements AuthServiceStanzaDeps {
@@ -2096,6 +2179,34 @@ class _AuthVCardDeps implements AuthServiceVCardDeps {
   void notifyListeners() => _auth.notifyListeners();
   Future<void> updateMyStatus(ContactStatus status, {String? message}) => _auth.updateMyStatus(status, message: message);
   Future<void> fetchVCard(String accountId, String jid) => _auth.fetchVCard(accountId, jid);
+  Future<bool> updateMyVCard({
+    required String accountId,
+    String? fullName,
+    String? nickName,
+    String? description,
+    String? email,
+    String? phone,
+    String? url,
+    String? organization,
+    String? title,
+    String? role,
+    String? birthday,
+  }) =>
+      _auth.updateMyVCard(
+        accountId: accountId,
+        fullName: fullName,
+        nickName: nickName,
+        description: description,
+        email: email,
+        phone: phone,
+        url: url,
+        organization: organization,
+        title: title,
+        role: role,
+        birthday: birthday,
+      );
+  Future<bool> setMyAvatarBytes(String accountId, Uint8List bytes) =>
+      _auth.setMyAvatarBytes(accountId, bytes);
 }
 
 class _AuthSyncDeps implements AuthServiceSyncDeps {
