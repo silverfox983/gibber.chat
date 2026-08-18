@@ -775,6 +775,20 @@ class WebRTCManager {
               selectedPairState = state;
               roundTripTime = double.tryParse(report.values['currentRoundTripTime']?.toString() ?? '0') ?? 0.0;
               bitrate = int.tryParse(report.values['availableOutgoingBitrate']?.toString() ?? '0') ?? 0;
+              // Extract candidate type from the selected pair's local/remote candidates
+              final localCandId = report.values['localCandidateId']?.toString();
+              final remoteCandId = report.values['remoteCandidateId']?.toString();
+              // Look up candidate types from stats
+              for (var cReport in stats) {
+                if (localCandId != null && cReport.type == 'local-candidate' && cReport.id == localCandId) {
+                  candidateType = cReport.values['candidateType']?.toString() ?? 'unknown';
+                  break;
+                }
+                if (remoteCandId != null && cReport.type == 'remote-candidate' && cReport.id == remoteCandId) {
+                  candidateType = cReport.values['candidateType']?.toString() ?? 'unknown';
+                  break;
+                }
+              }
             }
           }
 

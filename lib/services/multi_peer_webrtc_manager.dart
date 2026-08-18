@@ -168,9 +168,9 @@ class MultiPeerWebRTCManager {
     return _peerConnections.keys.toSet();
   }
 
-  Future<void> addPeer(String peerId) async {
+  Future<void> addPeer(String peerId, {bool addLocalTracks = true}) async {
     if (_peerConnections.containsKey(peerId)) return;
-    
+
     final pc = await createPeerConnection(_config, {
       'mandatory': {
         'OfferToReceiveAudio': true,
@@ -181,7 +181,9 @@ class MultiPeerWebRTCManager {
     _peerConnections[peerId] = pc;
     _remoteCandidatesQueue[peerId] = [];
 
-    if (_localStream != null) {
+    // Only add local tracks if we have a local stream (mesh mode).
+    // For SFU subscriber mode, there are no local tracks to add.
+    if (addLocalTracks && _localStream != null) {
       for (var track in _localStream!.getTracks()) {
         await pc.addTrack(track, _localStream!);
       }
@@ -237,9 +239,14 @@ class MultiPeerWebRTCManager {
   }
 
   Future<void> setRemoteDescription(String peerId, RTCSessionDescription description) async {
-    if (!_peerConnections.containsKey(peerId)) return;
+    // Auto-create peer if it doesn't exist (SFU subscriber flow).
+    // We create it without local tracks since SFU subscribers don't send local media.
+    if (!_peerConnections.containsKey(peerId)) {
+      debugPrint('MultiPeer: Auto-creating peer $peerId for remote description (SFU flow)');
+      await addPeer(peerId, addLocalTracks: false);
+    }
     await _peerConnections[peerId]!.setRemoteDescription(description);
-    
+
     // Process queued candidates
     final queued = _remoteCandidatesQueue[peerId] ?? [];
     for (var candidate in queued) {
@@ -289,6 +296,71 @@ class MultiPeerWebRTCManager {
       for (var track in _localStream!.getVideoTracks()) {
         track.enabled = enabled;
       }
+    }
+  }
+
+  Future<bool> replaceVideoTrack(MediaStreamTrack newTrack) async {
+    if (_localStream == null) return false;
+    final pc = _peerConnections['publisher'];
+    if (pc == null) return false;
+
+    try {
+      final senders = await pc.getSenders();
+      for (var sender in senders) {
+        if (sender.track?.kind == 'video') {
+          await sender.replaceTrack(newTrack);
+          // Update local stream's video track
+          final videoTracks = _localStream!.getVideoTracks();
+          for (var track in videoTracks) {
+            _localStream!.removeTrack(track);
+            track.stop();
+          }
+          _localStream!.addTrack(newTrack);
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      debugPrint('MultiPeer: replaceVideoTrack failed: $e');
+      return false;
+    }
+  }
+
+  Future<bool> replaceVideoTrackForAll(MediaStreamTrack newTrack) async {
+    if (_localStream == null) return false;
+    try {
+      for (var entry in _peerConnections.entries) {
+        final pc = entry.value;
+        final senders = await pc.getSenders();
+        for (var sender in senders) {
+          if (sender.track?.kind == 'video') {
+            await sender.replaceTrack(newTrack);
+          }
+        }
+      }
+      // Update local stream
+      final videoTracks = _localStream!.getVideoTracks();
+      for (var track in videoTracks) {
+        _localStream!.removeTrack(track);
+        track.stop();
+      }
+      _localStream!.addTrack(newTrack);
+      return true;
+    } catch (e) {
+      debugPrint('MultiPeer: replaceVideoTrackForAll failed: $e');
+      return false;
+    }
+  }
+
+  MediaStream? _screenStream;
+
+  Future<MediaStream?> getDisplayMedia() async {
+    try {
+      _screenStream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
+      return _screenStream;
+    } catch (e) {
+      debugPrint('MultiPeer: getDisplayMedia failed: $e');
+      return null;
     }
   }
 

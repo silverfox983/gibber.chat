@@ -1067,6 +1067,30 @@ class JingleSignalingService {
     _cleanupSession(sessionId);
   }
 
+  void sendTransferRequest(String toJid, String sessionId, String targetJid) {
+    final iqId = 'jingle_${DateTime.now().millisecondsSinceEpoch}';
+    _iqToSessionId[iqId] = sessionId;
+    final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
+    iq.addAttribute(XmppAttribute('to', toJid));
+    iq.addAttribute(XmppAttribute('id', iqId));
+
+    final jingle = xmpp.XmppElement();
+    jingle.name = 'jingle';
+    jingle.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
+    jingle.addAttribute(XmppAttribute('action', 'session-info'));
+    jingle.addAttribute(XmppAttribute('sid', sessionId));
+
+    final transfer = xmpp.XmppElement();
+    transfer.name = 'transfer';
+    transfer.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:transfer:0'));
+    transfer.textValue = targetJid;
+
+    jingle.addChild(transfer);
+    iq.addChild(jingle);
+    debugPrint('Jingle: Sending transfer request to $toJid for target $targetJid');
+    _writeStanza(iq);
+  }
+
   void sendContentModify(String toJid, String sessionId, String senders, {bool isAudio = true, bool isVideo = true}) {
     final iqId = 'jingle_${DateTime.now().millisecondsSinceEpoch}';
     _iqToSessionId[iqId] = sessionId;
@@ -1080,28 +1104,29 @@ class JingleSignalingService {
     jingle.addAttribute(XmppAttribute('action', 'content-modify'));
     jingle.addAttribute(XmppAttribute('sid', sessionId));
 
+    // Per XEP-0167, 'creator' indicates who created the content,
+    // and 'senders' is an ATTRIBUTE on <content>, not a child element
+    final isWeInitiator = _sessionIsWeInitiator[sessionId] ?? true;
+    final creator = isWeInitiator ? 'initiator' : 'responder';
+
     final contentNames = _sessionContentMap[sessionId] ?? [];
     for (var contentName in contentNames) {
       final content = xmpp.XmppElement();
       content.name = 'content';
       content.addAttribute(XmppAttribute('name', contentName));
-      content.addAttribute(XmppAttribute('creator', 'initiator'));
+      content.addAttribute(XmppAttribute('creator', creator));
+      content.addAttribute(XmppAttribute('senders', senders));
 
       final transport = xmpp.XmppElement();
       transport.name = 'transport';
       transport.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:transports:ice-udp:1'));
 
-      final sendersAttr = xmpp.XmppElement();
-      sendersAttr.name = 'senders';
-      sendersAttr.textValue = senders;
-
-      transport.addChild(sendersAttr);
       content.addChild(transport);
       jingle.addChild(content);
     }
 
     iq.addChild(jingle);
-    debugPrint('Jingle: Sending content-modify (senders=$senders) to $toJid');
+    debugPrint('Jingle: Sending content-modify (creator=$creator, senders=$senders) to $toJid');
     _writeStanza(iq);
   }
 

@@ -250,6 +250,22 @@ class SipService implements SipUaHelperListener {
 
     debugPrint('SipService: Answering call (video: $video)');
 
+    // Acquire local media if not already done (incoming calls need this before answering)
+    if (_localStream == null) {
+      debugPrint('SipService: Acquiring local media before answer...');
+      final mediaConstraints = <String, dynamic>{
+        'audio': true,
+        'video': video,
+      };
+      try {
+        _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+        debugPrint('SipService: Local media acquired for answer');
+      } catch (e) {
+        debugPrint('SipService: Failed to acquire local media: $e');
+        // Continue anyway - the session may still work without explicit media stream
+      }
+    }
+
     try {
       final options = _helper!.buildCallOptions(video);
       _currentCall!.answer(options, mediaStream: _localStream);
@@ -300,6 +316,29 @@ class SipService implements SipUaHelperListener {
     _currentCall!.sendDTMF(tone);
     debugPrint('SipService: Sent DTMF: $tone');
     _dtmfController.add(tone);
+  }
+
+  bool _isOnHold = false;
+  bool get isOnHold => _isOnHold;
+
+  void hold() {
+    if (_currentCall == null) return;
+    _currentCall!.hold();
+    _isOnHold = true;
+    debugPrint('SipService: Call placed on hold');
+  }
+
+  void unhold() {
+    if (_currentCall == null) return;
+    _currentCall!.unhold();
+    _isOnHold = false;
+    debugPrint('SipService: Call resumed from hold');
+  }
+
+  void transfer(String targetUri) {
+    if (_currentCall == null) return;
+    _currentCall!.refer(targetUri);
+    debugPrint('SipService: Transferring call to $targetUri');
   }
 
   void _cleanup() {

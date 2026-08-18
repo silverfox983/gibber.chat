@@ -471,6 +471,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                     ),
                     ...participants.entries.map((entry) {
                       final p = entry.value;
+                      final participantId = entry.key;
                       return ListTile(
                         leading: CircleAvatar(
                           radius: 16,
@@ -486,6 +487,40 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                               const SizedBox(width: 4),
                               Icon(Icons.videocam_off_rounded, size: 16, color: theme.colorScheme.onSurfaceVariant),
                             ],
+                            PopupMenuButton<String>(
+                              icon: Icon(Icons.more_vert, size: 16, color: theme.colorScheme.onSurfaceVariant),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                              onSelected: (value) {
+                                if (value == 'mute') {
+                                  call.muteParticipant(participantId, !p.audioEnabled);
+                                } else if (value == 'kick') {
+                                  _showKickParticipantDialog(call, participantId, p.displayName);
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                PopupMenuItem(
+                                  value: 'mute',
+                                  child: Row(
+                                    children: [
+                                      Icon(p.audioEnabled ? Icons.mic_off : Icons.mic, size: 18),
+                                      const SizedBox(width: 8),
+                                      Text(p.audioEnabled ? 'Mute' : 'Unmute'),
+                                    ],
+                                  ),
+                                ),
+                                PopupMenuItem(
+                                  value: 'kick',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.person_remove, size: 18, color: theme.colorScheme.error),
+                                      const SizedBox(width: 8),
+                                      Text('Remove', style: TextStyle(color: theme.colorScheme.error)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16),
@@ -591,6 +626,16 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                 letterSpacing: 1.0,
               ),
             ),
+            if (call.state == CallState.active && !call.isGroupCall) ...[
+              const SizedBox(width: 8),
+              IconButton(
+                icon: Icon(Icons.call_merge_rounded, size: 20, color: Theme.of(context).colorScheme.primary),
+                tooltip: 'Transfer Call',
+                onPressed: () => _showTransferDialog(call),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
+            ],
           ],
         ),
       ],
@@ -1115,6 +1160,83 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
               }
             },
             child: const Text('INVITE'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTransferDialog(CallProvider call) {
+    final jidController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Transfer Call', style: TextStyle(fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Enter the number or JID to transfer the call to:'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: jidController,
+              decoration: const InputDecoration(
+                labelText: 'Transfer to',
+                hintText: 'number@example.com',
+                prefixIcon: Icon(Icons.call_merge_rounded),
+              ),
+              autofocus: true,
+              keyboardType: TextInputType.emailAddress,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCEL'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final target = jidController.text.trim();
+              if (target.isNotEmpty) {
+                call.transferCall(target);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Call transfer to $target')),
+                );
+              }
+            },
+            child: const Text('TRANSFER'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showKickParticipantDialog(CallProvider call, String participantId, String displayName) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Participant', style: TextStyle(fontWeight: FontWeight.w900)),
+        content: Text('Are you sure you want to remove $displayName from this call?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCEL'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () {
+              call.kickParticipant(participantId);
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Removed $displayName from the call')),
+              );
+            },
+            child: const Text('REMOVE'),
           ),
         ],
       ),

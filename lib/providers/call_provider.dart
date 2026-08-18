@@ -227,6 +227,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         case SipCallState.ringing:
           if (_state == CallState.idle) {
             _state = CallState.incoming;
+            _isSipCall = true;
             _remoteJid = _sipService!.remoteNumber ?? 'Unknown';
             _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
             _log('Incoming SIP call from $_remoteJid', isSent: false);
@@ -952,6 +953,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     debugPrint('CallProvider: Toggle hold: $_isOnHold (senders=$senders)');
 
     if (_isSipCall) {
+      if (_isOnHold) {
+        _sipService?.hold();
+      } else {
+        _sipService?.unhold();
+      }
       _log('Call ${_isOnHold ? "On Hold" : "Resumed"}', isSent: true);
       notifyListeners();
       return;
@@ -1021,10 +1027,45 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _isScreenSharing = !_isScreenSharing;
 
     if (_isGroupCall) {
-      if (_janusService != null) {
-        debugPrint('CallProvider: Screen sharing via SFU not yet implemented');
+      if (_janusService != null && _groupCallSession != null) {
+        if (_isScreenSharing) {
+          // Stop sharing: replace screen track back with camera track
+          final localStream = _multiPeerManager!.localStream;
+          if (localStream != null) {
+            final cameraTrack = localStream.getVideoTracks().firstOrNull;
+            if (cameraTrack != null) {
+              await _multiPeerManager!.replaceVideoTrack(cameraTrack);
+            }
+          }
+        } else {
+          // Start sharing: get screen track and replace
+          final screenStream = await _multiPeerManager!.getDisplayMedia();
+          if (screenStream != null) {
+            final screenTrack = screenStream.getVideoTracks().firstOrNull;
+            if (screenTrack != null) {
+              await _multiPeerManager!.replaceVideoTrack(screenTrack);
+            }
+          }
+        }
       } else if (_multiPeerManager != null) {
-        debugPrint('CallProvider: Screen sharing via mesh not yet implemented');
+        // Mesh: replace video track on all peer connections
+        if (_isScreenSharing) {
+          final localStream = _multiPeerManager!.localStream;
+          if (localStream != null) {
+            final cameraTrack = localStream.getVideoTracks().firstOrNull;
+            if (cameraTrack != null) {
+              await _multiPeerManager!.replaceVideoTrackForAll(cameraTrack);
+            }
+          }
+        } else {
+          final screenStream = await _multiPeerManager!.getDisplayMedia();
+          if (screenStream != null) {
+            final screenTrack = screenStream.getVideoTracks().firstOrNull;
+            if (screenTrack != null) {
+              await _multiPeerManager!.replaceVideoTrackForAll(screenTrack);
+            }
+          }
+        }
       }
       _log('Screen share ${_isScreenSharing ? "On" : "Off"}', isSent: true);
       notifyListeners();
@@ -1817,16 +1858,16 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   Future<void> muteParticipant(String nick, bool muted) async {
     if (!_isGroupCall || _remoteJid == null) return;
 
-    debugPrint('CallProvider: ${muted ? 'Muting' : 'Unmuting'} participant $nick');
+    debugPrint('CallProvider: ${muted ? 'Muting' : 'Unmuting'} participant $nick locally');
 
+    // Note: This mutes the participant's audio FOR YOURSELF ONLY.
+    // For true moderation (mute for everyone), use kickParticipant.
+    // SFU Janus plugin doesn't support per-peer mute handles.
     if (_janusService != null && _groupCallSession != null) {
-      // SFU: use Janus modify handles
-      // Janus plugin doesn't have direct mute per-peer, so we log for now
-      debugPrint('CallProvider: SFU per-peer mute not yet implemented');
-      _log('${muted ? 'Muted' : 'Unmuted'} $nick', isSent: true);
+      debugPrint('CallProvider: SFU per-peer local mute not yet implemented');
+      _log('${muted ? 'Muted' : 'Unmuted'} $nick (local)', isSent: true);
     } else if (_multiPeerManager != null) {
-      // Mesh: mute via PeerConnection
-      // For mesh, we can't truly mute remote peers - we can only remove their tracks locally
+      // Mesh: locally disable the participant's audio tracks on our end
       final renderer = _groupRenderers[nick];
       if (renderer?.srcObject != null) {
         for (var track in renderer!.srcObject!.getAudioTracks()) {
@@ -1937,6 +1978,30 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         }
       }
       _log('Call declined', isSent: true);
+    }
+  }
+
+  Future<void> transferCall(String targetJid) async {
+    if (_state != CallState.active) {
+      debugPrint('CallProvider: Cannot transfer - no active call');
+      return;
+    }
+
+    if (_isSipCall) {
+      _sipService?.transfer(targetJid);
+      _log('Call transfer initiated to $targetJid', isSent: true);
+      notifyListeners();
+      return;
+    }
+
+    // Jingle call transfer (XEP-0251) - send transfer signaling
+    final signaling =
+        _authService?.getJingleService(_callAccountId ?? '') ??
+        _authService?.jingleSignaling;
+    if (signaling != null && _remoteJid != null && _sessionId != null) {
+      signaling.sendTransferRequest(_remoteJid!, _sessionId!, targetJid);
+      _log('Call transfer requested to $targetJid', isSent: true);
+      notifyListeners();
     }
   }
 
