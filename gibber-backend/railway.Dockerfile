@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     supervisor \
     prosody \
+    janus \
+    coturn \
     openssl \
     curl \
     socat \
@@ -31,12 +33,15 @@ RUN ln -sf /usr/lib/x86_64-linux-gnu/libsqlite3.so.0 /app/lib/libsqlite3.so || t
     ldconfig || true
 
 COPY config/prosody.cfg.lua /etc/prosody/prosody.cfg.lua
+COPY config/janus/ /etc/janus/
+COPY config/turnserver.conf /etc/coturn/turnserver.conf
 COPY config/entrypoint.sh /app/entrypoint.sh
 
-RUN mkdir -p /app/data /var/run/prosody && \
+RUN mkdir -p /app/data /var/run/prosody /var/run/coturn /etc/default && \
+    echo 'TURNSERVER_ENABLED=1' > /etc/default/coturn && \
     chmod +x /app/entrypoint.sh && \
     chown -R prosody:prosody /var/run/prosody /var/lib/prosody
 
-EXPOSE 8080 5222 5269 5280 5281
+EXPOSE 8080 5222 5269 5280 5281 8188 8088 3478 3478/udp 5349 5349/udp 49152-49200/udp 10000-10020/udp
 
 CMD ["/app/entrypoint.sh"]

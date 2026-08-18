@@ -31,16 +31,51 @@ class MultiPeerWebRTCManager {
   final Map<String, dynamic> _config = {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
+      {'urls': 'stun:stun1.l.google.com:19302'},
+      {
+        'urls': 'turn:openrelay.metered.ca:80',
+        'username': 'openrelayproject',
+        'credential': 'openrelayproject',
+      },
+      {
+        'urls': 'turn:openrelay.metered.ca:443',
+        'username': 'openrelayproject',
+        'credential': 'openrelayproject',
+      },
     ],
     'iceTransportPolicy': 'all',
     'sdpSemantics': 'unified-plan',
+    'iceCandidatePoolSize': 10,
   };
+
+  static const _fallbackIceServers = [
+    {'urls': 'stun:stun.l.google.com:19302'},
+    {'urls': 'stun:stun1.l.google.com:19302'},
+    {
+      'urls': 'turn:openrelay.metered.ca:80',
+      'username': 'openrelayproject',
+      'credential': 'openrelayproject',
+    },
+    {
+      'urls': 'turn:openrelay.metered.ca:443',
+      'username': 'openrelayproject',
+      'credential': 'openrelayproject',
+    },
+  ];
 
   bool get isDisposed => _isDisposed;
   MediaStream? get localStream => _localStream;
 
   void setIceServers(List<Map<String, dynamic>> servers) {
-    _config['iceServers'] = servers;
+    final allServers = <Map<String, dynamic>>[...servers];
+    for (var fallback in _fallbackIceServers) {
+      final urls = fallback['urls'] as String;
+      if (!allServers.any((s) => s['urls'] == urls)) {
+        allServers.add(fallback);
+      }
+    }
+    _config['iceServers'] = allServers;
+    debugPrint('MultiPeer: ICE servers updated (with fallbacks): ${allServers.length}');
   }
 
   Future<bool> initLocalStream({bool isVideo = true}) async {

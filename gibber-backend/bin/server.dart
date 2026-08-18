@@ -225,6 +225,35 @@ void _handleXmppWebSocket(WebSocketChannel webSocket, String prosodyUrl, String 
   });
 }
 
+void _handleJanusWebSocket(WebSocketChannel clientWs) {
+  const janusWsUrl = 'ws://localhost:8188/';
+  print('Janus WS proxy: Connecting to Janus at $janusWsUrl');
+  WebSocket.connect(janusWsUrl).then((janusWs) {
+    print('Janus WS proxy: Connected to Janus');
+    janusWs.listen(
+      (data) => clientWs.sink.add(data),
+      onDone: () => clientWs.sink.close(),
+      onError: (e) {
+        print('Janus WS proxy: Janus error: $e');
+        clientWs.sink.close();
+      },
+      cancelOnError: false,
+    );
+    clientWs.stream.listen(
+      (data) => janusWs.add(data),
+      onDone: () => janusWs.close(),
+      onError: (e) {
+        print('Janus WS proxy: Client error: $e');
+        janusWs.close();
+      },
+      cancelOnError: false,
+    );
+  }).catchError((e) {
+    print('Janus WS proxy: Failed to connect to Janus at $janusWsUrl: $e');
+    clientWs.sink.close();
+  });
+}
+
 void main(List<String> args) async {
   final parser = ArgParser()
     ..addOption('port', abbr: 'p', defaultsTo: Platform.environment['GIBBER_PORT'] ?? '8080')
@@ -248,6 +277,12 @@ void main(List<String> args) async {
     ..addOption('btcpay-store-id', defaultsTo: Platform.environment['BTCPAY_STORE_ID'] ?? '')
     ..addFlag('enable-sasl2', defaultsTo: Platform.environment['GIBBER_ENABLE_SASL2'] != '0', help: 'Enable SASL2 pass-through (default: true). Disable to strip SASL2 and fall back to SASL1.')
     ..addOption('jwt-secret', defaultsTo: Platform.environment['GIBBER_JWT_SECRET'] ?? '', help: 'Secret key for JWT token generation. If not set, auth/token endpoint returns 503.')
+    ..addOption('janus-url', defaultsTo: Platform.environment['GIBBER_JANUS_URL'] ?? '', help: 'Janus WebSocket URL for SFU calls (e.g., ws://localhost:8188).')
+    ..addOption('janus-api-key', defaultsTo: Platform.environment['GIBBER_JANUS_API_KEY'] ?? '', help: 'Janus API secret key.')
+    ..addOption('turn-host', defaultsTo: Platform.environment['GIBBER_TURN_HOST'] ?? '', help: 'TURN server hostname for STUN/TURN.')
+    ..addOption('turn-url', defaultsTo: Platform.environment['GIBBER_TURN_URL'] ?? '', help: 'TURN server URL (host:port) for relay.')
+    ..addOption('turn-user', defaultsTo: Platform.environment['GIBBER_TURN_USER'] ?? '', help: 'TURN server username.')
+    ..addOption('turn-pass', defaultsTo: Platform.environment['GIBBER_TURN_PASS'] ?? '', help: 'TURN server password/credential.')
     ..addFlag('reset-db', abbr: 'r', defaultsTo: false);
 
   final result = parser.parse(args);
@@ -272,6 +307,8 @@ void main(List<String> args) async {
   final prosodyUrl = result['prosody-url'] as String;
   final enableSasl2 = result['enable-sasl2'] as bool;
   final jwtSecret = result['jwt-secret'] as String;
+  final janusUrl = result['janus-url'] as String;
+  final janusApiKey = result['janus-api-key'] as String;
 
   final db = DatabaseService(dbPath);
   await db.initialize(reset: resetDb);
@@ -364,6 +401,8 @@ void main(List<String> args) async {
     adminApiKey: adminKey,
     captchaService: captchaSvc,
     jwtService: jwtService,
+    janusUrl: janusUrl,
+    janusApiKey: janusApiKey,
   );
 
   final corsMiddleware = corsHeaders(headers: {
@@ -379,8 +418,15 @@ void main(List<String> args) async {
     protocols: ['xmpp'],
   );
 
+  final janusWsHandler = webSocketHandler(
+    (webSocket, _) {
+      _handleJanusWebSocket(webSocket);
+    },
+  );
+
   final xmppProxyPaths = {'/xmpp-websocket', '/xmpp-websocket/', '/http-bind', '/http-bind/', '/upload', '/upload/'};
   final xmppWsPaths = {'/xmpp-websocket', '/xmpp-websocket/'};
+  final janusWsPaths = {'/janus', '/janus/'};
 
   const assetExtensions = {
     '.js', '.mjs', '.wasm', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg',
@@ -415,6 +461,13 @@ void main(List<String> args) async {
             final upgrade = request.headers['upgrade'];
             if (upgrade != null && upgrade.toLowerCase() == 'websocket') {
               return xmppWsHandler(request);
+            }
+          }
+
+          if (janusWsPaths.contains(path)) {
+            final upgrade = request.headers['upgrade'];
+            if (upgrade != null && upgrade.toLowerCase() == 'websocket') {
+              return janusWsHandler(request);
             }
           }
 
@@ -456,7 +509,14 @@ void main(List<String> args) async {
             }
           }
 
-          if (xmppProxyPaths.any((p) => path == p || path.startsWith('$p/') )) {
+          if (janusWsPaths.contains(path)) {
+            final upgrade = request.headers['upgrade'];
+            if (upgrade != null && upgrade.toLowerCase() == 'websocket') {
+              return janusWsHandler(request);
+            }
+          }
+
+          if (xmppProxyPaths.any((p) => path == p || path.startsWith('$p/'))) {
             return _proxyToProsody(request, prosodyUrl, xmppRegistrar.domain);
           }
 
@@ -469,6 +529,11 @@ void main(List<String> args) async {
   print('  XMPP domain: ${xmppRegistrar.domain}');
   print('  Database: $dbPath');
   print('  Prosody proxy: $prosodyUrl');
+  if (janusUrl.isNotEmpty) {
+    print('  Janus SFU: $janusUrl');
+  } else {
+    print('  Janus SFU: not configured (group calls will use mesh P2P fallback)');
+  }
   if (webDir.isNotEmpty) {
     print('  Web dir: $webDir');
   }

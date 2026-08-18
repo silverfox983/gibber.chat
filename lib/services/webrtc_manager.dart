@@ -75,7 +75,12 @@ class WebRTCManager {
       }
     }
 
-    _customIceConfig = {'iceServers': allServers};
+    _customIceConfig = {
+      'iceServers': allServers,
+      'iceTransportPolicy': 'all',
+      'sdpSemantics': 'unified-plan',
+      'iceCandidatePoolSize': 10,
+    };
     debugPrint(
       'WebRTC: Using ICE servers (with fallbacks): ${allServers.length}',
     );
@@ -590,10 +595,13 @@ class WebRTCManager {
           RTCIceConnectionState.RTCIceConnectionStateCompleted) {
         debugPrint('WebRTC: === ICE COMPLETED - Fully connected ===');
         _logSelectedCandidatePair();
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        _stopStatsLoop();
+        debugPrint('WebRTC: ICE connection FAILED, attempting ICE restart...');
+        restartIceGathering();
       } else if (state ==
               RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
-          state == RTCIceConnectionState.RTCIceConnectionStateClosed ||
-          state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+          state == RTCIceConnectionState.RTCIceConnectionStateClosed) {
         _stopStatsLoop();
         debugPrint('WebRTC: ICE connection ended: ${state.name}');
       }

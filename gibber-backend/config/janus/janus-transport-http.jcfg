@@ -1,0 +1,5 @@
+general: {
+    enabled = true
+    port = 8088
+    https = false
+}

@@ -74,7 +74,7 @@ modules_enabled = {
     "websocket";
     "smacks";
     "http_file_share";
-    "extdisco";
+    -- "extdisco"; -- Disabled: mod_extdisco not available in monolith; ICE servers from /config
 }
 
 -- MAM (XEP-0313): Archive messages for offline retrieval
@@ -88,30 +88,13 @@ http_paths = {
 }
 
 -- External Service Discovery (XEP-0215) - STUN/TURN for WebRTC
-external_services = {
-    {
-        type = "stun",
-        transport = "udp",
-        host = "gibberapp.online",
-        port = 3478
-    },
-    {
-        type = "turn",
-        transport = "udp",
-        host = "gibberapp.online",
-        port = 3478,
-        username = "gibber",
-        password = "gibber-turn-secret-change-in-production"
-    },
-    {
-        type = "turns",
-        transport = "tcp",
-        host = "gibberapp.online",
-        port = 5349,
-        username = "gibber",
-        password = "gibber-turn-secret-change-in-production"
-    }
-}
+-- DISABLED: mod_extdisco is not available in the monolith Debian package.
+-- ICE servers are provided via the /config and /sfu/ice-servers endpoints.
+-- external_services = {
+--     { type = "stun", transport = "udp", host = "gibberapp.online", port = 3478 },
+--     { type = "turn", transport = "udp", host = "gibberapp.online", port = 3478, username = "gibber", password = "gibber-turn-secret-change-in-production" },
+--     { type = "turns", transport = "tcp", host = "gibberapp.online", port = 5349, username = "gibber", password = "gibber-turn-secret-change-in-production" },
+-- }
 
 -- Stream Management (XEP-0198)
 smacks_hibernation_time = 300  -- 5 minutes

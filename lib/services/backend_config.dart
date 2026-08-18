@@ -41,12 +41,9 @@ class BackendConfig extends ChangeNotifier {
     return '$wsScheme://${uri.host}$port/xmpp-websocket';
   }
 
-  String get derivedSfuUrl {
-    if (_sfuUrl != null) return _sfuUrl!;
-    final uri = Uri.parse(_apiUrl);
-    final wsScheme = uri.scheme == 'https' ? 'wss' : 'ws';
-    final port = uri.port > 0 ? ':${uri.port}' : '';
-    return '$wsScheme://${uri.host}$port/janus';
+  String? get derivedSfuUrl {
+    if (_sfuUrl != null && _sfuUrl!.isNotEmpty) return _sfuUrl!;
+    return null;
   }
 
   BackendConfig() {
@@ -83,8 +80,12 @@ class BackendConfig extends ChangeNotifier {
           _iceServers = ice.cast<Map<String, dynamic>>();
         }
         notifyListeners();
+      } else {
+        debugPrint('BackendConfig: Failed to fetch config, status: ${response.statusCode}');
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('BackendConfig: Failed to fetch config: $e');
+    }
   }
 
   Future<void> setApiUrl(String url) async {

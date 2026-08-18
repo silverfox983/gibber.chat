@@ -373,7 +373,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     if (offer.sdp != null) {
       final published = await _janusService!.publishStream(handleId, offer.sdp!);
       if (!published) {
-        debugPrint('CallProvider: Failed to publish stream to SFU');
+        debugPrint('CallProvider: Failed to publish stream to SFU, ending call');
+        endCall();
+        return;
       }
     }
 
@@ -431,6 +433,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       endCall();
     };
 
+    _janusService?.onDisconnected = (reason) {
+      debugPrint('CallProvider: Janus disconnected: $reason, ending call');
+      endCall();
+    };
+
+    _janusService?.onError = (error) {
+      debugPrint('CallProvider: Janus error: $error');
+    };
+
     _janusSpeakingSub?.cancel();
     _janusSpeakingSub = _janusService?.onSpeaking.listen((speakingMap) {
       for (var entry in speakingMap.entries) {
@@ -446,7 +457,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     final subscribed = await _janusService!.subscribeToParticipant(
       _groupCallSession!.roomId,
       feedId,
-      feedId,
+      token: feedId,
     );
     if (!subscribed) {
       debugPrint('CallProvider: Failed to subscribe to feed $feedId');
@@ -933,19 +944,31 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
   void toggleCamera() {
     _isCameraOff = !_isCameraOff;
-    if (_isGroupCall && _janusService != null && _groupCallSession != null) {
-      _janusService!.configurePublisher(
-        _groupCallSession!.publisherHandle,
-        video: !_isCameraOff,
-      );
+    if (_isGroupCall) {
+      if (_janusService != null && _groupCallSession != null) {
+        _janusService!.configurePublisher(
+          _groupCallSession!.publisherHandle,
+          video: !_isCameraOff,
+        );
+      } else if (_multiPeerManager != null) {
+        _multiPeerManager!.toggleCamera(!_isCameraOff);
+      }
+    } else {
+      _rtcManager.toggleCamera(!_isCameraOff);
     }
-    _rtcManager.toggleCamera(!_isCameraOff);
-    _multiPeerManager?.toggleCamera(!_isCameraOff);
     _log('Camera ${_isCameraOff ? "Off" : "On"}', isSent: true);
     notifyListeners();
   }
 
   Future<void> switchCamera() async {
+    if (_isGroupCall && _janusService != null) {
+      debugPrint('CallProvider: switchCamera not supported for SFU calls');
+      return;
+    }
+    if (_isGroupCall && _multiPeerManager != null) {
+      debugPrint('CallProvider: switchCamera not supported for mesh calls');
+      return;
+    }
     await _rtcManager.switchCamera();
     _log('Camera switched', isSent: true);
   }

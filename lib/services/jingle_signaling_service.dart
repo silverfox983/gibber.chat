@@ -63,7 +63,11 @@ class JingleSignalingService {
   final Set<String> _messageInitiatedSessions = {};
 
   // Track pending outgoing sessions awaiting <proceed/> - stores SDP and metadata
+  // Key format: "$sessionId:$toJid" to avoid collision in MUC group calls
   final Map<String, Map<String, dynamic>> _pendingProposeSessions = {};
+
+  // Timers for XEP-0353 fallback (proceed timeout)
+  final Map<String, Timer> _proceedTimers = {};
 
   // Timers for XEP-0353 fallbacks
 
@@ -266,41 +270,47 @@ class JingleSignalingService {
   }
 
   void _handleProceed(String sid, String fromJid) {
-    final pending = _pendingProposeSessions[sid];
+    final pendingKey = _pendingProposeSessions.keys.firstWhere(
+      (key) => key.startsWith('$sid:'),
+      orElse: () => '',
+    );
+    final pending = pendingKey.isNotEmpty ? _pendingProposeSessions[pendingKey] : null;
     if (pending == null) {
       debugPrint(
-        'Jingle: [XEP-0353] Received proceed for unknown session: $sid',
+        'Jingle: [XEP-0353] Received proceed for unknown session: $sid from $fromJid',
       );
       return;
     }
+
+    _proceedTimers[sid]?.cancel();
+    _proceedTimers.remove(sid);
 
     debugPrint(
       'Jingle: [XEP-0353] Received proceed for session $sid, sending IQ session-initiate',
     );
 
-    // DYNAMIC JID UPDATE: Ensure we use the full JID that sent the proceed
-    if (fromJid.contains('/')) {
-      pending['toJid'] = fromJid;
-    }
-
     final sdp = pending['sdp'] as String;
-    final toJid = pending['toJid'] as String;
     final isVideo = pending['isVideo'] as bool? ?? false;
 
-    // Remove from pending
-    _pendingProposeSessions.remove(sid);
+    _pendingProposeSessions.remove(pendingKey);
 
+    sendSessionInitiateIq(fromJid, sid, sdp, isVideo: isVideo);
 
-    // Now send the actual Jingle IQ with session-initiate
-    sendSessionInitiateIq(toJid, sid, sdp, isVideo: isVideo);
-
-    // Notify caller via callback
-    onProceedReceived?.call(sid, sdp, toJid);
+    onProceedReceived?.call(sid, sdp, fromJid);
   }
 
   void _handleReject(String sid, String fromJid, xmpp.XmppElement element) {
     debugPrint('Jingle: [XEP-0353] Session rejected, sid: $sid');
-    _pendingProposeSessions.remove(sid);
+    _proceedTimers[sid]?.cancel();
+    _proceedTimers.remove(sid);
+
+    final pendingKey = _pendingProposeSessions.keys.firstWhere(
+      (key) => key.startsWith('$sid:'),
+      orElse: () => '',
+    );
+    if (pendingKey.isNotEmpty) {
+      _pendingProposeSessions.remove(pendingKey);
+    }
 
 
     String? reason;
@@ -509,13 +519,23 @@ class JingleSignalingService {
         : '📞 Incoming audio call...';
     proposeMessage.addChild(propose);
 
-    // Store SDP for when proceed is received
-    _pendingProposeSessions[sessionId] = {
+    // Store SDP for when proceed is received (composite key to avoid collision)
+    final pendingKey = '$sessionId:$toJid';
+    _pendingProposeSessions[pendingKey] = {
       'sdp': sdp,
       'toJid': toJid,
       'isVideo': isVideo,
       'timestamp': DateTime.now(),
     };
+
+    // Set fallback timer (30 seconds to receive proceed)
+    _proceedTimers[sessionId]?.cancel();
+    _proceedTimers[sessionId] = Timer(const Duration(seconds: 30), () {
+      debugPrint('Jingle: [XEP-0353] Proceed timeout for session $sessionId, falling back to direct IQ');
+      _pendingProposeSessions.remove(pendingKey);
+      _proceedTimers.remove(sessionId);
+      sendSessionInitiateIq(toJid, sessionId, sdp, isVideo: isVideo);
+    });
 
     debugPrint(
       'Jingle: [XEP-0353] Sending <propose/> to $toJid, sid: $sessionId',
@@ -559,41 +579,15 @@ class JingleSignalingService {
     _writeStanza(iq);
   }
 
-  /// XEP-0353: Send session-accept via MESSAGE stanza
+  /// XEP-0353: Send session-accept (responds to session-initiate via IQ)
   void sendSessionAcceptViaMessage(
     String toJid,
     String sessionId,
     String sdp, {
     bool isVideo = true,
   }) {
-    final message = xmpp.MessageStanza(
-      DateTime.now().millisecondsSinceEpoch.toString(),
-      xmpp.MessageStanzaType.CHAT,
-    );
-    message.addAttribute(XmppAttribute('to', toJid));
-
-    final jingle = xmpp.XmppElement();
-    jingle.name = 'jingle';
-    jingle.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
-    jingle.addAttribute(XmppAttribute('action', 'session-accept'));
-    jingle.addAttribute(XmppAttribute('sid', sessionId));
-    jingle.addAttribute(XmppAttribute('responder', connection.fullJid.fullJid));
-
-    final expectedOrder = _sessionContentMap[sessionId];
-    final contents = _generateContentsFromSdp(
-      sdp,
-      'initiator',
-      sessionId,
-      expectedOrder: expectedOrder,
-    );
-    for (var content in contents) {
-      jingle.addChild(content);
-    }
-
-    message.addChild(jingle);
     _messageInitiatedSessions.add(sessionId);
-
-    debugPrint('Jingle: [STANDARD] Sending session-accept via IQ to $toJid');
+    debugPrint('Jingle: [XEP-0353] Sending session-accept via IQ to $toJid');
     sendSessionAccept(toJid, sessionId, sdp, isVideo: isVideo);
   }
 
@@ -1175,7 +1169,10 @@ class JingleSignalingService {
       _cleanupSession(sid);
     } else if (actionStr == 'session-terminate') {
       action = JingleAction.sessionTerminate;
-      reason = jingle.getChild('reason')?.children.first.name;
+      final reasonEl = jingle.getChild('reason');
+      if (reasonEl != null && reasonEl.children.isNotEmpty) {
+        reason = reasonEl.children.first.name;
+      }
       _cleanupSession(sid);
     } else if (actionStr == 'session-initiate' ||
         actionStr == 'session-accept') {

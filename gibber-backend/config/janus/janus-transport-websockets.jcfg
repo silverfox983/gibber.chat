@@ -1,0 +1,6 @@
+general: {
+    enabled = true
+    ws = true
+    ws_port = 8188
+    wss = false
+}

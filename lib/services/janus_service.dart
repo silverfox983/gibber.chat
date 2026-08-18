@@ -12,6 +12,7 @@ typedef OnParticipantLeft = void Function(String participantId);
 typedef OnParticipantSpeaking = void Function(String participantId, bool speaking);
 typedef OnParticipantAudioVideo = void Function(String participantId, bool audio, bool video);
 typedef OnRoomDestroyed = void Function(String roomId);
+typedef OnTrickleCandidate = void Function(String handleId, Map<String, dynamic> candidate);
 
 class JanusService {
   WebSocketChannel? _ws;
@@ -34,6 +35,7 @@ class JanusService {
   OnParticipantJoined? onParticipantJoined;
   OnParticipantLeft? onParticipantLeft;
   OnRoomDestroyed? onRoomDestroyed;
+  OnTrickleCandidate? onTrickleCandidate;
 
   final StreamController<Map<String, dynamic>> _remoteTrackController =
       StreamController<Map<String, dynamic>>.broadcast();
@@ -128,10 +130,19 @@ class JanusService {
       },
     });
 
-    if (response != null) {
+    if (response != null && response['janus'] == 'event') {
+      final plugindata = response['plugindata'] as Map<String, dynamic>?;
+      final data = plugindata?['data'] as Map<String, dynamic>?;
+      final error = data?['error'];
+      if (error != null) {
+        debugPrint('JANUS: Failed to join room $roomId: $error');
+        onError?.call('Failed to join room: $error');
+        return null;
+      }
       debugPrint('JANUS: Joined room $roomId as publisher, handle=$handleId');
       return handleId;
     }
+    debugPrint('JANUS: joinRoom timed out or failed for room $roomId');
     return null;
   }
 
@@ -151,14 +162,32 @@ class JanusService {
       },
     });
 
-    if (response != null && response['janus'] == 'event') {
+    if (response == null) {
+      debugPrint('JANUS: publishStream timed out for handle=$handleId');
+      return false;
+    }
+    if (response['janus'] == 'error') {
+      final error = response['error'] ?? response['reason'];
+      debugPrint('JANUS: publishStream error for handle=$handleId: $error');
+      onError?.call('Failed to publish stream: $error');
+      return false;
+    }
+    if (response['janus'] == 'event') {
+      final plugindata = response['plugindata'] as Map<String, dynamic>?;
+      final data = plugindata?['data'] as Map<String, dynamic>?;
+      final error = data?['error'];
+      if (error != null) {
+        debugPrint('JANUS: publishStream error for handle=$handleId: $error');
+        onError?.call('Failed to publish stream: $error');
+        return false;
+      }
       debugPrint('JANUS: Published stream on handle=$handleId');
       return true;
     }
     return false;
   }
 
-  Future<bool> subscribeToParticipant(String roomId, String feedId, String publisherId) async {
+  Future<bool> subscribeToParticipant(String roomId, String feedId, {String? token}) async {
     if (!_isConnected || _sessionId == null) return false;
 
     final handleId = await attachToVideoRoom();
@@ -173,10 +202,29 @@ class JanusService {
         'room': int.tryParse(roomId) ?? roomId.hashCode,
         'ptype': 'subscriber',
         'feed': int.tryParse(feedId) ?? feedId.hashCode,
+        if (token != null) 'token': token,
       },
     });
 
-    if (response != null) {
+    if (response == null) {
+      debugPrint('JANUS: subscribeToParticipant timed out for feed=$feedId');
+      return false;
+    }
+    if (response['janus'] == 'error') {
+      final error = response['error'] ?? response['reason'];
+      debugPrint('JANUS: subscribeToParticipant error for feed=$feedId: $error');
+      onError?.call('Failed to subscribe to participant: $error');
+      return false;
+    }
+    if (response['janus'] == 'event') {
+      final plugindata = response['plugindata'] as Map<String, dynamic>?;
+      final data = plugindata?['data'] as Map<String, dynamic>?;
+      final error = data?['error'];
+      if (error != null) {
+        debugPrint('JANUS: subscribeToParticipant error for feed=$feedId: $error');
+        onError?.call('Failed to subscribe to participant: $error');
+        return false;
+      }
       debugPrint('JANUS: Subscribed to feed=$feedId, handle=$handleId');
       return true;
     }
@@ -252,6 +300,12 @@ class JanusService {
       case 'event':
         _handleEvent(data);
         break;
+      case 'trickle':
+        _handleTrickle(data);
+        break;
+      case 'ack':
+        debugPrint('JANUS: Received ack for transaction $txn');
+        break;
       case 'webrtcup':
         debugPrint('JANUS: WebRTC connection established');
         break;
@@ -274,6 +328,9 @@ class JanusService {
       case 'timeout':
         debugPrint('JANUS: Session timeout');
         _handleDisconnect('Session timeout');
+        break;
+      case 'keepalive':
+        debugPrint('JANUS: Keepalive received');
         break;
     }
   }
@@ -332,6 +389,23 @@ class JanusService {
     }
   }
 
+  void _handleTrickle(Map<String, dynamic> data) {
+    final candidate = data['candidate'] as Map<String, dynamic>?;
+    if (candidate == null) return;
+
+    final handleId = data['sender']?.toString();
+    if (handleId == null) return;
+
+    if (candidate.containsKey('completed') && candidate['completed'] == true) {
+      debugPrint('JANUS: ICE candidate gathering complete for handle=$handleId');
+      onTrickleCandidate?.call(handleId, {'completed': true});
+      return;
+    }
+
+    debugPrint('JANUS: Received trickle candidate for handle=$handleId');
+    onTrickleCandidate?.call(handleId, candidate);
+  }
+
   void _onError(dynamic error) {
     debugPrint('JANUS: WebSocket error: $error');
     _handleDisconnect(error.toString());
@@ -347,12 +421,17 @@ class JanusService {
     _isConnected = false;
     _keepaliveTimer?.cancel();
 
-    if (wasConnected && _reconnectAttempts < _maxReconnectAttempts) {
+    final shouldReconnect = wasConnected
+        ? _reconnectAttempts < _maxReconnectAttempts
+        : (_serverUrl != null && _sessionId == null && _reconnectAttempts < 2);
+
+    if (shouldReconnect) {
       _reconnectAttempts++;
       final delay = Duration(seconds: 1 << (_reconnectAttempts - 1));
       debugPrint('JANUS: Reconnecting in ${delay.inSeconds}s (attempt $_reconnectAttempts/$_maxReconnectAttempts)');
       _reconnectTimer = Timer(delay, () {
         if (_serverUrl != null) {
+          _isConnecting = false;
           connect(_serverUrl!, apiSecret: _apiSecret, token: _token);
         }
       });
@@ -395,12 +474,10 @@ class JanusService {
 
     try {
       _sendRaw(request);
-      return completer.future.timeout(const Duration(seconds: 10), onTimeout: () {
-        _pendingTransactions.remove(txn);
-        return <String, dynamic>{};
-      });
+      return await completer.future.timeout(const Duration(seconds: 10));
     } catch (e) {
       _pendingTransactions.remove(txn);
+      debugPrint('JANUS: Request timed out or failed, transaction=$txn, error=$e');
       return null;
     }
   }

@@ -52,9 +52,9 @@ class ApiRouter {
   final String? janusUrl;
 
   String? get _effectiveJanusApiKey =>
-      janusApiKey ?? const String.fromEnvironment('GIBBER_JANUS_API_KEY', defaultValue: '');
+      janusApiKey ?? Platform.environment['GIBBER_JANUS_API_KEY'] ?? '';
   String? get _effectiveJanusUrl =>
-      janusUrl ?? const String.fromEnvironment('GIBBER_JANUS_URL', defaultValue: '');
+      janusUrl ?? Platform.environment['GIBBER_JANUS_URL'] ?? '';
 
   ApiRouter({
     required this.db,
@@ -553,7 +553,16 @@ class ApiRouter {
     };
 
     if (_effectiveJanusUrl != null && _effectiveJanusUrl!.isNotEmpty) {
-      config['sfuUrl'] = _effectiveJanusUrl;
+      final janusUrl = _effectiveJanusUrl!;
+      // In monolith deployments Janus runs on localhost, so proxy through the
+      // backend at /janus. For external Janus or docker-compose, use the URL
+      // directly (client must be able to resolve it).
+      if (janusUrl.contains('localhost') || janusUrl.contains('127.0.0.1')) {
+        final janusWsScheme = isHttps ? 'wss' : 'ws';
+        config['sfuUrl'] = '$janusWsScheme://$hostHeader/janus';
+      } else {
+        config['sfuUrl'] = janusUrl;
+      }
     }
     if (_effectiveJanusApiKey != null && _effectiveJanusApiKey!.isNotEmpty) {
       config['sfuApiKey'] = _effectiveJanusApiKey;
@@ -572,13 +581,17 @@ class ApiRouter {
 
   List<Map<String, dynamic>> _buildIceServers(String host) {
     final servers = <Map<String, dynamic>>[
-      {'urls': 'stun:$host:3478'},
       {'urls': 'stun:stun.l.google.com:19302'},
     ];
 
-    final turnUrl = const String.fromEnvironment('GIBBER_TURN_URL', defaultValue: '');
-    final turnUser = const String.fromEnvironment('GIBBER_TURN_USER', defaultValue: '');
-    final turnPass = const String.fromEnvironment('GIBBER_TURN_PASS', defaultValue: '');
+    final turnHost = Platform.environment['GIBBER_TURN_HOST'] ?? '';
+    if (turnHost.isNotEmpty) {
+      servers.add({'urls': 'stun:$turnHost:3478'});
+    }
+
+    final turnUrl = Platform.environment['GIBBER_TURN_URL'] ?? '';
+    final turnUser = Platform.environment['GIBBER_TURN_USER'] ?? '';
+    final turnPass = Platform.environment['GIBBER_TURN_PASS'] ?? '';
 
     if (turnUrl.isNotEmpty) {
       servers.add({
@@ -586,6 +599,13 @@ class ApiRouter {
         'username': turnUser,
         'credential': turnPass,
       });
+      if (turnHost.isNotEmpty) {
+        servers.add({
+          'urls': 'turns:$turnHost:5349?transport=tcp',
+          'username': turnUser,
+          'credential': turnPass,
+        });
+      }
     }
 
     return servers;
