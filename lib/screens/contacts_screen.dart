@@ -249,12 +249,22 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                         FilledButton.tonal(
-                          onPressed: () => authService.declineSubscription(jid),
+                          onPressed: () {
+                            authService.declineSubscription(jid);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Declined request from ${jid.split('@').first}'), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)),
+                            );
+                          },
                           style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.errorContainer, foregroundColor: Theme.of(context).colorScheme.onErrorContainer, padding: const EdgeInsets.symmetric(horizontal: 16)),
                           child: const Text('IGNORE'),
                         ),
                         FilledButton(
-                          onPressed: () => authService.acceptSubscription(jid),
+                          onPressed: () {
+                            authService.acceptSubscription(jid);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Accepted request from ${jid.split('@').first}'), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)),
+                            );
+                          },
                           style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16)),
                           child: const Text('ACCEPT'),
                         ),

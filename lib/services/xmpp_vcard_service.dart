@@ -254,7 +254,8 @@ class XmppVCardService {
 
     String cleanJid = jid.toLowerCase();
 
-    // Cheogram-specific: .vom -> .com for vCard lookups
+    // Cheogram-specific: Cheogram gateways use .vom TLD but their vCard backend
+    // runs on .com. Translate .vom -> .com so vCard lookups succeed.
     if (cleanJid.endsWith('.vom')) {
       cleanJid = cleanJid.replaceFirst('.vom', '.com');
     }

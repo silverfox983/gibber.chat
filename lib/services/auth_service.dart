@@ -1100,7 +1100,11 @@ class AuthService with ChangeNotifier {
                       final bytes = base64Decode(
                         photo.replaceAll(RegExp(r'\s+'), ''),
                       );
-                      AvatarCacheService().saveAvatar(responseJid, bytes);
+                      if (bytes.length <= 512 * 1024) {
+                        AvatarCacheService().saveAvatar(responseJid, bytes);
+                      } else {
+                        debugPrint('VCard PHOTO SKIPPED: ${bytes.length} bytes exceeds 512KB limit');
+                      }
                     } catch (e) {
                       debugPrint('VCard PHOTO DECODE ERROR: $e');
                     }
