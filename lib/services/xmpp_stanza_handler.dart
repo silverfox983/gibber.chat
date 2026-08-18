@@ -2,12 +2,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/chat_models.dart';
-import '../models/user_profile.dart';
 import 'auth_service_deps.dart';
 import 'jingle_signaling_service.dart';
-import 'otr_service.dart';
 import 'xmpp_omemo_service.dart';
-import 'xmpp_room_service.dart';
 
 class XmppStanzaHandler {
   final AuthServiceStanzaDeps _d;
@@ -19,6 +16,28 @@ class XmppStanzaHandler {
     String accountId,
     xmpp.Connection conn,
   ) async {
+    if (stanza.type == xmpp.MessageStanzaType.ERROR) {
+      final errorEl = stanza.getChild('error');
+      String errorText = 'Message failed';
+      if (errorEl != null) {
+        final textEl = errorEl.getChild('text');
+        errorText = textEl?.textValue ?? errorEl.children.map((c) => c.name).join(', ');
+      }
+      final failedMsgId = stanza.id ?? '';
+      debugPrint('XMPP: Received error stanza for message $failedMsgId: $errorText');
+      _d.jingleEventController.add(
+        JingleEvent(
+          action: JingleAction.messageError,
+          sessionId: 'error',
+          fromJid: stanza.fromJid?.fullJid ?? '',
+          accountId: accountId,
+          reason: failedMsgId,
+          sdp: errorText,
+        ),
+      );
+      return;
+    }
+
     final eventEl = stanza.getChild('event');
     if (eventEl != null &&
         eventEl.getAttribute('xmlns')?.value ==
@@ -256,8 +275,6 @@ class XmppStanzaHandler {
         }
       }
 
-      final delay = stanza.getChild('delay');
-
       if (finalBody != null) {
         _d.messageStreamController.add(
           ChatMessage(
@@ -441,9 +458,15 @@ class XmppStanzaHandler {
         if (innerMessage != null) {
           final originIdEl = innerMessage.getChild('origin-id');
           final originId = originIdEl?.getAttribute('id')?.value;
+          final stanzaId = innerMessage.getAttribute('id')?.value;
+          // Primary dedup: origin-id. Fallback: stanza ID if origin-id missing
           if (originId != null && _d.sentOriginIds.containsKey(originId)) {
-            debugPrint('XMPP: Carbon echo for origin-id $originId, updating status');
+            debugPrint('XMPP: Carbon echo for origin-id $originId, dropping');
             _d.sentOriginIds.remove(originId);
+            return;
+          } else if (originId == null && stanzaId != null && _d.sentOriginIds.containsKey(stanzaId)) {
+            debugPrint('XMPP: Carbon echo for stanza-id $stanzaId (no origin-id), dropping');
+            _d.sentOriginIds.remove(stanzaId);
             return;
           }
 

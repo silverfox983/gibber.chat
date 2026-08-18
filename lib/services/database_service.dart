@@ -388,11 +388,28 @@ class DatabaseService {
 
   Future<void> insertMessage(ChatMessage message) async {
     final db = await database;
-    await db.insert(
-      'messages',
-      message.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.transaction((txn) async {
+      // Smart upsert: if message already exists with higher status, keep it
+      final existing = await txn.query(
+        'messages',
+        columns: ['status'],
+        where: 'id = ?',
+        whereArgs: [message.id],
+      );
+      final newStatus = message.status.index;
+      if (existing.isNotEmpty) {
+        final existingStatus = existing.first['status'] as int? ?? 0;
+        if (existingStatus >= newStatus) {
+          // Don't insert with lower status
+          return;
+        }
+      }
+      await txn.insert(
+        'messages',
+        message.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
 
     // Auto-update conversation metadata
     await db.insert(
@@ -538,11 +555,9 @@ class DatabaseService {
         continue;
       }
 
-      batch.insert(
-        'messages',
-        message.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      // Smart upsert: never downgrade message status (e.g., a `sending` MAM result
+      // should not overwrite an existing `delivered` status)
+      _upsertMessageSmart(batch, message);
 
       // Ensure conversation exists (Phase 16 Sync Restoration)
       batch.insert('conversations', {
@@ -562,6 +577,39 @@ class DatabaseService {
       );
     }
     await batch.commit(noResult: true);
+  }
+
+  void _upsertMessageSmart(Batch batch, ChatMessage message) {
+    final map = message.toMap();
+    batch.rawInsert(
+      '''INSERT OR REPLACE INTO messages (
+        id, text, timestamp, is_sent, type, file_path, file_name,
+        sender_id, sender_name, account_id, protocol, conversation_id,
+        is_group, status, reply_to_id, replaces_id, is_edited,
+        edit_timestamp, reactions, reactions_json, reply_preview,
+        forwarded_from, encryption_type, latitude, longitude, location_label
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        status = CASE
+          WHEN messages.status >= excluded.status THEN messages.status
+          ELSE excluded.status
+        END''',
+      [
+        map['id'], map['text'], map['timestamp'], map['is_sent'], map['type'],
+        map['file_path'], map['file_name'], map['sender_id'], map['sender_name'],
+        map['account_id'], map['protocol'], map['conversation_id'], map['is_group'],
+        map['status'], map['reply_to_id'], map['replaces_id'], map['is_edited'],
+        map['edit_timestamp'], map['reactions'], map['reactions_json'],
+        map['reply_preview'], map['forwarded_from'], map['encryption_type'],
+        map['latitude'], map['longitude'], map['location_label'],
+      ],
+    );
   }
 
   Future<void> deleteMessage(String id) async {
@@ -634,6 +682,26 @@ class DatabaseService {
       {'status': status.index},
       where: 'id = ?',
       whereArgs: [msgId],
+    );
+  }
+
+  Future<void> updateMessageId(String oldId, String newId) async {
+    final db = await database;
+    await db.update(
+      'messages',
+      {'id': newId},
+      where: 'id = ?',
+      whereArgs: [oldId],
+    );
+  }
+
+  Future<void> updateMessageIdAndStatus(String oldId, String newId, MessageStatus status) async {
+    final db = await database;
+    await db.update(
+      'messages',
+      {'id': newId, 'status': status.index},
+      where: 'id = ?',
+      whereArgs: [oldId],
     );
   }
 

@@ -25,6 +25,9 @@ class OfflineQueueService {
         reply_to_id TEXT,
         is_group INTEGER DEFAULT 0,
         encryption_type TEXT,
+        latitude REAL,
+        longitude REAL,
+        location_label TEXT,
         created_at TEXT DEFAULT (datetime('now')),
         retry_count INTEGER DEFAULT 0
       )
@@ -47,6 +50,9 @@ class OfflineQueueService {
     String? replyToId,
     bool isGroup = false,
     String? encryptionType,
+    double? latitude,
+    double? longitude,
+    String? locationLabel,
   }) async {
     final db = await _db;
     final id = 'pending_${DateTime.now().microsecondsSinceEpoch}';
@@ -78,6 +84,9 @@ class OfflineQueueService {
       'reply_to_id': replyToId,
       'is_group': isGroup ? 1 : 0,
       'encryption_type': encryptionType,
+      'latitude': latitude,
+      'longitude': longitude,
+      'location_label': locationLabel,
       'created_at': DateTime.now().toIso8601String(),
       'retry_count': 0,
     });
@@ -109,8 +118,21 @@ class OfflineQueueService {
     );
   }
 
-  Future<void> removeOldRetries({int maxRetries = 3}) async {
+  Future<void> removeOldRetries({
+    int maxRetries = 3,
+    void Function(List<Map<String, dynamic>> removed)? onRemoved,
+  }) async {
     final db = await _db;
+    if (onRemoved != null) {
+      final removed = await db.query(
+        'pending_messages',
+        where: 'retry_count >= ?',
+        whereArgs: [maxRetries],
+      );
+      if (removed.isNotEmpty) {
+        onRemoved(removed);
+      }
+    }
     await db.delete(
       'pending_messages',
       where: 'retry_count >= ?',

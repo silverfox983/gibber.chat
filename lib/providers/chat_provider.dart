@@ -32,6 +32,7 @@ class ChatProvider with ChangeNotifier {
   Timer? _batchTimer;
   final List<void Function()> _batchQueue = [];
   final List<ChatMessage> _toPersist = [];
+  final Set<String> _pendingIds = {};
   bool _isSyncing = false;
   bool _isLoadingOlderMessages = false;
   final Set<String> _pendingQuoteBackfills = {};
@@ -388,6 +389,13 @@ class ChatProvider with ChangeNotifier {
     });
 
     _authSub = authService.messages.listen((message) {
+      // Cancel typing timer when message received from this JID
+      final rawSender = (message.conversationId ?? message.senderId ?? '')
+          .split('/')
+          .first
+          .toLowerCase();
+      _typingTimers[rawSender]?.cancel();
+
       final rawTarget = (message.conversationId ?? message.senderId ?? '')
           .toLowerCase();
       if (rawTarget.isEmpty) return;
@@ -442,7 +450,7 @@ class ChatProvider with ChangeNotifier {
       notifyListeners();
     });
 
-    // Listen for Signaling Events (Typing, Receipts)
+    // Listen for Signaling Events (Typing, Receipts, Errors)
     authService.jingleEvents.listen((event) {
       if (event.sessionId == 'typing') {
         _handleTyping(event.fromJid, event.reason ?? 'active');
@@ -452,6 +460,8 @@ class ChatProvider with ChangeNotifier {
         _handleReceipt(event.fromJid, event.reason!);
       } else if (event.sessionId == 'marker') {
         _handleMarker(event.fromJid, event.reason!);
+      } else if (event.sessionId == 'error') {
+        _handleMessageError(event.fromJid, event.reason!, event.sdp);
       }
     });
 
@@ -669,6 +679,22 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
+  void _handleMessageError(String fromJid, String msgId, String? errorText) {
+    final bareJid = fromJid.split('/').first.toLowerCase();
+    final index = _conversations.indexWhere((c) => c.id == bareJid);
+    if (index == -1) return;
+
+    final msgIndex = _conversations[index].messages.indexWhere(
+      (m) => m.id == msgId,
+    );
+    if (msgIndex != -1) {
+      _conversations[index].messages[msgIndex].status = MessageStatus.failed;
+      DatabaseService().updateMessageStatus(msgId, MessageStatus.failed);
+      debugPrint('ChatProvider: Message $msgId marked as failed: $errorText');
+      notifyListeners();
+    }
+  }
+
   @override
   void dispose() {
     _authSub?.cancel();
@@ -702,6 +728,13 @@ class ChatProvider with ChangeNotifier {
     // Auto-Group Detection for IRC channels and XMPP MUCs
     bool detectedGroup =
         isGroup || message.isGroup || targetId.startsWith('#') || targetId.contains('conference.');
+
+    // Deduplicate against messages already in the pending batch
+    if (_pendingIds.contains(message.id)) {
+      debugPrint('ChatProvider: Dropping duplicate message ${message.id} (in batch queue)');
+      return;
+    }
+    _pendingIds.add(message.id);
 
     // Queue the message work
     _batchQueue.add(() {
@@ -803,6 +836,7 @@ class ChatProvider with ChangeNotifier {
         }
 
         _batchQueue.clear();
+        _pendingIds.clear();
         _batchTimer = null; // Reset for next batch
         notifyListeners();
 

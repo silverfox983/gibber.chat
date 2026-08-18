@@ -3,10 +3,19 @@ import 'package:flutter/foundation.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/chat_models.dart';
 import 'auth_service_deps.dart';
-import 'otr_service.dart';
-import 'offline_queue_service.dart';
 import 'jingle_signaling_service.dart';
-import 'xmpp_omemo_service.dart';
+
+class _StanzaWriteResult {
+  final String stanzaId;
+  final String originId;
+  final xmpp.MessageStanza messageStanza;
+
+  _StanzaWriteResult({
+    required this.stanzaId,
+    required this.originId,
+    required this.messageStanza,
+  });
+}
 
 class XmppMessageService {
   final AuthServiceMessageDeps _d;
@@ -29,70 +38,20 @@ class XmppMessageService {
     if (conn != null &&
         (conn.state == xmpp.XmppConnectionState.Ready ||
             conn.state == xmpp.XmppConnectionState.Resumed)) {
-      final msg = xmpp.MessageStanza(
-        DateTime.now().millisecondsSinceEpoch.toString(),
-        isGroup
-            ? xmpp.MessageStanzaType.GROUPCHAT
-            : xmpp.MessageStanzaType.CHAT,
+      final result = await _buildAndWriteStanza(
+        targetJid,
+        text,
+        accountId: accountId,
+        type: type,
+        filePath: filePath,
+        fileName: fileName,
+        replyToId: replyToId,
+        isGroup: isGroup,
       );
-      final finalTarget = isGroup ? targetJid.split('/').first : targetJid;
-      final bareTarget = targetJid.split('/').first;
-      msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
-
-      final originId = msg.id ?? 'msg_${DateTime.now().microsecondsSinceEpoch}';
-      final originIdEl = xmpp.XmppElement();
-      originIdEl.name = 'origin-id';
-      originIdEl.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:sid:0'));
-      originIdEl.addAttribute(xmpp.XmppAttribute('id', originId));
-      msg.addChild(originIdEl);
-      _d.sentOriginIds[originId] = id ?? _d.activeAccountId ?? '';
-
-      if (isOmemo) {
-        final encryptedList = await _d.omemoService.encryptMessage(
-          targetJid,
-          text,
-          strict: _d.omemoService.isStrictVerificationEnabled,
-        );
-        if (encryptedList != null && encryptedList.isNotEmpty) {
-          for (var enc in encryptedList) {
-            msg.addChild(enc);
-          }
-          msg.body = '🔒 This message is encrypted with OMEMO.';
-        } else {
-          throw Exception(
-            'OMEMO Encryption Failed: The recipient ($targetJid) does not have any OMEMO-capable devices. '
-            'Please disable OMEMO for this contact in the chat settings to send unencrypted messages.',
-          );
-        }
-      } else {
-        msg.body = isGroup
-            ? text
-            : _d.otrService.processOutgoingMessage(bareTarget, text);
-      }
-
-      if (replyToId != null) {
-        final reply = xmpp.XmppElement();
-        reply.name = 'reply';
-        reply.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:reply:0'));
-        reply.addAttribute(xmpp.XmppAttribute('to', targetJid));
-        reply.addAttribute(xmpp.XmppAttribute('id', replyToId));
-        msg.addChild(reply);
-      }
-
-      if (!isGroup) {
-        final requestEl = xmpp.XmppElement();
-        requestEl.name = 'request';
-        requestEl.addAttribute(
-          xmpp.XmppAttribute('xmlns', 'urn:xmpp:receipts'),
-        );
-        msg.addChild(requestEl);
-      }
-
-      conn.writeStanza(msg);
 
       _d.messageStreamController.add(
         ChatMessage(
-          id: msg.id ?? 'xmpp_${DateTime.now().microsecondsSinceEpoch}',
+          id: result.stanzaId,
           text: text,
           timestamp: DateTime.now(),
           isSent: true,
@@ -104,7 +63,7 @@ class XmppMessageService {
           filePath: filePath,
           fileName: fileName,
           isGroup: isGroup,
-          status: MessageStatus.sending,
+          status: MessageStatus.sent,
           encryptionType: isOmemo ? 'omemo' : null,
         ),
       );
@@ -142,6 +101,88 @@ class XmppMessageService {
     }
   }
 
+  Future<_StanzaWriteResult> _buildAndWriteStanza(
+    String targetJid,
+    String text, {
+    String? accountId,
+    MessageType type = MessageType.text,
+    String? filePath,
+    String? fileName,
+    String? replyToId,
+    bool isGroup = false,
+  }) async {
+    final id = accountId ?? _d.activeAccountId;
+    final conn = _d.xmppConnections[id]!;
+    final isOmemo = _d.omemoService.isOmemoEnabled(targetJid);
+
+    final msg = xmpp.MessageStanza(
+      DateTime.now().millisecondsSinceEpoch.toString(),
+      isGroup
+          ? xmpp.MessageStanzaType.GROUPCHAT
+          : xmpp.MessageStanzaType.CHAT,
+    );
+    final finalTarget = isGroup ? targetJid.split('/').first : targetJid;
+    final bareTarget = targetJid.split('/').first;
+    msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
+
+    final originId = msg.id ?? 'msg_${DateTime.now().microsecondsSinceEpoch}';
+    final originIdEl = xmpp.XmppElement();
+    originIdEl.name = 'origin-id';
+    originIdEl.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:sid:0'));
+    originIdEl.addAttribute(xmpp.XmppAttribute('id', originId));
+    msg.addChild(originIdEl);
+    _d.sentOriginIds[originId] = id ?? _d.activeAccountId ?? '';
+
+    if (isOmemo) {
+      final encryptedList = await _d.omemoService.encryptMessage(
+        targetJid,
+        text,
+        strict: _d.omemoService.isStrictVerificationEnabled,
+      );
+      if (encryptedList != null && encryptedList.isNotEmpty) {
+        for (var enc in encryptedList) {
+          msg.addChild(enc);
+        }
+        msg.body = '🔒 This message is encrypted with OMEMO.';
+      } else {
+        throw Exception(
+          'OMEMO Encryption Failed: The recipient ($targetJid) does not have any OMEMO-capable devices. '
+          'Please disable OMEMO for this contact in the chat settings to send unencrypted messages.',
+        );
+      }
+    } else {
+      msg.body = isGroup
+          ? text
+          : _d.otrService.processOutgoingMessage(bareTarget, text);
+    }
+
+    if (replyToId != null) {
+      final reply = xmpp.XmppElement();
+      reply.name = 'reply';
+      reply.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:reply:0'));
+      reply.addAttribute(xmpp.XmppAttribute('to', targetJid));
+      reply.addAttribute(xmpp.XmppAttribute('id', replyToId));
+      msg.addChild(reply);
+    }
+
+    if (!isGroup) {
+      final requestEl = xmpp.XmppElement();
+      requestEl.name = 'request';
+      requestEl.addAttribute(
+        xmpp.XmppAttribute('xmlns', 'urn:xmpp:receipts'),
+      );
+      msg.addChild(requestEl);
+    }
+
+    conn.writeStanza(msg);
+
+    return _StanzaWriteResult(
+      stanzaId: msg.id ?? originId,
+      originId: originId,
+      messageStanza: msg,
+    );
+  }
+
   Future<void> flushPendingMessages(String accountId) async {
     final pending = await _d.offlineQueue.getPendingForAccount(accountId);
     if (pending.isEmpty) return;
@@ -149,7 +190,7 @@ class XmppMessageService {
     debugPrint('XMPP: Flushing ${pending.length} pending messages for account $accountId');
 
     for (final row in pending) {
-      final id = row['id'] as String;
+      final pendingId = row['id'] as String;
       final targetJid = row['target_jid'] as String;
       final text = row['text'] as String;
       final messageType = MessageType.values[(row['message_type'] as int?) ?? 0];
@@ -157,16 +198,17 @@ class XmppMessageService {
       final fileName = row['file_name'] as String?;
       final replyToId = row['reply_to_id'] as String?;
       final isGroup = (row['is_group'] as int?) == 1;
+      final encryptionType = row['encryption_type'] as String?;
 
       final conn = _d.xmppConnections[accountId];
       if (conn == null || (conn.state != xmpp.XmppConnectionState.Ready && conn.state != xmpp.XmppConnectionState.Resumed)) {
         debugPrint('XMPP: Connection lost during flush, will retry later');
-        await _d.offlineQueue.incrementRetryCount(id);
+        await _d.offlineQueue.incrementRetryCount(pendingId);
         return;
       }
 
       try {
-        await sendXmppMessage(
+        final result = await _buildAndWriteStanza(
           targetJid,
           text,
           accountId: accountId,
@@ -176,15 +218,62 @@ class XmppMessageService {
           replyToId: replyToId,
           isGroup: isGroup,
         );
-        await _d.offlineQueue.dequeue(id);
-        debugPrint('XMPP: Flushed pending message $id');
+
+        // Emit with the ORIGINAL pending ID so ChatProvider replaces the existing
+        // pending message instead of creating a duplicate
+        _d.messageStreamController.add(
+          ChatMessage(
+            id: pendingId,
+            text: text,
+            timestamp: DateTime.now(),
+            isSent: true,
+            senderId: _d.xmppJids[accountId] ?? 'me',
+            accountId: accountId,
+            protocol: 'XMPP',
+            conversationId: targetJid.split('/').first.toLowerCase(),
+            type: messageType,
+            filePath: filePath,
+            fileName: fileName,
+            isGroup: isGroup,
+            status: MessageStatus.sent,
+            encryptionType: encryptionType,
+          ),
+        );
+
+        // Also update the DB entry with the real stanza ID so future MAM
+        // results match the correct ID
+        await _d.databaseService.updateMessageIdAndStatus(
+          pendingId,
+          result.stanzaId,
+          MessageStatus.sent,
+        );
+
+        await _d.offlineQueue.dequeue(pendingId);
+        debugPrint('XMPP: Flushed pending message $pendingId -> $result.stanzaId');
       } catch (e) {
-        debugPrint('XMPP: Failed to flush pending message $id: $e');
-        await _d.offlineQueue.incrementRetryCount(id);
+        debugPrint('XMPP: Failed to flush pending message $pendingId: $e');
+        await _d.offlineQueue.incrementRetryCount(pendingId);
       }
     }
 
-    await _d.offlineQueue.removeOldRetries();
+    await _d.offlineQueue.removeOldRetries(
+      onRemoved: (removed) {
+        for (final row in removed) {
+          final pendingId = row['id'] as String;
+          debugPrint('XMPP: Message $pendingId exceeded retries, marking as failed');
+          _d.jingleEventController.add(
+            JingleEvent(
+              action: JingleAction.messageError,
+              sessionId: 'error',
+              fromJid: _d.xmppJids[accountId] ?? '',
+              accountId: accountId,
+              reason: pendingId,
+              sdp: 'Message failed after 3 retries',
+            ),
+          );
+        }
+      },
+    );
   }
 
   Future<void> sendEditedMessage(
@@ -388,7 +477,7 @@ class XmppMessageService {
     bool isGroup = false,
   }) async {
     final conn = _d.xmppConnections[accountId];
-    final id = accountId ?? _d.activeAccountId;
+    final id = accountId;
 
     final geoUri = 'geo:$latitude,$longitude${label != null ? ';label=$label' : ''}';
     final text = label ?? geoUri;
@@ -444,7 +533,34 @@ class XmppMessageService {
         ),
       );
     } else {
-      debugPrint('XMPP: Cannot send location - not connected');
+      // Offline: queue for later
+      final pendingId = await _d.offlineQueue.enqueue(
+        targetJid: toId,
+        text: text,
+        accountId: accountId,
+        type: MessageType.location,
+        latitude: latitude,
+        longitude: longitude,
+        locationLabel: label,
+      );
+      _d.messageStreamController.add(
+        ChatMessage(
+          id: pendingId,
+          text: text,
+          timestamp: DateTime.now(),
+          isSent: true,
+          type: MessageType.location,
+          senderId: _d.xmppJids[id] ?? 'me',
+          accountId: id,
+          protocol: 'XMPP',
+          conversationId: toId.split('/').first.toLowerCase(),
+          isGroup: isGroup,
+          status: MessageStatus.sending,
+          latitude: latitude,
+          longitude: longitude,
+          locationLabel: label,
+        ),
+      );
     }
   }
 
