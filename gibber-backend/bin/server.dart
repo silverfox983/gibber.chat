@@ -544,4 +544,13 @@ void main(List<String> args) async {
   Timer.periodic(const Duration(minutes: 5), (_) {
     minerPool.deactivateStaleSessions();
   });
+
+  // Graceful shutdown (SIGTERM from Railway)
+  ProcessSignal.sigterm().listen((signal) async {
+    print('Received SIGTERM - starting graceful shutdown...');
+    print('Closing server (stop accepting new connections)...');
+    await server.close(force: true);
+    print('Graceful shutdown complete.');
+    exit(0);
+  });
 }
