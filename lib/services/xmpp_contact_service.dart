@@ -49,6 +49,7 @@ class XmppContactServiceDependencies {
   final String? myStatusMessage;
   final UserProfile? currentProfile;
   final Future<void> Function() loadSavedAccounts;
+  final Future<void> Function() saveSubscriptionRequests;
   final Future<void> Function(ContactStatus, String?) setPresence;
   final Future<void> Function({String? accountId}) fetchMyVCard;
   final Future<void> Function(String, {String? accountId}) fetchContactVCard;
@@ -89,6 +90,7 @@ class XmppContactServiceDependencies {
     required this.myStatusMessage,
     required this.currentProfile,
     required this.loadSavedAccounts,
+    required this.saveSubscriptionRequests,
     required this.setPresence,
     required this.fetchMyVCard,
     required this.fetchContactVCard,
@@ -138,6 +140,7 @@ class XmppContactService {
       myStatusMessage: _auth.myStatusMessage,
       currentProfile: _auth.currentProfile,
       loadSavedAccounts: _auth.loadSavedAccounts,
+      saveSubscriptionRequests: _auth.saveSubscriptionRequests,
       setPresence: _auth.setPresence,
       fetchMyVCard: _auth.fetchMyVCard,
       fetchContactVCard: _auth.fetchContactVCard,
@@ -699,19 +702,23 @@ class XmppContactService {
     final conn = _d.xmppConnections[id];
     if (conn == null) return;
 
+    final normalizedJid = jid.split('/').first.toLowerCase();
+    final userAtDomain = xmpp.Jid.fromFullJid(jid).userAtDomain;
+
     final presence = xmpp.PresenceStanza();
-    presence.toJid = xmpp.Jid.fromFullJid(jid);
+    presence.toJid = xmpp.Jid.fromFullJid(normalizedJid);
     presence.type = xmpp.PresenceType.SUBSCRIBED;
     conn.writeStanza(presence);
 
     final subRequest = xmpp.PresenceStanza();
-    subRequest.toJid = xmpp.Jid.fromFullJid(jid);
+    subRequest.toJid = xmpp.Jid.fromFullJid(normalizedJid);
     subRequest.type = xmpp.PresenceType.SUBSCRIBE;
     conn.writeStanza(subRequest);
 
-    debugPrint('SOCIAL: Accepted subscription and requested mutual from $jid');
-    _d.pendingSubscriptionRequests.removeWhere((req) => req['jid'] == jid || req['jid'] == xmpp.Jid.fromFullJid(jid).userAtDomain);
+    debugPrint('SOCIAL: Accepted subscription and requested mutual from $normalizedJid');
+    _d.pendingSubscriptionRequests.removeWhere((req) => req['jid'] == normalizedJid || req['jid'] == userAtDomain);
     _d.subscriptionRequestController.add(List.from(_d.pendingSubscriptionRequests));
+    _d.saveSubscriptionRequests();
   }
 
   void declineSubscription(String jid, {String? accountId}) {
@@ -719,20 +726,26 @@ class XmppContactService {
     final conn = _d.xmppConnections[id];
     if (conn == null) return;
 
+    final normalizedJid = jid.split('/').first.toLowerCase();
+    final userAtDomain = xmpp.Jid.fromFullJid(jid).userAtDomain;
+
     final presence = xmpp.PresenceStanza();
-    presence.toJid = xmpp.Jid.fromFullJid(jid);
+    presence.toJid = xmpp.Jid.fromFullJid(normalizedJid);
     presence.type = xmpp.PresenceType.UNSUBSCRIBED;
     conn.writeStanza(presence);
 
-    debugPrint('SOCIAL: Declined subscription from $jid');
-    _d.pendingSubscriptionRequests.removeWhere((req) => req['jid'] == jid || req['jid'] == xmpp.Jid.fromFullJid(jid).userAtDomain);
+    debugPrint('SOCIAL: Declined subscription from $normalizedJid');
+    _d.pendingSubscriptionRequests.removeWhere((req) => req['jid'] == normalizedJid || req['jid'] == userAtDomain);
     _d.subscriptionRequestController.add(List.from(_d.pendingSubscriptionRequests));
+    _d.saveSubscriptionRequests();
   }
 
   Future<void> blockContact(String jid, {String? accountId}) async {
     final id = accountId ?? _d.activeAccountId;
     final conn = _d.xmppConnections[id];
     if (conn == null) return;
+
+    final normalizedJid = jid.split('/').first.toLowerCase();
 
     final iq = xmpp.IqStanza(
       'block_${DateTime.now().millisecondsSinceEpoch}',
@@ -744,15 +757,15 @@ class XmppContactService {
 
     final item = xmpp.XmppElement();
     item.name = 'item';
-    item.addAttribute(xmpp.XmppAttribute('jid', jid));
+    item.addAttribute(xmpp.XmppAttribute('jid', normalizedJid));
     block.addChild(item);
 
     iq.addChild(block);
     conn.writeStanza(iq);
-    debugPrint('SOCIAL: Sent XEP-0191 block command for $jid');
+    debugPrint('SOCIAL: Sent XEP-0191 block command for $normalizedJid');
 
-    if (!_d.currentBlockedContacts.contains(jid)) {
-      _d.currentBlockedContacts.add(jid);
+    if (!_d.currentBlockedContacts.contains(normalizedJid)) {
+      _d.currentBlockedContacts.add(normalizedJid);
       _d.blockedContactsController.add(List.from(_d.currentBlockedContacts));
     }
   }
@@ -761,6 +774,8 @@ class XmppContactService {
     final id = accountId ?? _d.activeAccountId;
     final conn = _d.xmppConnections[id];
     if (conn == null) return;
+
+    final normalizedJid = jid.split('/').first.toLowerCase();
 
     final iq = xmpp.IqStanza(
       'unblock_${DateTime.now().millisecondsSinceEpoch}',
@@ -772,14 +787,14 @@ class XmppContactService {
 
     final item = xmpp.XmppElement();
     item.name = 'item';
-    item.addAttribute(xmpp.XmppAttribute('jid', jid));
+    item.addAttribute(xmpp.XmppAttribute('jid', normalizedJid));
     unblock.addChild(item);
 
     iq.addChild(unblock);
     conn.writeStanza(iq);
-    debugPrint('SOCIAL: Sent XEP-0191 unblock command for $jid');
+    debugPrint('SOCIAL: Sent XEP-0191 unblock command for $normalizedJid');
 
-    _d.currentBlockedContacts.remove(jid);
+    _d.currentBlockedContacts.remove(normalizedJid);
     _d.blockedContactsController.add(List.from(_d.currentBlockedContacts));
   }
 
@@ -792,6 +807,8 @@ class XmppContactService {
     final conn = _d.xmppConnections[id];
     if (conn == null) return;
 
+    final normalizedJid = jid.split('/').first.toLowerCase();
+
     final iq = xmpp.IqStanza(
       DateTime.now().millisecondsSinceEpoch.toString(),
       xmpp.IqStanzaType.SET,
@@ -802,15 +819,15 @@ class XmppContactService {
 
     final item = xmpp.XmppElement();
     item.name = 'item';
-    item.addAttribute(xmpp.XmppAttribute('jid', jid));
+    item.addAttribute(xmpp.XmppAttribute('jid', normalizedJid));
     item.addAttribute(xmpp.XmppAttribute('name', newName));
     query.addChild(item);
 
     iq.addChild(query);
     conn.writeStanza(iq);
-    debugPrint('SOCIAL: Sent Roster Push to rename $jid to $newName');
+    debugPrint('SOCIAL: Sent Roster Push to rename $normalizedJid to $newName');
 
-    final index = _d.currentContacts.indexWhere((c) => c.id == jid);
+    final index = _d.currentContacts.indexWhere((c) => c.id.toLowerCase() == normalizedJid);
     if (index != -1) {
       _d.currentContacts[index].name = newName;
       _d.contactStreamController.add(List.from(_d.currentContacts));
@@ -822,6 +839,8 @@ class XmppContactService {
     final conn = _d.xmppConnections[id];
     if (conn == null) return;
 
+    final normalizedJid = jid.split('/').first.toLowerCase();
+
     final iq = xmpp.IqStanza(
       DateTime.now().millisecondsSinceEpoch.toString(),
       xmpp.IqStanzaType.SET,
@@ -832,16 +851,16 @@ class XmppContactService {
 
     final item = xmpp.XmppElement();
     item.name = 'item';
-    item.addAttribute(xmpp.XmppAttribute('jid', jid));
+    item.addAttribute(xmpp.XmppAttribute('jid', normalizedJid));
     item.addAttribute(xmpp.XmppAttribute('subscription', 'remove'));
     query.addChild(item);
 
     iq.addChild(query);
     conn.writeStanza(iq);
 
-    debugPrint('SOCIAL: Removed $jid from roster.');
+    debugPrint('SOCIAL: Removed $normalizedJid from roster.');
 
-    _d.currentContacts.removeWhere((c) => c.id == jid);
+    _d.currentContacts.removeWhere((c) => c.id.toLowerCase() == normalizedJid);
     _d.contactStreamController.add(List.from(_d.currentContacts));
   }
 
@@ -849,6 +868,9 @@ class XmppContactService {
     final id = accountId ?? _d.activeAccountId;
     final conn = _d.xmppConnections[id];
     if (conn == null) return;
+
+    final normalizedJid = jid.split('/').first.toLowerCase();
+    final jidObj = xmpp.Jid.fromFullJid(normalizedJid);
 
     final iq = xmpp.IqStanza(
       DateTime.now().millisecondsSinceEpoch.toString(),
@@ -859,7 +881,7 @@ class XmppContactService {
       ..addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:iq:roster'));
     final item = xmpp.XmppElement()
       ..name = 'item'
-      ..addAttribute(xmpp.XmppAttribute('jid', jid));
+      ..addAttribute(xmpp.XmppAttribute('jid', normalizedJid));
     if (nickname != null) {
       item.addAttribute(xmpp.XmppAttribute('name', nickname));
     }
@@ -872,24 +894,24 @@ class XmppContactService {
     conn.writeStanza(iq);
 
     final presence = xmpp.PresenceStanza();
-    presence.toJid = xmpp.Jid.fromFullJid(jid);
+    presence.toJid = jidObj;
     presence.type = xmpp.PresenceType.SUBSCRIBE;
     conn.writeStanza(presence);
 
-    if (!_d.currentContacts.any((c) => c.id == jid)) {
+    if (!_d.currentContacts.any((c) => c.id.toLowerCase() == normalizedJid)) {
       _d.currentContacts.add(
         Contact(
-          id: jid,
-          name: nickname ?? xmpp.Jid.fromFullJid(jid).local,
+          id: normalizedJid,
+          name: nickname ?? jidObj.local,
           protocol: 'XMPP',
           groups: group != null && group.isNotEmpty ? [group] : [],
         ),
       );
       _d.contactStreamController.add(List.from(_d.currentContacts));
-      debugPrint('SOCIAL: Optimistically added $jid to _currentContacts.');
+      debugPrint('SOCIAL: Optimistically added $normalizedJid to _currentContacts.');
     }
 
-    debugPrint('SOCIAL: Added $jid to roster and sent subscribe request.');
+    debugPrint('SOCIAL: Added $normalizedJid to roster and sent subscribe request.');
   }
 
   Future<List<String>> getBlockList({String? accountId}) async {

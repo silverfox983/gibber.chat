@@ -188,6 +188,27 @@ class AuthService with ChangeNotifier {
     await prefs.setStringList('vcard_unsupported_jids', _vCardUnsupportedJids.toList());
   }
 
+  Future<void> saveSubscriptionRequests() => _saveSubscriptionRequests();
+
+  Future<void> _loadSubscriptionRequests() async {
+    final prefs = await SharedPreferences.getInstance();
+    final reqsJson = prefs.getString('pending_subscription_requests');
+    if (reqsJson != null) {
+      final List<dynamic> decoded = json.decode(reqsJson);
+      _pendingSubscriptionRequests.clear();
+      for (var req in decoded) {
+        if (req is Map) {
+          _pendingSubscriptionRequests.add(req.cast<String, String>());
+        }
+      }
+    }
+  }
+
+  Future<void> _saveSubscriptionRequests() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('pending_subscription_requests', json.encode(_pendingSubscriptionRequests));
+  }
+
   // XEP-0153: Track avatar hashes to avoid redundant fetches and trigger updates
   final Map<String, String> _contactAvatarHashes = {};
   Map<String, String> get contactAvatarHashes => _contactAvatarHashes;
@@ -674,23 +695,38 @@ class AuthService with ChangeNotifier {
           rosterManager.getRoster();
           _rosterSubs[id]?.cancel();
           _rosterSubs[id] = rosterManager.rosterStream.listen((items) {
+            bool changed = false;
             for (var item in items) {
               final jidObj = item.jid;
               final String? contactId = jidObj?.fullJid ?? jidObj?.domain;
-              if (contactId != null &&
-                  !_currentContacts.any((c) => c.id == contactId)) {
+              if (contactId == null) continue;
+              final normalizedId = contactId.split('/').first.toLowerCase();
+              final existingIndex = _currentContacts.indexWhere(
+                (c) => c.id.toLowerCase().split('/').first == normalizedId,
+              );
+
+              if (existingIndex != -1) {
+                // Update existing contact: name
+                if (item.name != null && item.name!.isNotEmpty) {
+                  _currentContacts[existingIndex].name = item.name!;
+                }
+                changed = true;
+              } else {
+                // Add new contact
                 _currentContacts.add(
                   Contact(
-                    id: contactId,
+                    id: normalizedId,
                     name: item.name ?? jidObj?.local ?? 'User',
                     protocol: 'XMPP',
                   ),
                 );
+                changed = true;
               }
             }
-            _contactStreamController.add(List.from(_currentContacts));
-            // Proactive vCard/Avatar discovery for the newly loaded roster
-            _fetchAllVCards(id);
+            if (changed) {
+              _contactStreamController.add(List.from(_currentContacts));
+              _fetchAllVCards(id);
+            }
           });
 
           // Handle Presence
@@ -760,7 +796,7 @@ class AuthService with ChangeNotifier {
 
             if (stanza is xmpp.PresenceStanza) {
               final typeStr = stanza.type.toString();
-              final fromJid = stanza.fromJid?.fullJid;
+              final fromJid = stanza.fromJid?.fullJid?.split('/').first.toLowerCase();
 
               if (typeStr.contains('subscribe') &&
                   !typeStr.contains('unsubscribe')) {
@@ -774,6 +810,7 @@ class AuthService with ChangeNotifier {
                   if (!_pendingSubscriptionRequests.any((r) => r['jid'] == fromJid)) {
                     _pendingSubscriptionRequests.add(req);
                     _subscriptionRequestController.add(List.from(_pendingSubscriptionRequests));
+                    _saveSubscriptionRequests();
                   }
                 }
               } else if (typeStr.contains('unsubscribed')) {
@@ -1717,6 +1754,7 @@ class AuthService with ChangeNotifier {
   Future<void> loadSavedAccounts() async {
     await _loadJoinedRooms();
     await _loadVCardState();
+    await _loadSubscriptionRequests();
     final prefs = await SharedPreferences.getInstance();
 
     // Load Profile
@@ -2141,6 +2179,7 @@ class _AuthContactDeps implements AuthServiceContactDeps {
   Future<void> fetchMyVCard({String? accountId}) => _auth.fetchMyVCard(accountId: accountId);
   Future<void> fetchContactVCard(String jid, {String? accountId}) => _auth.fetchContactVCard(jid, accountId: accountId);
   Future<void> loadSavedAccounts() => _auth.loadSavedAccounts();
+  Future<void> saveSubscriptionRequests() => _auth.saveSubscriptionRequests();
   Future<void> setPresence(ContactStatus status, String? message) => _auth.setPresence(status, message);
   Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup = false, String? replyToId, MessageType type = MessageType.text}) =>
       _auth.sendMessage(accountId, toJid, text, fileName: fileName, filePath: filePath, isGroup: isGroup, replyToId: replyToId, type: type);

@@ -82,6 +82,21 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(
+                    icon: Icon(Icons.refresh_rounded, color: Theme.of(context).colorScheme.onPrimary),
+                    tooltip: 'Refresh Contacts',
+                    onPressed: () {
+                      final authService = context.read<AuthService>();
+                      authService.fetchMyVCard();
+                    },
+                  ),
+                ),
+                Container(
+                  margin: const EdgeInsets.only(right: 16, top: 8, bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
                     icon: Icon(Icons.person_add_alt_1_rounded, color: Theme.of(context).colorScheme.onPrimary),
                     onPressed: () {
                       context.goNamed('addContact');

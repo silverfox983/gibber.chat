@@ -19,7 +19,7 @@ class Contact {
   String? bio;
   String? fullName;
   Uint8List? avatarBytes;
-  final List<String> groups;
+  List<String> groups;
   String? email;
   String? phone;
   String? url;

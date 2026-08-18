@@ -57,6 +57,7 @@ abstract class AuthServiceContactDeps {
   Future<void> fetchContactVCard(String jid, {String? accountId});
   Future<void> loadSavedAccounts();
   Future<void> setPresence(ContactStatus status, String? message);
+  Future<void> saveSubscriptionRequests();
   Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup = false, String? replyToId, MessageType type = MessageType.text});
   Future<void> connectXmpp({required String user, required String domain, required String pass, required int port, String? host, String? accountId, SavedAccount? configData});
   Future<void> logout();
