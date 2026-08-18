@@ -156,19 +156,21 @@ if $HAVE_DNS_CREDENTIALS; then
     echo "Issuing Let's Encrypt certificate for $DOMAIN via DNS-01 challenge..."
     if /root/.acme.sh/acme.sh $ISSUE_ARGS; then
         echo "Certificate issued! Installing to Prosody certificate directory..."
-        if /root/.acme.sh/acme.sh --install-cert \
+        /root/.acme.sh/acme.sh --install-cert \
             -d "$DOMAIN" \
             --key-file "$LE_KEY" \
             --fullchain-file "$LE_CERT" \
-            --reloadcmd "prosodyctl reload"; then
+            || echo "WARNING: acme.sh --install-cert returned non-zero, checking files manually..."
+
+        if [ -f "$LE_KEY" ] && [ -f "$LE_CERT" ]; then
             chown prosody:prosody "$LE_KEY" "$LE_CERT" 2>/dev/null || true
             echo "Let's Encrypt certificate installed successfully!"
 
-            echo "Reloading Prosody to use Let's Encrypt certificate..."
-            prosodyctl reload 2>/dev/null || true
-            echo "Prosody reloaded with Let's Encrypt certificate!"
+            echo "Restarting Prosody to use Let's Encrypt certificate..."
+            supervisorctl restart prosody 2>/dev/null || true
+            echo "Prosody restarted with Let's Encrypt certificate!"
         else
-            echo "WARNING: Failed to install Let's Encrypt certificate, keeping self-signed"
+            echo "WARNING: Certificate files not found after install, keeping self-signed"
         fi
     else
         echo "WARNING: Let's Encrypt issuance failed, keeping self-signed certificate"
