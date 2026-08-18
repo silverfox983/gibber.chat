@@ -10,6 +10,7 @@ typedef OnRemoteStream = void Function(MediaStream stream);
 typedef OnIceCandidate = void Function(RTCIceCandidate candidate);
 typedef OnConnectionState = void Function(RTCPeerConnectionState state);
 typedef OnIceConnectionState = void Function(RTCIceConnectionState state);
+typedef OnIceRestart = void Function();
 
 class CallQualityStats {
   final int bitrate;
@@ -113,6 +114,7 @@ class WebRTCManager {
   OnRemoteStream? _remoteStreamCallback;
   OnConnectionState? _connectionStateCallback;
   OnIceConnectionState? _iceConnectionStateCallback;
+  OnIceRestart? _onIceRestartCallback;
 
   String? _lastAudioWarning;
 
@@ -618,6 +620,7 @@ class WebRTCManager {
       } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         _stopStatsLoop();
         debugPrint('WebRTC: ICE connection FAILED, attempting ICE restart...');
+        _onIceRestartCallback?.call();
         restartIceGathering();
       } else if (state ==
               RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
@@ -965,6 +968,10 @@ class WebRTCManager {
 
   void onIceConnectionState(OnIceConnectionState callback) {
     _iceConnectionStateCallback = callback;
+  }
+
+  void onIceRestart(OnIceRestart callback) {
+    _onIceRestartCallback = callback;
   }
 
   void restartIceGathering() {

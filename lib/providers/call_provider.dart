@@ -415,24 +415,49 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       notifyListeners();
     };
 
+    // Wire remote stream callback for SFU (mesh sets this in _startMucCallMesh)
+    _multiPeerManager?.onRemoteStreamAdded = (peerId, stream) async {
+      debugPrint('CallProvider: SFU remote stream added for $peerId');
+      final renderer = RTCVideoRenderer();
+      await renderer.initialize();
+      renderer.srcObject = stream;
+      _groupRenderers[peerId] = renderer;
+      notifyListeners();
+    };
+
     _janusRemoteTrackSub?.cancel();
     _janusRemoteTrackSub = _janusService?.onRemoteTrack.listen((data) async {
       final handleId = data['handle_id'] as String?;
       final jsep = data['jsep'] as Map<String, dynamic>?;
-      if (handleId == null || jsep == null) return;
+      if (handleId == null) return;
 
-      final sdp = jsep['sdp'] as String? ?? '';
-      final type = jsep['type'] as String? ?? 'answer';
+      if (jsep != null) {
+        // Janus sent a JSEP offer for a subscriber - we need to answer it
+        final sdp = jsep['sdp'] as String? ?? '';
+        final type = jsep['type'] as String? ?? 'offer';
+        debugPrint('CallProvider: SFU subscriber received JSEP $type from handle=$handleId');
 
-      if (_multiPeerManager != null) {
-        try {
-          await _multiPeerManager!.setRemoteDescription(
-            handleId,
-            RTCSessionDescription(sdp, type),
-          );
-        } catch (e) {
-          debugPrint('CallProvider: Error setting SFU remote description: $e');
+        if (_multiPeerManager != null) {
+          try {
+            // setRemoteDescription auto-creates the peer if missing
+            final jsepOffer = RTCSessionDescription(sdp, type);
+            await _multiPeerManager!.setRemoteDescription(
+              handleId,
+              jsepOffer,
+            );
+            // Create and send answer back to Janus (remote already set)
+            final answer = await _multiPeerManager!.createAnswer(handleId, jsepOffer, setRemote: false);
+            if (answer.sdp != null) {
+              await _janusService!.configureSubscriber(handleId, answer);
+              debugPrint('CallProvider: SFU subscriber answer sent to Janus');
+            }
+          } catch (e) {
+            debugPrint('CallProvider: Error handling SFU subscriber JSEP: $e');
+          }
         }
+      } else {
+        // Plain RTP track (no JSEP) - this is from our own published stream or a trickle
+        debugPrint('CallProvider: SFU plain remote track for handle=$handleId');
       }
     });
 
@@ -512,6 +537,14 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       await renderer.initialize();
       renderer.srcObject = stream;
       _groupRenderers[peerId] = renderer;
+      // Transition to active on first remote stream (mesh call)
+      if (_state != CallState.active) {
+        _state = CallState.active;
+        _callStartTime = DateTime.now();
+        _callTimeoutTimer?.cancel();
+        _callTimeoutTimer = null;
+        _stopAllSounds();
+      }
       notifyListeners();
     };
     
@@ -832,6 +865,20 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           }
         }
         break;
+      case JingleAction.contentModify:
+        // Handle remote hold/unhold via content-modify (XEP-0167)
+        debugPrint('CallProvider: Received content-modify from ${event.fromJid}: ${event.reason}');
+        if (event.reason == 'sendonly' || event.reason == 'inactive') {
+          // Remote party held the call
+          _isOnHold = true;
+          _log('Call placed on hold by remote', isSent: false);
+        } else if (event.reason == 'sendrecv' || event.reason == 'recvonly') {
+          // Remote party resumed the call
+          _isOnHold = false;
+          _log('Call resumed by remote', isSent: false);
+        }
+        notifyListeners();
+        break;
       case JingleAction.sessionTerminate:
         debugPrint('CallProvider: Remote party ${event.fromJid} terminated the session');
         if (_isGroupCall && _multiPeerManager != null) {
@@ -1040,11 +1087,12 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     if (_isGroupCall) {
       if (_janusService != null && _groupCallSession != null) {
-        if (_isScreenSharing) {
-          // Stop sharing: restore camera track
+        // _isScreenSharing was just toggled: true = just started sharing, false = just stopped
+        if (!_isScreenSharing) {
+          // Was sharing, now stopping: restore camera track
           await _multiPeerManager!.replaceVideoTrack(_multiPeerManager!.localStream!.getVideoTracks().first, isStopping: true);
         } else {
-          // Start sharing: get screen track
+          // Was not sharing, now starting: get screen track
           final screenStream = await _multiPeerManager!.getDisplayMedia();
           if (screenStream != null) {
             final screenTrack = screenStream.getVideoTracks().firstOrNull;
@@ -1055,8 +1103,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         }
       } else if (_multiPeerManager != null) {
         // Mesh: replace video track on all peer connections
-        if (_isScreenSharing) {
-          // Stop sharing: restore camera track
+        if (!_isScreenSharing) {
+          // Was sharing, now stopping: restore camera track
           await _multiPeerManager!.replaceVideoTrackForAll(_multiPeerManager!.localStream!.getVideoTracks().first, isStopping: true);
         } else {
           final screenStream = await _multiPeerManager!.getDisplayMedia();
@@ -1309,6 +1357,24 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   Future<void> acceptCall() async {
     debugPrint('CallProvider: === ACCEPTING INCOMING CALL ===');
 
+    // Handle SIP incoming calls
+    if (_isSipCall) {
+      debugPrint('CallProvider: Accepting SIP call');
+      try {
+        await _sipService?.answer(video: _isVideo);
+        _state = CallState.active;
+        _callStartTime = DateTime.now();
+        _stopAllSounds();
+        _log('Call accepted', isSent: true);
+        notifyListeners();
+      } catch (e) {
+        debugPrint('CallProvider: SIP answer failed: $e');
+        _lastError = 'Failed to answer SIP call: $e';
+        endCall();
+      }
+      return;
+    }
+
     final signaling =
         _authService?.getJingleService(_callAccountId ?? '') ??
         _authService?.jingleSignaling;
@@ -1480,8 +1546,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // Detect if target is a gateway
     final isGateway =
-        toJid.contains('cheogram.com') &&
-        (toJid.contains('+') || toJid.contains('/tel'));
+        toJid.toLowerCase().contains('cheogram') ||
+        toJid.contains('+');
 
     // Reset counters
     _candidateSendCount = 0;
@@ -1544,6 +1610,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           isVideo: _isVideo,
         );
       }
+    });
+
+    _rtcManager.onIceRestart(() async {
+      debugPrint('CallProvider: ICE restart triggered - new candidates will be sent via trickle');
     });
 
     _rtcManager.onTrack((stream) {
@@ -1865,7 +1935,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     // For true moderation (mute for everyone), use kickParticipant.
     // SFU Janus plugin doesn't support per-peer mute handles.
     if (_janusService != null && _groupCallSession != null) {
-      debugPrint('CallProvider: SFU per-peer local mute not yet implemented');
+      // Janus VideoRoom doesn't support per-publisher mute - audio is controlled client-side
+      debugPrint('CallProvider: SFU mute is client-side only (Janus limitation)');
       _log('${muted ? 'Muted' : 'Unmuted'} $nick (local)', isSent: true);
     } else if (_multiPeerManager != null) {
       // Mesh: locally disable the participant's audio tracks on our end
@@ -1916,34 +1987,48 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     final signaling =
         _authService?.getJingleService(_callAccountId ?? '') ??
         _authService?.jingleSignaling;
-    
+
     // Capture state before cleanup
     final targetJid = _remoteJid;
     final sid = _sessionId;
     final wasActive = _state == CallState.active;
     final wasIncoming = _state == CallState.incoming;
-    
+
+    // Capture mesh peer IDs before cleanup (cleanup disposes _multiPeerManager)
+    final meshPeerIds = _isGroupCall && _multiPeerManager != null
+        ? _multiPeerManager!.getActivePeerIds().toList()
+        : <String>[];
+
     // 1. Force cleanup of WebRTC and Audio focus first
     await _cleanup(reason: 'terminated');
 
     // 2. Send termination signaling
-    if (targetJid != null && sid != null) {
-      final isGateway = targetJid.toLowerCase().contains('cheogram') || targetJid.contains('+');
-      debugPrint('CallProvider: [TEARDOWN] isGateway=$isGateway for $targetJid');
-
-      if (wasActive || isGateway) {
-        debugPrint('CallProvider: Direct IQ Terminate');
-        signaling?.sendSessionTerminate(targetJid, sid);
-      } else {
-        if (wasIncoming) {
-          debugPrint('CallProvider: [CHAT] XEP-0353 Message Reject');
-          signaling?.sendRejectViaMessage(targetJid, sid);
-        } else {
-          debugPrint('CallProvider: [CHAT] XEP-0353 Message Retract');
-          signaling?.sendRetractViaMessage(targetJid, sid);
+    if (sid != null) {
+      if (_isGroupCall && meshPeerIds.isNotEmpty) {
+        // Mesh group call: send terminate to each peer
+        for (var peerId in meshPeerIds) {
+          debugPrint('CallProvider: [MESH TEARDOWN] Sending terminate to $peerId');
+          signaling?.sendSessionTerminate(peerId, sid);
         }
+        _log('Group call ended', isSent: true);
+      } else if (targetJid != null) {
+        final isGateway = targetJid.toLowerCase().contains('cheogram') || targetJid.contains('+');
+        debugPrint('CallProvider: [TEARDOWN] isGateway=$isGateway for $targetJid');
+
+        if (wasActive || isGateway) {
+          debugPrint('CallProvider: Direct IQ Terminate');
+          signaling?.sendSessionTerminate(targetJid, sid);
+        } else {
+          if (wasIncoming) {
+            debugPrint('CallProvider: [CHAT] XEP-0353 Message Reject');
+            signaling?.sendRejectViaMessage(targetJid, sid);
+          } else {
+            debugPrint('CallProvider: [CHAT] XEP-0353 Message Retract');
+            signaling?.sendRetractViaMessage(targetJid, sid);
+          }
+        }
+        _log('Call ended', isSent: true);
       }
-      _log('Call ended', isSent: true);
     }
   }
 
@@ -2088,7 +2173,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     await _soundService.resetAudioContext();
     debugPrint('CallProvider: Audio context reset');
 
-    _lastError ??= reason;
+    // Note: reason is not assigned to _lastError - only actual errors should be shown
+    _lastError = null;
     _remoteJid = null;
     _sessionId = null;
     _callAccountId = null;
@@ -2096,6 +2182,13 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _isCameraOff = false;
     _isOnHold = false;
     _isScreenSharing = false;
+    _isSipCall = false;
+    _isAccepted = false;
+    _isRinging = false;
+    _isAccepting = false;
+    _permissionError = null;
+    _incomingOfferSdp = null;
+    _lastError = null;
     _callStartTime = null;
     _localVolume = 0.0;
     _remoteVolume = 0.0;

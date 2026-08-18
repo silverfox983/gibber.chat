@@ -219,19 +219,21 @@ class MultiPeerWebRTCManager {
     return offer;
   }
 
-  Future<RTCSessionDescription> createAnswer(String peerId, RTCSessionDescription offer) async {
+  Future<RTCSessionDescription> createAnswer(String peerId, RTCSessionDescription offer, {bool setRemote = true}) async {
     if (!_peerConnections.containsKey(peerId)) {
       await addPeer(peerId);
     }
     final pc = _peerConnections[peerId]!;
-    await pc.setRemoteDescription(offer);
-    
-    // Process queued candidates
-    final queued = _remoteCandidatesQueue[peerId] ?? [];
-    for (var candidate in queued) {
-      await pc.addCandidate(candidate);
+
+    if (setRemote) {
+      await pc.setRemoteDescription(offer);
+      // Process queued candidates
+      final queued = _remoteCandidatesQueue[peerId] ?? [];
+      for (var candidate in queued) {
+        await pc.addCandidate(candidate);
+      }
+      _remoteCandidatesQueue[peerId]!.clear();
     }
-    _remoteCandidatesQueue[peerId]!.clear();
 
     final answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
@@ -299,11 +301,25 @@ class MultiPeerWebRTCManager {
     }
   }
 
-  Future<bool> replaceVideoTrack(MediaStreamTrack newTrack, {bool isStopping = false}) async {
+  Future<bool> replaceVideoTrack(MediaStreamTrack newTrack, {bool isStopping = false, String? peerId}) async {
     if (_localStream == null) return false;
-    final pc = _peerConnections['publisher'];
-    if (pc == null) return false;
 
+    // Find the publisher peer: use provided peerId, or look for 'publisher_' prefixed key
+    String? targetPeerId = peerId;
+    if (targetPeerId == null) {
+      for (var key in _peerConnections.keys) {
+        if (key.startsWith('publisher')) {
+          targetPeerId = key;
+          break;
+        }
+      }
+    }
+    if (targetPeerId == null || !_peerConnections.containsKey(targetPeerId)) {
+      debugPrint('MultiPeer: replaceVideoTrack - no publisher peer found');
+      return false;
+    }
+
+    final pc = _peerConnections[targetPeerId]!;
     try {
       final senders = await pc.getSenders();
       for (var sender in senders) {
@@ -311,11 +327,9 @@ class MultiPeerWebRTCManager {
           MediaStreamTrack trackToUse;
 
           if (isStopping && _originalCameraTrack != null) {
-            // Stopping screen share: restore original camera track
             trackToUse = _originalCameraTrack!;
             _originalCameraTrack = null;
           } else {
-            // Starting screen share: save current camera, use new screen track
             trackToUse = newTrack;
             if (newTrack.kind == 'video' && _originalCameraTrack == null) {
               final currentVideo = _localStream!.getVideoTracks();
@@ -326,7 +340,6 @@ class MultiPeerWebRTCManager {
           }
 
           await sender.replaceTrack(trackToUse);
-          // Update local stream's video track
           final videoTracks = _localStream!.getVideoTracks();
           for (var track in videoTracks) {
             _localStream!.removeTrack(track);
@@ -409,13 +422,31 @@ class MultiPeerWebRTCManager {
       _localStream = null;
     }
 
-    // 2. Dispose of peer connections
+    // 2. Stop and dispose screen stream if active
+    if (_screenStream != null) {
+      for (var track in _screenStream!.getTracks()) {
+        track.stop();
+      }
+      await _screenStream!.dispose();
+      _screenStream = null;
+    }
+    _originalCameraTrack = null;
+
+    // 3. Stop and dispose remote streams
+    for (var stream in _remoteStreams.values) {
+      for (var track in stream.getTracks()) {
+        track.stop();
+      }
+      await stream.dispose();
+    }
+    _remoteStreams.clear();
+
+    // 4. Dispose of peer connections
     for (var pc in _peerConnections.values) {
       await pc.close();
       await pc.dispose();
     }
     _peerConnections.clear();
-    _remoteStreams.clear();
     _remoteCandidatesQueue.clear();
   }
 }

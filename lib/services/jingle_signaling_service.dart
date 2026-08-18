@@ -13,6 +13,7 @@ enum JingleAction {
   propose,
   ringing,
   proceed,
+  contentModify,
   sessionInfo,
   roomTopicUpdate,
   chatMarker,
@@ -669,9 +670,6 @@ class JingleSignalingService {
       'Jingle: [XEP-0353] Sending transport-info via MESSAGE to $toJid',
     );
     _writeStanza(message);
-
-    // Also send via standard IQ for redundancy and fallback
-    sendIceCandidate(toJid, sessionId, candidateMap, isVideo: isVideo);
   }
 
   /// XEP-0353: Send <retract/> via MESSAGE stanza (used by caller to cancel)
@@ -1139,6 +1137,8 @@ class JingleSignalingService {
     _pendingOutgoingCandidates.remove(sessionId);
     _messageInitiatedSessions.remove(sessionId);
     _pendingProposeSessions.remove(sessionId);
+    _proceedTimers[sessionId]?.cancel();
+    _proceedTimers.remove(sessionId);
 
     _iqToSessionId.removeWhere((key, value) => value == sessionId);
     _sessionSetupRoles.remove(sessionId);
@@ -1349,6 +1349,14 @@ class JingleSignalingService {
       } else {
         final infoEl = jingle.getChild('info');
         reason = infoEl?.textValue ?? 'session-info';
+      }
+    } else if (actionStr == 'content-modify') {
+      action = JingleAction.contentModify;
+      // Extract senders attribute to determine hold/unhold
+      final contentEl = jingle.getChild('content');
+      if (contentEl != null) {
+        final senders = contentEl.getAttribute('senders')?.value;
+        reason = senders ?? 'inactive';
       }
     }
 

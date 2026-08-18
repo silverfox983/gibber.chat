@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/group_call_models.dart';
 
@@ -229,6 +230,26 @@ class JanusService {
       return true;
     }
     return false;
+  }
+
+  Future<bool> configureSubscriber(String handleId, RTCSessionDescription answer) async {
+    if (!_isConnected) return false;
+
+    await _sendRequest({
+      'janus': 'message',
+      'session_id': int.parse(_sessionId!),
+      'handle_id': int.parse(handleId),
+      'body': {
+        'request': 'configure',
+        'ptype': 'subscriber',
+      },
+      'jsep': {
+        'type': answer.type,
+        'sdp': answer.sdp,
+      },
+    });
+
+    return true;
   }
 
   Future<bool> leaveRoom(String handleId) async {
