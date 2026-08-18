@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../services/gateway_service.dart';
 
@@ -29,7 +30,7 @@ class _GatewaysScreenState extends State<GatewaysScreen> {
     try {
       final gatewayService = context.read<GatewayService>();
       final response = await gatewayService.listGateways();
-      
+
       if (response.error == null) {
         setState(() {
           _gateways = response.gateways;
@@ -53,17 +54,25 @@ class _GatewaysScreenState extends State<GatewaysScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => _GatewayDetailsSheet(gateway: gateway),
+      builder: (context) => _GatewayDetailsSheet(
+        gateway: gateway,
+        onStatusChanged: _loadGateways,
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Gateway Transports'),
+        leading: IconButton(
+          icon: const Icon(Icons.dns_rounded),
+          tooltip: 'Discover Transports',
+          onPressed: () => context.push('/transports'),
+        ),
+        title: const Text('Server Gateways'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -89,18 +98,48 @@ class _GatewaysScreenState extends State<GatewaysScreen> {
                     ],
                   ),
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _gateways.length,
-                  itemBuilder: (context, index) {
-                    final entry = _gateways.entries.elementAt(index);
-                    final gateway = entry.value;
-                    return _GatewayCard(
-                      gateway: gateway,
-                      onTap: () => _showGatewayDetails(gateway),
-                    );
-                  },
-                ),
+              : _gateways.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.dns_outlined,
+                            size: 64,
+                            color: theme.colorScheme.outline,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No gateways configured',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: theme.colorScheme.outline,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Server gateways will appear here once configured.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.outline,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _loadGateways,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _gateways.length,
+                        itemBuilder: (context, index) {
+                          final entry = _gateways.entries.elementAt(index);
+                          final gateway = entry.value;
+                          return _GatewayCard(
+                            gateway: gateway,
+                            onTap: () => _showGatewayDetails(gateway),
+                          );
+                        },
+                      ),
+                    ),
     );
   }
 }
@@ -188,8 +227,9 @@ class _GatewayCard extends StatelessWidget {
 
 class _GatewayDetailsSheet extends StatelessWidget {
   final GatewayInfo gateway;
+  final VoidCallback onStatusChanged;
 
-  const _GatewayDetailsSheet({required this.gateway});
+  const _GatewayDetailsSheet({required this.gateway, required this.onStatusChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -322,31 +362,7 @@ class _GatewayDetailsSheet extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 24),
-                    if (gateway.status == 'disabled') ...[
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _showSetupInstructions(context);
-                        },
-                        icon: const Icon(Icons.settings),
-                        label: const Text('Setup Gateway'),
-                      ),
-                    ] else if (gateway.status == 'not_configured') ...[
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _showSetupInstructions(context);
-                        },
-                        icon: const Icon(Icons.settings),
-                        label: const Text('Configure Gateway'),
-                      ),
-                    ] else ...[
-                      OutlinedButton.icon(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.check),
-                        label: const Text('Gateway Active'),
-                      ),
-                    ],
+                    _ActionButtons(gateway: gateway, onStatusChanged: onStatusChanged),
                   ],
                 ),
               ),
@@ -356,20 +372,70 @@ class _GatewayDetailsSheet extends StatelessWidget {
       },
     );
   }
+}
 
-  void _showSetupInstructions(BuildContext context) {
+class _ActionButtons extends StatefulWidget {
+  final GatewayInfo gateway;
+  final VoidCallback onStatusChanged;
+
+  const _ActionButtons({required this.gateway, required this.onStatusChanged});
+
+  @override
+  State<_ActionButtons> createState() => _ActionButtonsState();
+}
+
+class _ActionButtonsState extends State<_ActionButtons> {
+  bool _isLoading = false;
+
+  Future<void> _enableGateway() async {
+    setState(() => _isLoading = true);
+    final service = context.read<GatewayService>();
+    final result = await service.enableGateway(widget.gateway.componentJid);
+    if (mounted) {
+      Navigator.pop(context);
+      widget.onStatusChanged();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.error ?? 'Gateway enabled'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: result.error == null ? Colors.green : null,
+        ),
+      );
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _disableGateway() async {
+    setState(() => _isLoading = true);
+    final service = context.read<GatewayService>();
+    final result = await service.disableGateway(widget.gateway.componentJid);
+    if (mounted) {
+      Navigator.pop(context);
+      widget.onStatusChanged();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.error ?? 'Gateway disabled'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: result.error == null ? Colors.green : null,
+        ),
+      );
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  void _showSetupInstructions() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Setup ${gateway.name}'),
+      builder: (ctx) => AlertDialog(
+        title: Text('Setup ${widget.gateway.name}'),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'To enable the ${gateway.name} gateway, you need to:',
-                style: Theme.of(context).textTheme.bodyMedium,
+                'To enable the ${widget.gateway.name} gateway, you need to:',
+                style: Theme.of(ctx).textTheme.bodyMedium,
               ),
               const SizedBox(height: 16),
               const Text('1. Set the following environment variables on your server:'),
@@ -377,7 +443,7 @@ class _GatewayDetailsSheet extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: SelectableText(
@@ -394,7 +460,7 @@ class _GatewayDetailsSheet extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('Got it'),
           ),
         ],
@@ -403,17 +469,96 @@ class _GatewayDetailsSheet extends StatelessWidget {
   }
 
   String _getEnvVarsText() {
-    final prefix = gateway.componentJid.toUpperCase();
+    final prefix = widget.gateway.componentJid.toUpperCase();
     final buffer = StringBuffer();
-    buffer.writeln('# Enable ${gateway.name} gateway');
+    buffer.writeln('# Enable ${widget.gateway.name} gateway');
     buffer.writeln('GIBBER_${prefix}_ENABLED=true');
     buffer.writeln('GIBBER_${prefix}_SECRET=your-secret-here');
 
-    for (final config in gateway.requiresConfig) {
+    for (final config in widget.gateway.requiresConfig) {
       buffer.writeln('${config.toUpperCase()}=your-$config-here');
     }
 
     return buffer.toString();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (widget.gateway.status == 'disabled') {
+      return Column(
+        children: [
+          ElevatedButton.icon(
+            onPressed: _showSetupInstructions,
+            icon: const Icon(Icons.settings),
+            label: const Text('Setup Gateway'),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 48),
+            ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _enableGateway,
+            icon: const Icon(Icons.power_settings_new),
+            label: const Text('Enable Gateway'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 48),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (widget.gateway.status == 'not_configured') {
+      return Column(
+        children: [
+          ElevatedButton.icon(
+            onPressed: _showSetupInstructions,
+            icon: const Icon(Icons.settings),
+            label: const Text('Configure Gateway'),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 48),
+            ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _enableGateway,
+            icon: const Icon(Icons.power_settings_new),
+            label: const Text('Enable Gateway'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 48),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        OutlinedButton.icon(
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.check),
+          label: const Text('Gateway Active'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 48),
+          ),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: _disableGateway,
+          icon: const Icon(Icons.power_off),
+          label: const Text('Disable Gateway'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.red,
+            side: const BorderSide(color: Colors.red),
+            minimumSize: const Size(double.infinity, 48),
+          ),
+        ),
+      ],
+    );
   }
 }
 

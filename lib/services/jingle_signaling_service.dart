@@ -18,6 +18,7 @@ enum JingleAction {
   roomTopicUpdate,
   chatMarker,
   retract,
+  messageError,
 }
 
 class JingleEvent {

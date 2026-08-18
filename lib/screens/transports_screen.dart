@@ -19,10 +19,12 @@ class TransportsScreen extends StatefulWidget {
 
 class _TransportsScreenState extends State<TransportsScreen> {
   TransportService? _transportService;
-  bool _isLoading = true;
+  bool _isDiscovering = true;
+  bool _isSearching = false;
   String _statusText = 'Discovering gateways…';
   final List<TransportNode> _gateways = [];
   final Set<String> _seenJids = {};
+  final Set<String> _registeredJids = {};
   final TextEditingController _searchController = TextEditingController();
 
   @override
@@ -34,16 +36,35 @@ class _TransportsScreenState extends State<TransportsScreen> {
   @override
   void dispose() {
     _searchController.dispose();
-    _transportService?.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadRegisteredTransports() async {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final accountId = auth.activeAccountId;
+    if (accountId == null) return;
+
+    final db = DatabaseService();
+    final all = await db.getRegisteredTransports();
+    if (!mounted) return;
+    setState(() {
+      _registeredJids.clear();
+      for (var row in all) {
+        final rowAccountId = row['account_id'] as String?;
+        if (rowAccountId == accountId) {
+          final jid = (row['gateway_jid'] as String?)?.toLowerCase();
+          if (jid != null) _registeredJids.add(jid);
+        }
+      }
+    });
   }
 
   Future<void> _searchTransport(String jid) async {
     final trimmed = jid.trim();
     if (trimmed.isEmpty || _transportService == null) return;
-    
+
     setState(() {
-      _isLoading = true;
+      _isSearching = true;
       _statusText = 'Probing $trimmed…';
     });
 
@@ -53,15 +74,20 @@ class _TransportsScreenState extends State<TransportsScreen> {
           _seenJids.add(gw.jid);
           setState(() {
             _gateways.add(gw);
-            _isLoading = false;
           });
         }
       });
-      if (mounted) setState(() => _isLoading = false);
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to probe $trimmed')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to probe $trimmed')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSearching = false;
+          _statusText = 'Discovery complete. Found ${_gateways.length} local gateway${_gateways.length == 1 ? '' : 's'}.';
+        });
       }
     }
   }
@@ -71,50 +97,53 @@ class _TransportsScreenState extends State<TransportsScreen> {
     final conn = auth.activeXmppConnection;
 
     if (conn == null) {
-      if (mounted) setState(() { _isLoading = false; _statusText = 'Not connected.'; });
+      if (mounted) {
+        setState(() {
+          _isDiscovering = false;
+          _statusText = 'Not connected.';
+        });
+      }
       return;
     }
 
-    _transportService?.dispose();
-    _transportService = TransportService(conn);
-    _transportService!.setDatabase(DatabaseService());
-    _transportService!.setAccountId(auth.activeAccountId);
-    _transportService!.startListening();
+    if (_transportService == null) {
+      _transportService = TransportService(conn);
+      _transportService!.setDatabase(DatabaseService());
+      _transportService!.setAccountId(auth.activeAccountId);
+      _transportService!.startListening();
+    }
 
     final domain = conn.fullJid.domain;
 
-    // Reset state on refresh
     if (mounted) {
       setState(() {
         _gateways.clear();
         _seenJids.clear();
-        _isLoading = true;
+        _isDiscovering = true;
         _statusText = 'Searching $domain…';
       });
     }
+
+    await _loadRegisteredTransports();
 
     void onGatewayFound(TransportNode gw) {
       if (!_seenJids.contains(gw.jid) && mounted) {
         _seenJids.add(gw.jid);
         setState(() {
           _gateways.add(gw);
-          _isLoading = false;
         });
       }
     }
 
-    // Discover strictly on the user's own server
     try {
-      await _transportService!.discoverTransports(domain, onGatewayDiscovered: (gw) {
-        onGatewayFound(gw);
-      });
+      await _transportService!.discoverTransports(domain, onGatewayDiscovered: onGatewayFound);
     } catch (e) {
       debugPrint('Local discovery error: $e');
     }
 
     if (mounted) {
       setState(() {
-        _isLoading = false;
+        _isDiscovering = false;
         if (_gateways.isEmpty) {
           _statusText = 'No gateways found on your server.';
         } else {
@@ -122,6 +151,11 @@ class _TransportsScreenState extends State<TransportsScreen> {
         }
       });
     }
+  }
+
+  Future<void> _refreshAndReregister() async {
+    await _loadRegisteredTransports();
+    await _initTransports();
   }
 
   // ── Type metadata ────────────────────────────────────────────
@@ -162,38 +196,42 @@ class _TransportsScreenState extends State<TransportsScreen> {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Text('Upgrade Required'),
+          title: const Text('Upgrade Required'),
           content: Text(
             '$protocol is available on the ${neededTier.label} tier.\n'
             'You are currently on the ${currentTier.label} tier.\n\n'
             'Upgrade your plan, or enter a redemption code.',
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('Cancel')),
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
             FilledButton(
               onPressed: () {
                 Navigator.of(ctx).pop();
                 context.goNamed('tier');
               },
-              child: Text('Upgrade'),
+              child: const Text('Upgrade'),
             ),
           ],
         ),
       );
       return;
     }
-    await showTransportRegistrationDialog(
+    final success = await showTransportRegistrationDialog(
       context: context,
       transportService: _transportService!,
       gatewayJid: gateway.jid,
       gatewayName: gateway.name,
     );
+    if (success == true) {
+      await _refreshAndReregister();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final isLoading = _isDiscovering || _isSearching;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -201,7 +239,7 @@ class _TransportsScreenState extends State<TransportsScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Gateways & Transports',
+            const Text('Gateways & Transports',
                 style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
             if (_gateways.isNotEmpty)
               Text('${_gateways.length} available',
@@ -214,17 +252,23 @@ class _TransportsScreenState extends State<TransportsScreen> {
         backgroundColor: theme.scaffoldBackgroundColor,
         elevation: 0,
         actions: [
-          if (_isLoading)
+          if (isLoading)
             const Padding(
               padding: EdgeInsets.all(14),
               child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5)),
             )
-          else
+          else ...[
+            IconButton(
+              icon: const Icon(Icons.dns_rounded),
+              tooltip: 'Manage Server Gateways',
+              onPressed: () => context.goNamed('gateways'),
+            ),
             IconButton(
               icon: const Icon(Icons.refresh_rounded),
               tooltip: 'Refresh',
-              onPressed: _initTransports,
+              onPressed: _refreshAndReregister,
             ),
+          ],
         ],
       ),
       body: Column(
@@ -244,19 +288,19 @@ class _TransportsScreenState extends State<TransportsScreen> {
               onSubmitted: _searchTransport,
             ),
           ),
-          
+
           // ── Status bar ──
           AnimatedContainer(
             duration: const Duration(milliseconds: 300),
-            color: _isLoading
+            color: isLoading
                 ? theme.colorScheme.primaryContainer.withValues(alpha: 0.5)
                 : Colors.transparent,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: Row(children: [
               Icon(
-                _isLoading ? Icons.radar_rounded : Icons.check_circle_outline_rounded,
+                isLoading ? Icons.radar_rounded : Icons.check_circle_outline_rounded,
                 size: 14,
-                color: _isLoading
+                color: isLoading
                     ? theme.colorScheme.primary
                     : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
               ),
@@ -265,7 +309,7 @@ class _TransportsScreenState extends State<TransportsScreen> {
                 _statusText,
                 style: TextStyle(
                     fontSize: 12,
-                    color: _isLoading
+                    color: isLoading
                         ? theme.colorScheme.primary
                         : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
               ),
@@ -274,12 +318,15 @@ class _TransportsScreenState extends State<TransportsScreen> {
 
           // ── Gateway list ──
           Expanded(
-            child: _gateways.isEmpty && !_isLoading
+            child: _gateways.isEmpty && !isLoading
                 ? _buildEmptyState(theme)
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    itemCount: _gateways.length,
-                    itemBuilder: (ctx, i) => _buildGatewayCard(theme, isDark, _gateways[i]),
+                : RefreshIndicator(
+                    onRefresh: _refreshAndReregister,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      itemCount: _gateways.length,
+                      itemBuilder: (ctx, i) => _buildGatewayCard(theme, isDark, _gateways[i]),
+                    ),
                   ),
           ),
         ],
@@ -297,6 +344,8 @@ class _TransportsScreenState extends State<TransportsScreen> {
     final isLocked = !entitlement.isProtocolAllowed(protocol);
     final neededTier = protocol == 'Slack' || protocol == 'Discord' || protocol == 'Irc'
         ? UserTier.pro : UserTier.ultimate;
+    final bareJid = gw.jid.split('/').first.toLowerCase();
+    final isRegistered = _registeredJids.contains(bareJid);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -334,7 +383,19 @@ class _TransportsScreenState extends State<TransportsScreen> {
                           Icon(meta.icon, color: meta.color.withValues(alpha: 0.4), size: 26),
                           Positioned(bottom: 2, right: 2, child: Icon(Icons.lock_rounded, size: 14, color: Colors.orange)),
                         ])
-                      : Icon(meta.icon, color: meta.color, size: 26),
+                      : Stack(alignment: Alignment.center, children: [
+                          Icon(meta.icon, color: meta.color, size: 26),
+                          if (isRegistered)
+                            Positioned(
+                              bottom: 2,
+                              right: 2,
+                              child: Container(
+                                padding: const EdgeInsets.all(2),
+                                decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
+                                child: const Icon(Icons.check, size: 8, color: Colors.white),
+                              ),
+                            ),
+                        ]),
                 ),
                 const SizedBox(width: 14),
                 // ── Info ──
@@ -343,7 +404,7 @@ class _TransportsScreenState extends State<TransportsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(children: [
-                        Text(gw.name, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                        Text(gw.name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                         if (isLocked) ...[
                           const SizedBox(width: 6),
                           Container(
@@ -353,7 +414,18 @@ class _TransportsScreenState extends State<TransportsScreen> {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text('${neededTier.label} only',
-                                style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.orange)),
+                                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.orange)),
+                          ),
+                        ] else if (isRegistered) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text('Registered',
+                                style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.green)),
                           ),
                         ],
                       ]),
@@ -382,11 +454,11 @@ class _TransportsScreenState extends State<TransportsScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: isLocked ? Colors.orange : meta.color,
+                        color: isLocked ? Colors.orange : (isRegistered ? Colors.green : meta.color),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Text(isLocked ? 'Upgrade' : 'Connect',
-                          style: TextStyle(
+                      child: Text(isLocked ? 'Upgrade' : (isRegistered ? 'Connected' : 'Connect'),
+                          style: const TextStyle(
                               color: Colors.white,
                               fontSize: 12,
                               fontWeight: FontWeight.w700)),
@@ -402,36 +474,44 @@ class _TransportsScreenState extends State<TransportsScreen> {
   }
 
   Widget _buildEmptyState(ThemeData theme) {
-    return SingleChildScrollView(
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(40),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.hub_outlined, size: 72,
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.25)),
-              const SizedBox(height: 24),
-              Text('No Local Gateways',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 12),
-              Text(
-                'Your home server does not currently advertise any transport gateways.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: 14, height: 1.6,
-                    color: theme.colorScheme.onSurfaceVariant),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(40),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.hub_outlined, size: 72,
+                        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.25)),
+                    const SizedBox(height: 24),
+                    Text('No Local Gateways',
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Your home server does not currently advertise any transport gateways.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 14, height: 1.6,
+                          color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                    const SizedBox(height: 28),
+                    FilledButton.icon(
+                      onPressed: _refreshAndReregister,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Refresh'),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 28),
-              FilledButton.icon(
-                onPressed: _initTransports,
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('Refresh'),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

@@ -8,6 +8,21 @@ class TransportNode {
     required this.name,
     required this.type,
   });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TransportNode &&
+          runtimeType == other.runtimeType &&
+          jid == other.jid &&
+          name == other.name &&
+          type == other.type;
+
+  @override
+  int get hashCode => Object.hash(jid, name, type);
+
+  TransportNode copyWith({String? jid, String? name, String? type}) =>
+      TransportNode(jid: jid ?? this.jid, name: name ?? this.name, type: type ?? this.type);
 }
 
 class FormFieldOption {

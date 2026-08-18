@@ -14,6 +14,7 @@ import './services/assistant_service.dart';
 import './services/miner_service.dart';
 import './services/entitlement_service.dart';
 import './services/backend_config.dart';
+import './services/gateway_service.dart';
 import './services/subscription_service.dart';
 import './providers/theme_provider.dart';
 import './theme/app_theme.dart';
@@ -89,6 +90,7 @@ class _ChatAppState extends State<ChatApp> {
   EntitlementService? _entitlementService;
   BackendConfig? _backendConfig;
   SubscriptionService? _subscriptionService;
+  GatewayService? _gatewayService;
   final AccountStatusNotificationService _accountStatusNotifications =
       AccountStatusNotificationService.instance;
 
@@ -141,6 +143,9 @@ class _ChatAppState extends State<ChatApp> {
 
       _errorSource = 'SubscriptionService';
       _subscriptionService = SubscriptionService();
+
+      _errorSource = 'GatewayService';
+      _gatewayService = GatewayService(_backendConfig!);
 
       _entitlementService!.setBackendUrl(_backendConfig!.apiUrl);
       _minerService!.setBackendUrl(_backendConfig!.apiUrl);
@@ -243,6 +248,7 @@ class _ChatAppState extends State<ChatApp> {
         ChangeNotifierProvider.value(value: _entitlementService!),
         ChangeNotifierProvider.value(value: _backendConfig!),
         ChangeNotifierProvider.value(value: _subscriptionService!),
+        ChangeNotifierProvider.value(value: _gatewayService!),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, tp, _) => MaterialApp.router(

@@ -3985,9 +3985,19 @@ class _MainChatScreenState extends State<MainChatScreen> {
           value: 'transports',
           child: Row(
             children: [
-              Icon(Icons.compare_arrows_rounded, size: 18),
+              Icon(Icons.hub_rounded, size: 18),
               SizedBox(width: 8),
-              Text('Gateways / Transports', style: TextStyle(fontSize: 13)),
+              Text('Discover Transports', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'gateways',
+          child: Row(
+            children: [
+              Icon(Icons.dns_rounded, size: 18),
+              SizedBox(width: 8),
+              Text('Manage Server Gateways', style: TextStyle(fontSize: 13)),
             ],
           ),
         ),
@@ -4007,6 +4017,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
     }
     if (val == 'transports') {
       context.goNamed('transports');
+    }
+    if (val == 'gateways') {
+      context.goNamed('gateways');
     }
   }
 

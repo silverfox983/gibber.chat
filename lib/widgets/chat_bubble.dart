@@ -186,6 +186,8 @@ class _ChatBubbleState extends State<ChatBubble> {
         return const Icon(Icons.done_all, size: 11, color: Colors.white70);
       case MessageStatus.read:
         return const Icon(Icons.done_all, size: 11, color: Colors.cyanAccent);
+      case MessageStatus.failed:
+        return const Icon(Icons.error_outline, size: 11, color: Colors.redAccent);
     }
   }
 }

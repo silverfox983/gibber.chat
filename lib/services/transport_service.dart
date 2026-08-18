@@ -43,13 +43,19 @@ class TransportService {
     }
   }
 
-  Future<xmpp.IqStanza> _sendIq(xmpp.IqStanza iq, {int retries = 1}) async {
-    if (iq.toJid == null) return Future.error('No toJid');
-    
+  Future<xmpp.IqStanza> _sendIq(xmpp.IqStanza originalIq, {int retries = 1}) async {
+    if (originalIq.toJid == null) return Future.error('No toJid');
+
     int attempt = 0;
     while (attempt <= retries) {
-      final id = iq.id ?? 'transport_${xmpp.AbstractStanza.getRandomId()}';
-      iq.id = id;
+      final id = 'transport_${xmpp.AbstractStanza.getRandomId()}';
+      final iq = xmpp.IqStanza(id, originalIq.type);
+      iq.toJid = originalIq.toJid;
+      iq.fromJid = originalIq.fromJid;
+      for (var child in originalIq.children) {
+        iq.addChild(child);
+      }
+
       final completer = Completer<xmpp.IqStanza>();
       _pendingIqs[id] = completer;
       _connection.writeStanza(iq);
@@ -65,13 +71,11 @@ class TransportService {
         attempt++;
         debugPrint('Retrying Transport IQ to ${iq.toJid!.fullJid} (Attempt ${attempt + 1})...');
         await Future.delayed(Duration(milliseconds: 500 * attempt));
-        iq.id = 'transport_retry_${xmpp.AbstractStanza.getRandomId()}';
       }
     }
     return Future.error('Unexpected fallthrough in _sendIq');
   }
 
-  /// Discover gateways on the given domain.
   /// Discover gateways on the given domain.
   Future<List<TransportNode>> discoverTransports(String domain,
       {void Function(TransportNode)? onGatewayDiscovered, int maxDepth = 2, Set<String>? visited}) async {
@@ -275,12 +279,13 @@ class TransportService {
           ));
         }
       } else {
-        // Fallback to basic XEP-0077 fields
-        for (var child in queryRes.children.where((e) => e.name != 'instructions' && e.name != 'registered')) {
+        // Fallback to basic XEP-0077 fields — skip instructions, registered, key, oob, x, etc.
+        final skipNames = {'instructions', 'registered', 'key', 'oob', 'x', 'query', 'stream:error'};
+        for (var child in queryRes.children.whereType<xmpp.XmppElement>().where((e) => !skipNames.contains(e.name))) {
           fields.add(FormField(
             varName: child.name ?? 'unknown',
             type: child.name == 'password' ? 'text-private' : 'text-single',
-            label: child.name?.toUpperCase(),
+            label: child.name?.toUpperCase() ?? 'UNKNOWN',
           ));
         }
       }

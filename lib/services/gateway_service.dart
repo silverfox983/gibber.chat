@@ -71,13 +71,20 @@ class GatewayService extends ChangeNotifier {
   }
 
   Future<GatewayActionResponse> enableGateway(String gateway) async {
+    final adminKey = _config.adminKey;
+    if (adminKey == null || adminKey.isEmpty) {
+      return GatewayActionResponse(
+        gateway: gateway,
+        error: 'Admin key not configured.',
+      );
+    }
     try {
       final response = await http
           .post(
             Uri.parse('$_backendUrl/gateways/enable'),
             headers: {
               'Content-Type': 'application/json',
-              'x-admin-key': _config.apiUrl,
+              'x-admin-key': adminKey,
             },
             body: jsonEncode({'gateway': gateway}),
           )
@@ -101,13 +108,20 @@ class GatewayService extends ChangeNotifier {
   }
 
   Future<GatewayActionResponse> disableGateway(String gateway) async {
+    final adminKey = _config.adminKey;
+    if (adminKey == null || adminKey.isEmpty) {
+      return GatewayActionResponse(
+        gateway: gateway,
+        error: 'Admin key not configured.',
+      );
+    }
     try {
       final response = await http
           .post(
             Uri.parse('$_backendUrl/gateways/disable'),
             headers: {
               'Content-Type': 'application/json',
-              'x-admin-key': _config.apiUrl,
+              'x-admin-key': adminKey,
             },
             body: jsonEncode({'gateway': gateway}),
           )
@@ -153,6 +167,43 @@ class GatewayInfo {
     required this.configured,
     required this.status,
   });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GatewayInfo &&
+          runtimeType == other.runtimeType &&
+          componentJid == other.componentJid &&
+          name == other.name &&
+          enabled == other.enabled &&
+          configured == other.configured &&
+          status == other.status;
+
+  @override
+  int get hashCode => Object.hash(componentJid, name, enabled, configured, status);
+
+  GatewayInfo copyWith({
+    String? name,
+    String? description,
+    String? icon,
+    List<String>? requiresConfig,
+    String? componentJid,
+    String? slidgeImage,
+    bool? enabled,
+    bool? configured,
+    String? status,
+  }) =>
+      GatewayInfo(
+        name: name ?? this.name,
+        description: description ?? this.description,
+        icon: icon ?? this.icon,
+        requiresConfig: requiresConfig ?? this.requiresConfig,
+        componentJid: componentJid ?? this.componentJid,
+        slidgeImage: slidgeImage ?? this.slidgeImage,
+        enabled: enabled ?? this.enabled,
+        configured: configured ?? this.configured,
+        status: status ?? this.status,
+      );
 
   String get statusLabel {
     switch (status) {

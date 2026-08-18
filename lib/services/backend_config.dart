@@ -16,9 +16,11 @@ class BackendConfig extends ChangeNotifier {
   String? _sfuApiKey;
   String? _giphyApiKey;
   List<Map<String, dynamic>> _iceServers = [];
+  String? _adminKey;
 
   static const String _apiUrlKey = 'gibber_backend_api_url';
   static const String _poolUrlKey = 'gibber_backend_pool_url';
+  static const String _adminKeyKey = 'gibber_admin_key';
 
   final Completer<void> _ready = Completer<void>();
   Future<void> get ready => _ready.future;
@@ -48,6 +50,8 @@ class BackendConfig extends ChangeNotifier {
     return null;
   }
 
+  String? get adminKey => _adminKey;
+
   BackendConfig() {
     _load();
   }
@@ -56,6 +60,7 @@ class BackendConfig extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final api = prefs.getString(_apiUrlKey);
     final pool = prefs.getString(_poolUrlKey);
+    _adminKey = prefs.getString(_adminKeyKey);
     if (api != null) _apiUrl = api;
     if (pool != null) _poolUrl = pool;
     _ready.complete();
@@ -102,6 +107,13 @@ class BackendConfig extends ChangeNotifier {
     _poolUrl = url;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_poolUrlKey, url);
+    notifyListeners();
+  }
+
+  Future<void> setAdminKey(String key) async {
+    _adminKey = key;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_adminKeyKey, key);
     notifyListeners();
   }
 

@@ -22,6 +22,7 @@ import '../screens/invite_screen.dart';
 import '../screens/recordings_screen.dart';
 import '../screens/tier_screen.dart';
 import '../screens/transports_screen.dart';
+import '../screens/gateways_screen.dart';
 import '../screens/create_room_screen.dart';
 import '../screens/room_discovery_screen.dart';
 import '../screens/room_info_screen.dart';
@@ -189,6 +190,11 @@ GoRouter createAppRouter({
                 path: 'transports',
                 name: 'transports',
                 pageBuilder: (context, state) => _fadePage(state: state, child: const TransportsScreen()),
+              ),
+              GoRoute(
+                path: 'gateways',
+                name: 'gateways',
+                pageBuilder: (context, state) => _fadePage(state: state, child: const GatewaysScreen()),
               ),
               GoRoute(
                 path: 'create-room',

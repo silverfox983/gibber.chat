@@ -5,12 +5,14 @@ import '../services/transport_service.dart';
 import 'glassmorphic_container.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-Future<void> showTransportRegistrationDialog({
+Future<bool?> showTransportRegistrationDialog({
   required BuildContext context,
   required TransportService transportService,
   required String gatewayJid,
   required String gatewayName,
 }) async {
+  bool? result;
+
   showDialog(
     context: context,
     barrierDismissible: false,
@@ -40,7 +42,7 @@ Future<void> showTransportRegistrationDialog({
         SnackBar(content: Text('Failed to fetch form: $e')),
       );
     }
-    return;
+    return null;
   }
 
   if (context.mounted) Navigator.pop(context); // close loading
@@ -51,11 +53,11 @@ Future<void> showTransportRegistrationDialog({
         const SnackBar(content: Text('No registration form available.')),
       );
     }
-    return;
+    return null;
   }
 
   if (context.mounted) {
-    showGeneralDialog(
+    result = await showGeneralDialog<bool>(
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Registration',
@@ -78,7 +80,9 @@ Future<void> showTransportRegistrationDialog({
         );
       },
     );
+    return result;
   }
+  return null;
 }
 
 class TransportRegistrationDialog extends StatefulWidget {
@@ -140,45 +144,47 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
       color: Colors.transparent,
       child: GlassMorphicContainer(
         width: MediaQuery.of(context).size.width * 0.85,
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('GATEWAY REGISTRATION',
-                            style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 1.5,
-                                color: theme.colorScheme.primary)),
-                        const SizedBox(height: 4),
-                        Text(widget.gatewayName,
-                            style: TextStyle(
-                                fontSize: 22, fontWeight: FontWeight.w900)),
-                      ],
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('GATEWAY REGISTRATION',
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1.5,
+                                  color: theme.colorScheme.primary)),
+                          const SizedBox(height: 4),
+                          Text(widget.gatewayName,
+                              style: TextStyle(
+                                  fontSize: 22, fontWeight: FontWeight.w900)),
+                        ],
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              if (isRegistered)
-                _buildRegisteredView(theme)
-              else
-                _buildFormView(theme),
-              const SizedBox(height: 32),
-              _buildActions(theme),
-            ],
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                if (isRegistered)
+                  _buildRegisteredView(theme)
+                else
+                  _buildFormView(theme),
+                const SizedBox(height: 32),
+                _buildActions(theme),
+              ],
+            ),
           ),
         ),
       ),
@@ -249,7 +255,11 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
           Center(
             child: FilledButton.icon(
               onPressed: () async {
-                final uri = Uri.parse(widget.form.oobUrl!);
+                final uri = Uri.tryParse(widget.form.oobUrl!);
+                if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) {
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invalid authentication URL.')));
+                  return;
+                }
                 if (await canLaunchUrl(uri)) {
                   await launchUrl(uri, mode: LaunchMode.externalApplication);
                 } else {
@@ -294,7 +304,8 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
             return Padding(
               padding: const EdgeInsets.only(bottom: 16),
               child: DropdownButtonFormField<String>(
-                initialValue: _formData[field.varName]!.isNotEmpty ? _formData[field.varName] : field.options!.first.value,
+                // ignore: deprecated_member_use — value required for our Flutter SDK version
+                value: _formData[field.varName]!.isNotEmpty ? _formData[field.varName] : field.options!.first.value,
                 decoration: InputDecoration(
                   labelText: field.label ?? field.varName,
                   labelStyle: TextStyle(fontSize: 14),
@@ -345,12 +356,35 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
               onPressed: _isSubmitting
                   ? null
                   : () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Unregister?'),
+                          content: Text(
+                            'This will remove your ${widget.gatewayName} gateway connection. '
+                            'You can re-register at any time.',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                              child: const Text('Unregister'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirm != true) return;
+
                       setState(() => _isSubmitting = true);
                       final success = await widget.transportService.unregister(
                         widget.gatewayJid,
                       );
                       if (mounted) {
-                        Navigator.pop(context);
+                        Navigator.pop(context, success);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
@@ -385,7 +419,7 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
                       final success = await widget.transportService
                           .submitRegistration(widget.gatewayJid, _formData, formType: widget.form.formType);
                       if (mounted) {
-                        Navigator.pop(context);
+                        Navigator.pop(context, success);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
@@ -408,7 +442,7 @@ class _TransportRegistrationDialogState extends State<TransportRegistrationDialo
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : Text(widget.form.oobUrl != null ? 'COMPLETE REGISTRATION' : 'CONNECT SERVICE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                  : Text(widget.form.oobUrl != null ? 'COMPLETE REGISTRATION' : 'CONNECT SERVICE', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
             ),
           ),
       ],
