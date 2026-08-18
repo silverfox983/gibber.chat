@@ -1041,16 +1041,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     if (_isGroupCall) {
       if (_janusService != null && _groupCallSession != null) {
         if (_isScreenSharing) {
-          // Stop sharing: replace screen track back with camera track
-          final localStream = _multiPeerManager!.localStream;
-          if (localStream != null) {
-            final cameraTrack = localStream.getVideoTracks().firstOrNull;
-            if (cameraTrack != null) {
-              await _multiPeerManager!.replaceVideoTrack(cameraTrack);
-            }
-          }
+          // Stop sharing: restore camera track
+          await _multiPeerManager!.replaceVideoTrack(_multiPeerManager!.localStream!.getVideoTracks().first, isStopping: true);
         } else {
-          // Start sharing: get screen track and replace
+          // Start sharing: get screen track
           final screenStream = await _multiPeerManager!.getDisplayMedia();
           if (screenStream != null) {
             final screenTrack = screenStream.getVideoTracks().firstOrNull;
@@ -1062,13 +1056,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       } else if (_multiPeerManager != null) {
         // Mesh: replace video track on all peer connections
         if (_isScreenSharing) {
-          final localStream = _multiPeerManager!.localStream;
-          if (localStream != null) {
-            final cameraTrack = localStream.getVideoTracks().firstOrNull;
-            if (cameraTrack != null) {
-              await _multiPeerManager!.replaceVideoTrackForAll(cameraTrack);
-            }
-          }
+          // Stop sharing: restore camera track
+          await _multiPeerManager!.replaceVideoTrackForAll(_multiPeerManager!.localStream!.getVideoTracks().first, isStopping: true);
         } else {
           final screenStream = await _multiPeerManager!.getDisplayMedia();
           if (screenStream != null) {

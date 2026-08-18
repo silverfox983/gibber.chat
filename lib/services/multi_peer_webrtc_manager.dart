@@ -299,7 +299,7 @@ class MultiPeerWebRTCManager {
     }
   }
 
-  Future<bool> replaceVideoTrack(MediaStreamTrack newTrack) async {
+  Future<bool> replaceVideoTrack(MediaStreamTrack newTrack, {bool isStopping = false}) async {
     if (_localStream == null) return false;
     final pc = _peerConnections['publisher'];
     if (pc == null) return false;
@@ -308,14 +308,31 @@ class MultiPeerWebRTCManager {
       final senders = await pc.getSenders();
       for (var sender in senders) {
         if (sender.track?.kind == 'video') {
-          await sender.replaceTrack(newTrack);
+          MediaStreamTrack trackToUse;
+
+          if (isStopping && _originalCameraTrack != null) {
+            // Stopping screen share: restore original camera track
+            trackToUse = _originalCameraTrack!;
+            _originalCameraTrack = null;
+          } else {
+            // Starting screen share: save current camera, use new screen track
+            trackToUse = newTrack;
+            if (newTrack.kind == 'video' && _originalCameraTrack == null) {
+              final currentVideo = _localStream!.getVideoTracks();
+              if (currentVideo.isNotEmpty) {
+                _originalCameraTrack = currentVideo.first;
+              }
+            }
+          }
+
+          await sender.replaceTrack(trackToUse);
           // Update local stream's video track
           final videoTracks = _localStream!.getVideoTracks();
           for (var track in videoTracks) {
             _localStream!.removeTrack(track);
             track.stop();
           }
-          _localStream!.addTrack(newTrack);
+          _localStream!.addTrack(trackToUse);
           return true;
         }
       }
@@ -326,15 +343,30 @@ class MultiPeerWebRTCManager {
     }
   }
 
-  Future<bool> replaceVideoTrackForAll(MediaStreamTrack newTrack) async {
+  Future<bool> replaceVideoTrackForAll(MediaStreamTrack newTrack, {bool isStopping = false}) async {
     if (_localStream == null) return false;
     try {
+      MediaStreamTrack trackToUse;
+
+      if (isStopping && _originalCameraTrack != null) {
+        trackToUse = _originalCameraTrack!;
+        _originalCameraTrack = null;
+      } else {
+        trackToUse = newTrack;
+        if (newTrack.kind == 'video' && _originalCameraTrack == null) {
+          final currentVideo = _localStream!.getVideoTracks();
+          if (currentVideo.isNotEmpty) {
+            _originalCameraTrack = currentVideo.first;
+          }
+        }
+      }
+
       for (var entry in _peerConnections.entries) {
         final pc = entry.value;
         final senders = await pc.getSenders();
         for (var sender in senders) {
           if (sender.track?.kind == 'video') {
-            await sender.replaceTrack(newTrack);
+            await sender.replaceTrack(trackToUse);
           }
         }
       }
@@ -344,7 +376,7 @@ class MultiPeerWebRTCManager {
         _localStream!.removeTrack(track);
         track.stop();
       }
-      _localStream!.addTrack(newTrack);
+      _localStream!.addTrack(trackToUse);
       return true;
     } catch (e) {
       debugPrint('MultiPeer: replaceVideoTrackForAll failed: $e');
@@ -353,6 +385,7 @@ class MultiPeerWebRTCManager {
   }
 
   MediaStream? _screenStream;
+  MediaStreamTrack? _originalCameraTrack;
 
   Future<MediaStream?> getDisplayMedia() async {
     try {
