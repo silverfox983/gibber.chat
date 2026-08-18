@@ -188,4 +188,4 @@ else
 fi
 
 echo "=== Startup complete ==="
-wait $SUPERVISOR_PID
+exec sleep infinity
