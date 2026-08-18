@@ -638,6 +638,20 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             ],
           ],
         ),
+        if (call.lastError != null && call.state != CallState.active) ...[
+          const SizedBox(height: 4),
+          Text(
+            call.lastError!,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ],
     );
   }

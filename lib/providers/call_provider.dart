@@ -1962,17 +1962,23 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     final signaling =
         _authService?.getJingleService(_callAccountId ?? '') ??
         _authService?.jingleSignaling;
-        
+
     // Capture state before cleanup
     final targetJid = _remoteJid;
     final sid = _sessionId;
     final wasActive = _state == CallState.active;
     final wasIncoming = _state == CallState.incoming;
-    
-    // 1. Force cleanup of WebRTC and Audio focus first
-    await _cleanup(reason: 'declined');
 
-    // 2. Send termination signaling
+    // 1. Force cleanup of WebRTC and Audio focus first (skip call log - we save rejected below)
+    await _cleanup(reason: 'declined', skipCallLog: true);
+
+    // 2. Save call log with rejected status for declined incoming calls
+    if (wasIncoming && targetJid != null) {
+      _saveCallLog(CallStatus.rejected);
+      _log('Call declined', isSent: false);
+    }
+
+    // 3. Send termination signaling
     if (targetJid != null && sid != null) {
       final isGateway = targetJid.toLowerCase().contains('cheogram') || targetJid.contains('+');
       debugPrint('CallProvider: [DECLINE] isGateway=$isGateway for $targetJid');
@@ -1989,7 +1995,6 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           signaling?.sendRetractViaMessage(targetJid, sid);
         }
       }
-      _log('Call declined', isSent: true);
     }
   }
 
@@ -2017,7 +2022,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
   }
 
-  Future<void> _cleanup({String? reason}) async {
+  Future<void> _cleanup({String? reason, bool skipCallLog = false}) async {
     debugPrint('CallProvider: === CLEANUP STARTING ===');
     debugPrint('CallProvider: Cleanup reason: $reason');
 
@@ -2047,18 +2052,20 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           ' (Duration: $minutes:${seconds.toString().padLeft(2, '0')})';
     }
 
-    if (_state == CallState.active) {
-      _log(
-        'Call finished$durationStr${reason != null ? " ($reason)" : ""}',
-        isSent: true,
-      );
-      if (_callStartTime != null) _saveCallLog(CallStatus.completed);
-    } else if (_state == CallState.incoming) {
-      _log('Missed call${reason != null ? " ($reason)" : ""}', isSent: false);
-      _saveCallLog(CallStatus.missed);
-    } else if (_state == CallState.outgoing) {
-      _log('Call failed${reason != null ? " ($reason)" : ""}', isSent: true);
-      _saveCallLog(CallStatus.failed);
+    if (!skipCallLog) {
+      if (_state == CallState.active) {
+        _log(
+          'Call finished$durationStr${reason != null ? " ($reason)" : ""}',
+          isSent: true,
+        );
+        if (_callStartTime != null) _saveCallLog(CallStatus.completed);
+      } else if (_state == CallState.incoming) {
+        _log('Missed call${reason != null ? " ($reason)" : ""}', isSent: false);
+        _saveCallLog(CallStatus.missed);
+      } else if (_state == CallState.outgoing) {
+        _log('Call failed${reason != null ? " ($reason)" : ""}', isSent: true);
+        _saveCallLog(CallStatus.failed);
+      }
     }
 
     _localRenderer.srcObject = null;
