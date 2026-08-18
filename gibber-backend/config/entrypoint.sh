@@ -45,6 +45,7 @@ STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET:-}"
 BTCPAY_URL="${BTCPAY_URL:-}"
 BTCPAY_API_KEY="${BTCPAY_API_KEY:-}"
 BTCPAY_STORE_ID="${BTCPAY_STORE_ID:-}"
+GIPHY_API_KEY="${GIBBER_GIPHY_API_KEY:-}"
 
 # Janus/TURN configuration (for monolith deployment)
 JANUS_URL="${GIBBER_JANUS_URL:-ws://localhost:8188}"
@@ -122,8 +123,8 @@ stdout_logfile_maxbytes=0
 redirect_stderr=true
 
 [program:gibber-backend]
-command=/app/bin/server --host 0.0.0.0 --port ${PORT} --db-path /app/data/gibber_backend.db --config /etc/prosody/prosody.cfg.lua --mode "${REGISTRATION_MODE}" --use-docker "${USE_DOCKER}" --prosody-url "${PROSODY_URL}" --enable-sasl2 "${ENABLE_SASL2}" --jwt-secret "${JWT_SECRET}" --web-dir /app/web --turnstile-secret "${TURNSTONE_SECRET}" --turnstile-action "${TURNSTILE_ACTION}" --turnstile-hostnames "${TURNSTILE_HOSTNAMES}" --stripe-secret "${STRIPE_SECRET}" --stripe-webhook-secret "${STRIPE_WEBHOOK_SECRET}" --btcpay-url "${BTCPAY_URL}" --btcpay-api-key "${BTCPAY_API_KEY}" --btcpay-store-id "${BTCPAY_STORE_ID}" --janus-url "${JANUS_URL}" --janus-api-key "${JANUS_API_KEY}" --turn-host "${TURN_HOST}" --turn-url "${TURN_URL}" --turn-user "${TURN_USER}" --turn-pass "${TURN_PASS}"
-environment=GIBBER_ADMIN_KEY="${ADMIN_KEY}",DOMAIN="${DOMAIN}",GIBBER_JWT_SECRET="${JWT_SECRET}",GIBBER_REGISTRATION_MODE="${REGISTRATION_MODE}",GIBBER_USE_DOCKER="${USE_DOCKER}",GIBBER_PROSODY_URL="${PROSODY_URL}",GIBBER_ENABLE_SASL2="${ENABLE_SASL2}",TURNSTILE_SECRET_KEY="${TURNSTONE_SECRET}",TURNSTILE_ACTION="${TURNSTILE_ACTION}",TURNSTILE_HOSTNAMES="${TURNSTILE_HOSTNAMES}",STRIPE_SECRET_KEY="${STRIPE_SECRET}",STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}",BTCPAY_URL="${BTCPAY_URL}",BTCPAY_API_KEY="${BTCPAY_API_KEY}",BTCPAY_STORE_ID="${BTCPAY_STORE_ID}",GIBBER_JANUS_URL="${JANUS_URL}",GIBBER_JANUS_API_KEY="${JANUS_API_KEY}",GIBBER_TURN_HOST="${TURN_HOST}",GIBBER_TURN_URL="${TURN_URL}",GIBBER_TURN_USER="${TURN_USER}",GIBBER_TURN_PASS="${TURN_PASS}"
+command=/app/bin/server --host 0.0.0.0 --port ${PORT} --db-path /app/data/gibber_backend.db --config /etc/prosody/prosody.cfg.lua --mode "${REGISTRATION_MODE}" --use-docker "${USE_DOCKER}" --prosody-url "${PROSODY_URL}" --enable-sasl2 "${ENABLE_SASL2}" --jwt-secret "${JWT_SECRET}" --web-dir /app/web --turnstile-secret "${TURNSTONE_SECRET}" --turnstile-action "${TURNSTILE_ACTION}" --turnstile-hostnames "${TURNSTILE_HOSTNAMES}" --stripe-secret "${STRIPE_SECRET}" --stripe-webhook-secret "${STRIPE_WEBHOOK_SECRET}" --btcpay-url "${BTCPAY_URL}" --btcpay-api-key "${BTCPAY_API_KEY}" --btcpay-store-id "${BTCPAY_STORE_ID}" --janus-url "${JANUS_URL}" --janus-api-key "${JANUS_API_KEY}" --turn-host "${TURN_HOST}" --turn-url "${TURN_URL}" --turn-user "${TURN_USER}" --turn-pass "${TURN_PASS}" --giphy-api-key "${GIPHY_API_KEY}"
+environment=GIBBER_ADMIN_KEY="${ADMIN_KEY}",DOMAIN="${DOMAIN}",GIBBER_JWT_SECRET="${JWT_SECRET}",GIBBER_REGISTRATION_MODE="${REGISTRATION_MODE}",GIBBER_USE_DOCKER="${USE_DOCKER}",GIBBER_PROSODY_URL="${PROSODY_URL}",GIBBER_ENABLE_SASL2="${ENABLE_SASL2}",TURNSTILE_SECRET_KEY="${TURNSTONE_SECRET}",TURNSTILE_ACTION="${TURNSTILE_ACTION}",TURNSTILE_HOSTNAMES="${TURNSTILE_HOSTNAMES}",STRIPE_SECRET_KEY="${STRIPE_SECRET}",STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}",BTCPAY_URL="${BTCPAY_URL}",BTCPAY_API_KEY="${BTCPAY_API_KEY}",BTCPAY_STORE_ID="${BTCPAY_STORE_ID}",GIBBER_JANUS_URL="${JANUS_URL}",GIBBER_JANUS_API_KEY="${JANUS_API_KEY}",GIBBER_TURN_HOST="${TURN_HOST}",GIBBER_TURN_URL="${TURN_URL}",GIBBER_TURN_USER="${TURN_USER}",GIBBER_TURN_PASS="${TURN_PASS}",GIBBER_GIPHY_API_KEY="${GIPHY_API_KEY}"
 autostart=true
 autorestart=true
 stdout_logfile=/dev/fd/1
