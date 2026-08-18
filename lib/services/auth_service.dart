@@ -1461,6 +1461,16 @@ class AuthService with ChangeNotifier {
   }) =>
       _messageService.sendMessage(accountId, toId, text, type: type, fileName: fileName, filePath: filePath, replyToId: replyToId, isGroup: isGroup);
 
+  Future<void> sendLocationMessage(
+    String accountId,
+    String toId, {
+    required double latitude,
+    required double longitude,
+    String? label,
+    bool isGroup = false,
+  }) =>
+      _messageService.sendLocationMessage(accountId, toId, latitude: latitude, longitude: longitude, label: label, isGroup: isGroup);
+
   // Retraction (XEP-0424)
   Future<void> retractXmppMessage(
     String targetJid,

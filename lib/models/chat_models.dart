@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:convert' as json;
 import 'dart:typed_data';
 
-enum MessageType { text, image, file, voice, stream, call, system }
+enum MessageType { text, image, file, voice, stream, call, system, location }
 
 enum MessageStatus { sending, sent, delivered, read }
 
@@ -105,6 +105,9 @@ class ChatMessage {
   DateTime? editTimestamp;
   final String? forwardedFrom;
   final String? encryptionType;
+  final double? latitude;
+  final double? longitude;
+  final String? locationLabel;
 
   ChatMessage({
     required this.id,
@@ -129,6 +132,9 @@ class ChatMessage {
     this.editTimestamp,
     this.forwardedFrom,
     this.encryptionType,
+    this.latitude,
+    this.longitude,
+    this.locationLabel,
   }) : conversationId = conversationId?.split('/').first.toLowerCase(),
        reactions = _dedupeReactionMap(reactions ?? const {});
 
@@ -157,6 +163,9 @@ class ChatMessage {
       'reactions': reactions.isNotEmpty ? jsonEncode(reactions) : null,
       'forwarded_from': forwardedFrom,
       'encryption_type': encryptionType,
+      'latitude': latitude,
+      'longitude': longitude,
+      'location_label': locationLabel,
     };
   }
 
@@ -242,6 +251,9 @@ class ChatMessage {
           : null,
       forwardedFrom: map['forwarded_from'],
       encryptionType: map['encryption_type'],
+      latitude: map['latitude'] != null ? (map['latitude'] as num).toDouble() : null,
+      longitude: map['longitude'] != null ? (map['longitude'] as num).toDouble() : null,
+      locationLabel: map['location_label'],
     );
   }
 }

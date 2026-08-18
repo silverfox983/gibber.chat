@@ -245,13 +245,13 @@ class SipService implements SipUaHelperListener {
     }
   }
 
-  Future<bool> answer() async {
+  Future<bool> answer({bool video = false}) async {
     if (_currentCall == null) return false;
 
-    debugPrint('SipService: Answering call');
+    debugPrint('SipService: Answering call (video: $video)');
 
     try {
-      final options = _helper!.buildCallOptions(false);
+      final options = _helper!.buildCallOptions(video);
       _currentCall!.answer(options, mediaStream: _localStream);
       return true;
     } catch (e) {
@@ -264,7 +264,7 @@ class SipService implements SipUaHelperListener {
     if (_currentCall == null) return;
 
     debugPrint('SipService: Hangup');
-    _currentCall!.hangup({'status_code': 603});
+    _currentCall!.hangup({'status_code': 200});
     _cleanup();
   }
 
@@ -272,7 +272,7 @@ class SipService implements SipUaHelperListener {
     if (_currentCall == null) return;
 
     debugPrint('SipService: Rejecting call');
-    _currentCall!.hangup({'status_code': 603});
+    _currentCall!.hangup({'status_code': 486});
     _cleanup();
   }
 
@@ -381,6 +381,10 @@ class SipService implements SipUaHelperListener {
     if (callState.stream == null) return;
 
     if (callState.originator == Originator.remote) {
+      if (_remoteMediaStream != null) {
+        _remoteMediaStream!.getTracks().forEach((track) => track.stop());
+        _remoteMediaStream!.dispose();
+      }
       _remoteMediaStream = callState.stream;
       remoteRenderer.srcObject = _remoteMediaStream;
       _remoteStreamController.add(_remoteMediaStream!);

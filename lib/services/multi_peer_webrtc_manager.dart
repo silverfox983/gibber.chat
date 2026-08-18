@@ -250,7 +250,8 @@ class MultiPeerWebRTCManager {
 
   Future<void> addCandidate(String peerId, RTCIceCandidate candidate) async {
     if (!_peerConnections.containsKey(peerId)) {
-      _remoteCandidatesQueue[peerId] = [candidate];
+      _remoteCandidatesQueue[peerId] ??= [];
+      _remoteCandidatesQueue[peerId]!.add(candidate);
       return;
     }
     

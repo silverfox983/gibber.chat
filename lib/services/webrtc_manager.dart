@@ -11,18 +11,38 @@ typedef OnIceCandidate = void Function(RTCIceCandidate candidate);
 typedef OnConnectionState = void Function(RTCPeerConnectionState state);
 typedef OnIceConnectionState = void Function(RTCIceConnectionState state);
 
+class CallQualityStats {
+  final int bitrate;
+  final double roundTripTime;
+  final double packetLoss;
+  final int jitter;
+  final String candidateType;
+
+  CallQualityStats({
+    this.bitrate = 0,
+    this.roundTripTime = 0.0,
+    this.packetLoss = 0.0,
+    this.jitter = 0,
+    this.candidateType = 'unknown',
+  });
+}
+
 class WebRTCManager {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
   MediaStream? _remoteStream;
   MediaRecorder? _mediaRecorder;
   MediaStream? _recordingStream;
+  MediaStream? _screenStream;
+  bool _isScreenSharing = false;
   bool _remoteDescriptionSet = false;
   final List<RTCIceCandidate> _remoteCandidatesQueue = [];
   Timer? _statsTimer;
   final _audioLevelController =
       StreamController<Map<String, double>>.broadcast();
   Stream<Map<String, double>> get audioLevels => _audioLevelController.stream;
+  final _qualityStatsController = StreamController<CallQualityStats>.broadcast();
+  Stream<CallQualityStats> get qualityStats => _qualityStatsController.stream;
 
   bool _isDisposed = false;
   bool get isDisposed => _isDisposed;
@@ -714,6 +734,11 @@ class WebRTCManager {
         int iceCandidatePairs = 0;
         int connectedPairs = 0;
         String? selectedPairState;
+        int bitrate = 0;
+        double roundTripTime = 0.0;
+        double packetLoss = 0.0;
+        int jitter = 0;
+        String candidateType = 'unknown';
 
         for (var report in stats) {
           // Standard 'media-source' or 'inbound-rtp' stats per WebRTC spec
@@ -748,11 +773,30 @@ class WebRTCManager {
             if (state == 'succeeded') {
               connectedPairs++;
               selectedPairState = state;
+              roundTripTime = double.tryParse(report.values['currentRoundTripTime']?.toString() ?? '0') ?? 0.0;
+              bitrate = int.tryParse(report.values['availableOutgoingBitrate']?.toString() ?? '0') ?? 0;
+            }
+          }
+
+          // Extract inbound RTP stats (bitrate, jitter, packet loss)
+          if (report.type == 'inbound-rtp' && report.values['kind'] == 'audio') {
+            jitter = int.tryParse(report.values['jitter']?.toString() ?? '0') ?? 0;
+            final lost = int.tryParse(report.values['packetsLost']?.toString() ?? '0') ?? 0;
+            final received = int.tryParse(report.values['packetsReceived']?.toString() ?? '1') ?? 1;
+            if (lost + received > 0) {
+              packetLoss = (lost / (lost + received)) * 100;
             }
           }
         }
 
         _audioLevelController.add({'local': localLevel, 'remote': remoteLevel});
+        _qualityStatsController.add(CallQualityStats(
+          bitrate: bitrate,
+          roundTripTime: roundTripTime,
+          packetLoss: packetLoss,
+          jitter: jitter,
+          candidateType: candidateType,
+        ));
 
         // Log ICE stats every 5 seconds (25 ticks)
         tickCount++;
@@ -1035,6 +1079,7 @@ class WebRTCManager {
 
   MediaStream? get localStream => _localStream;
   MediaStream? get remoteStream => _remoteStream;
+  bool get isScreenSharing => _isScreenSharing;
 
   Future<void> startRecording(String path) async {
     if (_mediaRecorder != null) return;
@@ -1098,6 +1143,52 @@ class WebRTCManager {
     }
   }
 
+  Future<bool> toggleScreenShare() async {
+    if (_peerConnection == null || _localStream == null) {
+      debugPrint('WebRTC: Cannot toggle screen share - no peer connection or local stream');
+      return false;
+    }
+
+    try {
+      if (_isScreenSharing) {
+        debugPrint('WebRTC: Stopping screen share');
+        final senders = await _peerConnection!.getSenders();
+        for (var sender in senders) {
+          if (sender.track?.kind == 'video') {
+            await sender.replaceTrack(_localStream!.getVideoTracks().firstOrNull);
+          }
+        }
+        if (_screenStream != null) {
+          _stopStreamTracks(_screenStream);
+          await _screenStream!.dispose();
+          _screenStream = null;
+        }
+        _isScreenSharing = false;
+        debugPrint('WebRTC: Screen share stopped');
+      } else {
+        debugPrint('WebRTC: Starting screen share');
+        _screenStream = await navigator.mediaDevices.getDisplayMedia({'video': true, 'audio': false});
+        final screenTrack = _screenStream!.getVideoTracks().firstOrNull;
+        if (screenTrack == null) {
+          debugPrint('WebRTC: No screen track available');
+          return false;
+        }
+        final senders = await _peerConnection!.getSenders();
+        for (var sender in senders) {
+          if (sender.track?.kind == 'video') {
+            await sender.replaceTrack(screenTrack);
+          }
+        }
+        _isScreenSharing = true;
+        debugPrint('WebRTC: Screen share started');
+      }
+      return true;
+    } catch (e) {
+      debugPrint('WebRTC: Error toggling screen share: $e');
+      return false;
+    }
+  }
+
   void _stopStreamTracks(MediaStream? stream) {
     if (stream == null) return;
     try {
@@ -1119,6 +1210,7 @@ class WebRTCManager {
     _isDisposed = true; // Synchronous block
     _stopStatsLoop();
     _audioLevelController.close();
+    _qualityStatsController.close();
     await stopRecording();
 
     // SEQUENTIAL SHUTDOWN: tracks first, then streams, then connection

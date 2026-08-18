@@ -1067,6 +1067,44 @@ class JingleSignalingService {
     _cleanupSession(sessionId);
   }
 
+  void sendContentModify(String toJid, String sessionId, String senders, {bool isAudio = true, bool isVideo = true}) {
+    final iqId = 'jingle_${DateTime.now().millisecondsSinceEpoch}';
+    _iqToSessionId[iqId] = sessionId;
+    final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
+    iq.addAttribute(XmppAttribute('to', toJid));
+    iq.addAttribute(XmppAttribute('id', iqId));
+
+    final jingle = xmpp.XmppElement();
+    jingle.name = 'jingle';
+    jingle.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
+    jingle.addAttribute(XmppAttribute('action', 'content-modify'));
+    jingle.addAttribute(XmppAttribute('sid', sessionId));
+
+    final contentNames = _sessionContentMap[sessionId] ?? [];
+    for (var contentName in contentNames) {
+      final content = xmpp.XmppElement();
+      content.name = 'content';
+      content.addAttribute(XmppAttribute('name', contentName));
+      content.addAttribute(XmppAttribute('creator', 'initiator'));
+
+      final transport = xmpp.XmppElement();
+      transport.name = 'transport';
+      transport.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:transports:ice-udp:1'));
+
+      final sendersAttr = xmpp.XmppElement();
+      sendersAttr.name = 'senders';
+      sendersAttr.textValue = senders;
+
+      transport.addChild(sendersAttr);
+      content.addChild(transport);
+      jingle.addChild(content);
+    }
+
+    iq.addChild(jingle);
+    debugPrint('Jingle: Sending content-modify (senders=$senders) to $toJid');
+    _writeStanza(iq);
+  }
+
   void _cleanupSession(String sessionId) {
     debugPrint('Jingle: Cleaning up session state for $sessionId');
     _sessionContentMap.remove(sessionId);

@@ -240,6 +240,15 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                 ),
               ),
             ),
+
+          // GROUP CALL PARTICIPANTS PANEL
+          if (call.isGroupCall && _showParticipants)
+            Positioned(
+              top: 0,
+              right: 0,
+              bottom: 0,
+              child: _buildParticipantsPanel(call),
+            ),
         ],
       ),
     );
@@ -409,6 +418,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           color: theme.colorScheme.surface.withValues(alpha: 0.85),
+          width: 280,
           child: Column(
             children: [
               const SizedBox(height: 60),
@@ -430,19 +440,9 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                       onPressed: () => setState(() => _showParticipants = false),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            ),
-
-          // GROUP CALL PARTICIPANTS PANEL
-          if (call.isGroupCall && _showParticipants)
-            Positioned(
-              top: 0,
-              right: 0,
-              bottom: 0,
-              width: 280,
-              child: _buildParticipantsPanel(call),
-            ),
-        ],
-      ),
+                    ),
+                  ],
+                ),
               ),
               Divider(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.2), height: 1),
               Expanded(
@@ -577,6 +577,8 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                 ),
               ),
               const SizedBox(width: 8),
+              _buildCallQualityStats(call),
+              const SizedBox(width: 8),
             ],
             Text(
               statusText,
@@ -664,6 +666,88 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
       child: Text(
         qualityText.toUpperCase(),
         style: TextStyle(color: qualityColor, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.0),
+      ),
+    );
+  }
+
+  Widget _buildCallQualityStats(CallProvider call) {
+    final stats = call.qualityStats;
+    if (stats == null) return const SizedBox.shrink();
+
+    String rttText = '${(stats.roundTripTime * 1000).toInt()}ms';
+    String bitrateText = stats.bitrate > 0 ? '${(stats.bitrate / 1000).toInt()}kbps' : '';
+
+    return GestureDetector(
+      onTap: () => _showQualityStatsDialog(call),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.signal_cellular_alt_rounded, size: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          const SizedBox(width: 2),
+          Text(
+            rttText,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (bitrateText.isNotEmpty) ...[
+            const SizedBox(width: 4),
+            Icon(Icons.speed_rounded, size: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+            const SizedBox(width: 2),
+            Text(
+              bitrateText,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showQualityStatsDialog(CallProvider call) {
+    final stats = call.qualityStats;
+    if (stats == null) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Call Quality'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _statRow('RTT', '${(stats.roundTripTime * 1000).toInt()} ms'),
+            _statRow('Bitrate', stats.bitrate > 0 ? '${(stats.bitrate / 1000).toInt()} kbps' : 'N/A'),
+            _statRow('Jitter', '${stats.jitter} ms'),
+            _statRow('Packet Loss', '${stats.packetLoss.toStringAsFixed(1)}%'),
+            _statRow('Candidate Type', stats.candidateType),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }
@@ -823,6 +907,17 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                   call.toggleSpeaker();
                 },
               ),
+              if (call.state == CallState.active && !call.isGroupCall)
+                _enhancedCircleButton(
+                  icon: call.isOnHold ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                  label: call.isOnHold ? 'Resume' : 'Hold',
+                  isActive: call.isOnHold,
+                  activeColor: call.isOnHold ? Colors.orange : Theme.of(context).colorScheme.secondary,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    call.toggleHold();
+                  },
+                ),
               if (isCallActive)
                 _enhancedCircleButton(
                   icon: Icons.dialpad_rounded,
@@ -914,7 +1009,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                     }
                   },
                 ),
-              if (call.state == CallState.active)
+                if (call.state == CallState.active)
                 _enhancedCircleButton(
                   icon: Icons.auto_awesome_rounded,
                   label: 'AI',
@@ -929,6 +1024,17 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                         as2.initialize();
                       }
                     }
+                  },
+                ),
+              if (call.state == CallState.active && call.isVideo && !call.isGroupCall)
+                _enhancedCircleButton(
+                  icon: call.isScreenSharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded,
+                  label: call.isScreenSharing ? 'Stop Share' : 'Share Screen',
+                  isActive: call.isScreenSharing,
+                  activeColor: call.isScreenSharing ? Colors.orange : Theme.of(context).colorScheme.primary,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    call.toggleScreenShare();
                   },
                 ),
             ],

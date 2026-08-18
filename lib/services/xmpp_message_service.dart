@@ -379,6 +379,75 @@ class XmppMessageService {
     }
   }
 
+  Future<void> sendLocationMessage(
+    String accountId,
+    String toId, {
+    required double latitude,
+    required double longitude,
+    String? label,
+    bool isGroup = false,
+  }) async {
+    final conn = _d.xmppConnections[accountId];
+    final id = accountId ?? _d.activeAccountId;
+
+    final geoUri = 'geo:$latitude,$longitude${label != null ? ';label=$label' : ''}';
+    final text = label ?? geoUri;
+
+    if (conn != null &&
+        (conn.state == xmpp.XmppConnectionState.Ready ||
+            conn.state == xmpp.XmppConnectionState.Resumed)) {
+      final msg = xmpp.MessageStanza(
+        DateTime.now().millisecondsSinceEpoch.toString(),
+        isGroup ? xmpp.MessageStanzaType.GROUPCHAT : xmpp.MessageStanzaType.CHAT,
+      );
+      final finalTarget = isGroup ? toId.split('/').first : toId;
+      msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
+      msg.body = text;
+
+      final geoEl = xmpp.XmppElement();
+      geoEl.name = 'geo';
+      geoEl.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/geoloc'));
+      final latEl = xmpp.XmppElement();
+      latEl.name = 'lat';
+      latEl.textValue = latitude.toString();
+      final lonEl = xmpp.XmppElement();
+      lonEl.name = 'lon';
+      lonEl.textValue = longitude.toString();
+      if (label != null) {
+        final lblEl = xmpp.XmppElement();
+        lblEl.name = 'label';
+        lblEl.textValue = label;
+        geoEl.addChild(lblEl);
+      }
+      geoEl.addChild(latEl);
+      geoEl.addChild(lonEl);
+      msg.addChild(geoEl);
+
+      conn.writeStanza(msg);
+
+      _d.messageStreamController.add(
+        ChatMessage(
+          id: msg.id ?? 'xmpp_${DateTime.now().microsecondsSinceEpoch}',
+          text: text,
+          timestamp: DateTime.now(),
+          isSent: true,
+          type: MessageType.location,
+          senderId: _d.xmppJids[id] ?? 'me',
+          accountId: id,
+          protocol: 'XMPP',
+          conversationId: toId.split('/').first.toLowerCase(),
+          isGroup: isGroup,
+          status: MessageStatus.sent,
+          latitude: latitude,
+          longitude: longitude,
+          locationLabel: label,
+        ),
+      );
+    } else {
+      debugPrint('XMPP: Cannot send location - not connected');
+    }
+  }
+
   Future<void> retractXmppMessage(
     String targetJid,
     String messageId, {

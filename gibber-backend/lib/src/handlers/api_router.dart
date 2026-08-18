@@ -50,6 +50,7 @@ class ApiRouter {
   final RateLimiter _sfuLimiter = RateLimiter(maxRequests: 30, window: Duration(minutes: 1));
   final String? janusApiKey;
   final String? janusUrl;
+  final String? giphyApiKey;
 
   String? get _effectiveJanusApiKey =>
       janusApiKey ?? Platform.environment['GIBBER_JANUS_API_KEY'] ?? '';
@@ -65,8 +66,9 @@ class ApiRouter {
     this.adminApiKey = 'gibber-admin-key',
     this.janusApiKey,
     this.janusUrl,
+    this.giphyApiKey,
     CaptchaService? captchaService,
-     JwtService? jwtService,
+    JwtService? jwtService,
   }) : captchaService = captchaService ?? CaptchaService(),
        jwtService = jwtService,
        healthService = HealthService(db: db, xmppRegistrar: xmppRegistrar) {
@@ -550,6 +552,7 @@ class ApiRouter {
       'uploadUrl': uploadUrl,
       'websocketUrl': websocketUrl,
       'maxUploadSize': 52428800,
+      if (giphyApiKey != null && giphyApiKey!.isNotEmpty) 'giphyApiKey': giphyApiKey,
     };
 
     if (_effectiveJanusUrl != null && _effectiveJanusUrl!.isNotEmpty) {
@@ -902,23 +905,41 @@ class ApiRouter {
 
   Future<Response> _handlePasswordChange(Request request) async {
     final authHeader = request.headers['authorization'];
+    String? authenticatedJid;
+    bool isAdmin = false;
+
     if (jwtService != null && authHeader != null && authHeader.startsWith('Bearer ')) {
       final token = authHeader.substring(7);
       final payload = jwtService!.verifyToken(token);
       if (payload == null) {
         return Response(401, body: jsonEncode({'error': 'Invalid or expired token'}), headers: _jsonHeaders);
       }
-    } else if (!_verifyAdminKey(request)) {
+      authenticatedJid = payload.jid;
+    } else if (_verifyAdminKey(request)) {
+      isAdmin = true;
+    } else {
       return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
     }
 
     try {
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
-      final username = body['username'] as String?;
       final newPassword = body['newPassword'] as String?;
-      final host = body['host'] as String?;
+      String? targetUsername;
+      String? host;
 
-      final usernameError = InputValidator.validateUsername(username);
+      if (isAdmin) {
+        targetUsername = body['username'] as String?;
+        host = body['host'] as String?;
+      } else {
+        targetUsername = authenticatedJid?.split('@').first;
+        host = authenticatedJid?.contains('@') == true ? authenticatedJid!.split('@').last : null;
+      }
+
+      if (targetUsername == null || targetUsername.isEmpty) {
+        return Response.badRequest(body: jsonEncode({'error': 'Username is required'}), headers: _jsonHeaders);
+      }
+
+      final usernameError = InputValidator.validateUsername(targetUsername);
       if (usernameError != null) {
         return Response.badRequest(body: jsonEncode({'error': usernameError}), headers: _jsonHeaders);
       }
@@ -928,7 +949,7 @@ class ApiRouter {
         return Response.badRequest(body: jsonEncode({'error': passwordError}), headers: _jsonHeaders);
       }
 
-      final success = await xmppRegistrar.changePassword(username!, newPassword!, host: host);
+      final success = await xmppRegistrar.changePassword(targetUsername, newPassword!, host: host);
       if (success) {
         return Response.ok(
           jsonEncode({'message': 'Password changed successfully'}),
@@ -954,41 +975,57 @@ class ApiRouter {
 
   Future<Response> _handleAccountDelete(Request request) async {
     final authHeader = request.headers['authorization'];
-    String? jid;
+    String? authenticatedJid;
+    bool isAdmin = false;
+
     if (jwtService != null && authHeader != null && authHeader.startsWith('Bearer ')) {
       final token = authHeader.substring(7);
       final payload = jwtService!.verifyToken(token);
       if (payload == null) {
         return Response(401, body: jsonEncode({'error': 'Invalid or expired token'}), headers: _jsonHeaders);
       }
-      jid = payload.jid;
-    } else if (!_verifyAdminKey(request)) {
+      authenticatedJid = payload.jid;
+    } else if (_verifyAdminKey(request)) {
+      isAdmin = true;
+    } else {
       return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
     }
 
     try {
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
-      final username = (body['username'] as String?) ?? (jid != null ? jid.split('@').first : null);
-      final host = body['host'] as String?;
+      final domain = (body['host'] as String?) ?? xmppRegistrar.domain;
+      String targetUsername;
+      String targetJid;
 
-      final usernameError = InputValidator.validateUsername(username);
-      if (usernameError != null) {
-        return Response.badRequest(body: jsonEncode({'error': usernameError}), headers: _jsonHeaders);
+      if (isAdmin) {
+        final username = body['username'] as String?;
+        if (username == null || username.isEmpty) {
+          return Response.badRequest(body: jsonEncode({'error': 'Username is required for admin deletion'}), headers: _jsonHeaders);
+        }
+        final usernameError = InputValidator.validateUsername(username);
+        if (usernameError != null) {
+          return Response.badRequest(body: jsonEncode({'error': usernameError}), headers: _jsonHeaders);
+        }
+        targetUsername = username;
+        targetJid = '$username@$domain';
+      } else {
+        if (authenticatedJid == null) {
+          return Response(401, body: jsonEncode({'error': 'Unable to determine authenticated user'}), headers: _jsonHeaders);
+        }
+        targetUsername = authenticatedJid.split('@').first;
+        targetJid = authenticatedJid;
       }
 
-      final domain = host ?? xmppRegistrar.domain;
-      final userJid = '$username@$domain';
-
-      final deleted = await xmppRegistrar.deleteUser(username!, host: host);
+      final deleted = await xmppRegistrar.deleteUser(targetUsername, host: domain);
       if (deleted) {
-        db.db.execute('DELETE FROM users WHERE jid = ?', [userJid]);
-        db.db.execute('DELETE FROM entitlements WHERE jid = ?', [userJid]);
-        db.db.execute('DELETE FROM miner_sessions WHERE jid = ?', [userJid]);
-        db.db.execute('DELETE FROM payments WHERE jid = ?', [userJid]);
-        db.db.execute('DELETE FROM subscriptions WHERE jid = ?', [userJid]);
-        db.db.execute('DELETE FROM gateway_authorizations WHERE jid = ?', [userJid]);
+        db.db.execute('DELETE FROM users WHERE jid = ?', [targetJid]);
+        db.db.execute('DELETE FROM entitlements WHERE jid = ?', [targetJid]);
+        db.db.execute('DELETE FROM miner_sessions WHERE jid = ?', [targetJid]);
+        db.db.execute('DELETE FROM payments WHERE jid = ?', [targetJid]);
+        db.db.execute('DELETE FROM subscriptions WHERE jid = ?', [targetJid]);
+        db.db.execute('DELETE FROM gateway_authorizations WHERE jid = ?', [targetJid]);
         return Response.ok(
-          jsonEncode({'message': 'Account deleted successfully', 'jid': userJid}),
+          jsonEncode({'message': 'Account deleted successfully', 'jid': targetJid}),
           headers: _jsonHeaders,
         );
       } else {

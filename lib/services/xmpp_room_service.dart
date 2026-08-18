@@ -68,6 +68,39 @@ class XmppRoomService with ChangeNotifier {
     await saveJoinedRooms();
   }
 
+  Future<void> destroyRoom(String accountId, String roomJid, {String? reason}) async {
+    final conn = _connections[accountId];
+    if (conn == null) return;
+
+    debugPrint('MUC: Destroying Room $roomJid');
+
+    final iqId = 'destroy_${DateTime.now().millisecondsSinceEpoch}';
+    final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(roomJid.split('/').first);
+
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'));
+
+    final destroy = xmpp.XmppElement();
+    destroy.name = 'destroy';
+    if (reason != null && reason.isNotEmpty) {
+      final reasonEl = xmpp.XmppElement();
+      reasonEl.name = 'reason';
+      reasonEl.textValue = reason;
+      destroy.addChild(reasonEl);
+    }
+    query.addChild(destroy);
+    iq.addChild(query);
+
+    conn.writeStanza(iq);
+
+    _persistedRooms.removeWhere((r) => r.startsWith('$accountId|$roomJid'));
+    await saveJoinedRooms();
+
+    debugPrint('MUC: Room $roomJid destruction request sent');
+  }
+
   Future<String?> joinGenericRoom(String destination, {String? accountId}) async {
     return await joinXmppRoom(
       destination,

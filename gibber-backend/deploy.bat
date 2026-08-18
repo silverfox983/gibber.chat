@@ -30,9 +30,6 @@ cd /d "%PROJECT_ROOT%\gibber-backend"
 echo   Stopping existing containers...
 docker compose down 2>nul
 
-echo   Removing stale prosody data...
-docker volume rm gibber-backend_prosody_data 2>nul
-
 echo   Building backend image...
 docker compose build --no-cache
 if %errorlevel% neq 0 (

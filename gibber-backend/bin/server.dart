@@ -283,6 +283,7 @@ void main(List<String> args) async {
     ..addOption('turn-url', defaultsTo: Platform.environment['GIBBER_TURN_URL'] ?? '', help: 'TURN server URL (host:port) for relay.')
     ..addOption('turn-user', defaultsTo: Platform.environment['GIBBER_TURN_USER'] ?? '', help: 'TURN server username.')
     ..addOption('turn-pass', defaultsTo: Platform.environment['GIBBER_TURN_PASS'] ?? '', help: 'TURN server password/credential.')
+    ..addOption('giphy-api-key', defaultsTo: Platform.environment['GIBBER_GIPHY_API_KEY'] ?? '', help: 'Giphy API key for GIF search.')
     ..addFlag('reset-db', abbr: 'r', defaultsTo: false);
 
   final result = parser.parse(args);
@@ -309,6 +310,7 @@ void main(List<String> args) async {
   final jwtSecret = result['jwt-secret'] as String;
   final janusUrl = result['janus-url'] as String;
   final janusApiKey = result['janus-api-key'] as String;
+  final giphyApiKey = result['giphy-api-key'] as String;
 
   final db = DatabaseService(dbPath);
   await db.initialize(reset: resetDb);
@@ -403,6 +405,7 @@ void main(List<String> args) async {
     jwtService: jwtService,
     janusUrl: janusUrl,
     janusApiKey: janusApiKey,
+    giphyApiKey: giphyApiKey,
   );
 
   final corsMiddleware = corsHeaders(headers: {

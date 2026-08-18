@@ -124,18 +124,24 @@ class XmppStanzaHandler {
     if (reactions != null &&
         reactions.getAttribute('xmlns')?.value == 'urn:xmpp:reactions:0') {
       final targetId = reactions.getAttribute('id')?.value;
-      final emoji = reactions.getChild('reaction')?.textValue;
-      if (targetId != null && emoji != null) {
-        _d.jingleEventController.add(
-          JingleEvent(
-            action: JingleAction.transportInfo,
-            sessionId: 'reaction',
-            fromJid: stanza.fromJid?.fullJid ?? '',
-            reason: targetId,
-            sdp: emoji,
-            accountId: accountId,
-          ),
-        );
+      if (targetId != null) {
+        for (var reactionEl in reactions.children) {
+          if (reactionEl.name == 'reaction') {
+            final emoji = reactionEl.textValue;
+            if (emoji != null && emoji.isNotEmpty) {
+              _d.jingleEventController.add(
+                JingleEvent(
+                  action: JingleAction.transportInfo,
+                  sessionId: 'reaction',
+                  fromJid: stanza.fromJid?.fullJid ?? '',
+                  reason: targetId,
+                  sdp: emoji,
+                  accountId: accountId,
+                ),
+              );
+            }
+          }
+        }
       }
     }
 
@@ -305,13 +311,24 @@ class XmppStanzaHandler {
 
         if (finalBody == null) return;
 
+        final geoEl = stanza.getChild('geo');
+        final isLocation = geoEl != null && geoEl.getAttribute('xmlns')?.value == 'http://jabber.org/protocol/geoloc';
+        double? lat;
+        double? lon;
+        String? locLabel;
+        if (isLocation) {
+          lat = double.tryParse(geoEl.getChild('lat')?.textValue ?? '');
+          lon = double.tryParse(geoEl.getChild('lon')?.textValue ?? '');
+          locLabel = geoEl.getChild('label')?.textValue;
+        }
+
         _d.messageStreamController.add(
           ChatMessage(
             id: stanza.id ?? 'xmpp_${DateTime.now().microsecondsSinceEpoch}',
             text: isRetraction ? '🚫 Message retracted' : finalBody,
             timestamp: DateTime.now(),
             isSent: false,
-            type: isRetraction ? MessageType.system : MessageType.text,
+            type: isRetraction ? MessageType.system : (isLocation ? MessageType.location : MessageType.text),
             senderId: bareJid,
             senderName: bareJid.split('@').first,
             conversationId: bareJid,
@@ -319,6 +336,9 @@ class XmppStanzaHandler {
             protocol: 'XMPP',
             replacesId: replacesId,
             encryptionType: encrypted != null ? 'omemo' : null,
+            latitude: lat,
+            longitude: lon,
+            locationLabel: locLabel,
           ),
         );
       }

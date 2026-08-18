@@ -14,6 +14,7 @@ class BackendConfig extends ChangeNotifier {
   int _maxUploadSize = 52428800;
   String? _sfuUrl;
   String? _sfuApiKey;
+  String? _giphyApiKey;
   List<Map<String, dynamic>> _iceServers = [];
 
   static const String _apiUrlKey = 'gibber_backend_api_url';
@@ -31,6 +32,7 @@ class BackendConfig extends ChangeNotifier {
   String? get websocketUrl => _websocketUrl;
   String? get sfuUrl => _sfuUrl;
   String? get sfuApiKey => _sfuApiKey;
+  String? get giphyApiKey => _giphyApiKey;
   List<Map<String, dynamic>> get iceServers => _iceServers;
 
   String get derivedWebsocketUrl {
@@ -75,6 +77,7 @@ class BackendConfig extends ChangeNotifier {
         _maxUploadSize = (data['maxUploadSize'] as int?) ?? 52428800;
         _sfuUrl = data['sfuUrl'] as String?;
         _sfuApiKey = data['sfuApiKey'] as String?;
+        _giphyApiKey = data['giphyApiKey'] as String?;
         final ice = data['iceServers'] as List<dynamic>?;
         if (ice != null) {
           _iceServers = ice.cast<Map<String, dynamic>>();

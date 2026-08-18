@@ -56,11 +56,15 @@ class OfflineQueueService {
     ) ?? 0;
 
     if (count >= _maxQueueSize) {
-      await db.delete(
-        'pending_messages',
-        where: 'account_id = ? ORDER BY created_at ASC LIMIT 1',
-        whereArgs: [accountId],
-      );
+      await db.rawDelete('''
+        DELETE FROM pending_messages
+        WHERE id = (
+          SELECT id FROM pending_messages
+          WHERE account_id = ?
+          ORDER BY created_at ASC
+          LIMIT 1
+        )
+      ''', [accountId]);
     }
 
     await db.insert('pending_messages', {

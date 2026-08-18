@@ -444,10 +444,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   Future<void> _pickGif(Conversation activeChat) async {
+    final backendConfig = Provider.of<BackendConfig>(context, listen: false);
+    final apiKey = backendConfig.giphyApiKey ?? 'dc6zaTOxFJmzC'; // Demo key fallback
     final gif = await GiphyGet.getGif(
       context: context,
-      apiKey:
-          '8865KxYxI5N5SgT7H1P5K3Q9E2G4I6K7', // Placeholder/Example - Should use config
+      apiKey: apiKey,
       tabColor: Theme.of(context).colorScheme.primary,
     );
     if (gif != null && gif.images?.original?.url != null) {

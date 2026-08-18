@@ -40,6 +40,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   bool _isMicMuted = false;
   bool _isCameraOff = false;
   bool _isSpeakerOn = false;
+  bool _isOnHold = false;
+  bool _isScreenSharing = false;
   DateTime? _callStartTime;
   AuthService? _authService;
   CallHistoryService? _historyService;
@@ -61,6 +63,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   SipService? _sipService;
   StreamSubscription? _signalingSub;
   StreamSubscription? _statsSub;
+  StreamSubscription? _qualityStatsSub;
   StreamSubscription? _proximitySub;
   StreamSubscription? _sipCallStateSub;
   StreamSubscription? _roomParticipantSub;
@@ -96,6 +99,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   bool get isMicMuted => _isMicMuted;
   bool get isCameraOff => _isCameraOff;
   bool get isSpeakerOn => _isSpeakerOn;
+  bool get isOnHold => _isOnHold;
+  bool get isScreenSharing => _isScreenSharing;
   bool get isRecording => _isRecording;
   String? get lastRecordingPath => _lastRecordingPath;
   RTCVideoRenderer get localRenderer => _localRenderer;
@@ -111,6 +116,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   bool get isSipCall => _isSipCall;
   bool get isSipRegistered => _sipService?.isRegistered ?? false;
   SipService? get sipService => _sipService;
+  CallQualityStats? get qualityStats => _qualityStats;
+  CallQualityStats? _qualityStats;
   
   bool get isGroupCall => _isGroupCall;
   GroupCallSession? get groupCallSession => _groupCallSession;
@@ -661,6 +668,12 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         notifyListeners();
       });
 
+      _qualityStatsSub?.cancel();
+      _qualityStatsSub = _rtcManager.qualityStats.listen((stats) {
+        _qualityStats = stats;
+        notifyListeners();
+      });
+
       final offer = await _rtcManager.createOffer();
       debugPrint('CallProvider: Offer created');
 
@@ -930,6 +943,35 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     notifyListeners();
   }
 
+  void toggleHold() {
+    if (_state != CallState.active) return;
+
+    _isOnHold = !_isOnHold;
+
+    final senders = _isOnHold ? 'sendonly' : 'sendrecv';
+    debugPrint('CallProvider: Toggle hold: $_isOnHold (senders=$senders)');
+
+    if (_isSipCall) {
+      _log('Call ${_isOnHold ? "On Hold" : "Resumed"}', isSent: true);
+      notifyListeners();
+      return;
+    }
+
+    final signaling = _authService?.getJingleService(_callAccountId ?? '') ?? _authService?.jingleSignaling;
+    if (signaling != null && _remoteJid != null && _sessionId != null) {
+      signaling.sendContentModify(_remoteJid!, _sessionId!, senders);
+    }
+
+    if (_isOnHold) {
+      _rtcManager.toggleMic(false);
+    } else {
+      _rtcManager.toggleMic(!_isMicMuted);
+    }
+
+    _log('Call ${_isOnHold ? "On Hold" : "Resumed"}', isSent: true);
+    notifyListeners();
+  }
+
   Future<void> _playRingtone() async {
     await _soundService.playRingtone();
   }
@@ -971,6 +1013,30 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
     await _rtcManager.switchCamera();
     _log('Camera switched', isSent: true);
+  }
+
+  Future<void> toggleScreenShare() async {
+    if (_state != CallState.active) return;
+
+    _isScreenSharing = !_isScreenSharing;
+
+    if (_isGroupCall) {
+      if (_janusService != null) {
+        debugPrint('CallProvider: Screen sharing via SFU not yet implemented');
+      } else if (_multiPeerManager != null) {
+        debugPrint('CallProvider: Screen sharing via mesh not yet implemented');
+      }
+      _log('Screen share ${_isScreenSharing ? "On" : "Off"}', isSent: true);
+      notifyListeners();
+      return;
+    }
+
+    final success = await _rtcManager.toggleScreenShare();
+    if (!success) {
+      _isScreenSharing = false;
+    }
+    _log('Screen share ${_isScreenSharing ? "On" : "Off"}', isSent: true);
+    notifyListeners();
   }
 
   Future<void> startCall(
@@ -1732,21 +1798,68 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
 
     debugPrint('CallProvider: Inviting $targetJid to the active call...');
-    
-    // Architecturally, since Gibber is currently strictly P2P via WebRTC,
-    // true multiparty calling requires either an MCU/SFU bridge or a mesh of PeerConnections.
-    // For now, we will log the invite action. A future implementation would:
-    // 1. Create a MUC room.
-    // 2. Send XEP-0249 (Direct MUC Invitations) to the new participant and the current remote party.
-    
-    _log('Invited $targetJid to join the call', isSent: true);
-    
-    // We could potentially send a standard chat message containing a conference URI if we wanted to mock it.
-    if (_authService != null && _callAccountId != null) {
-      // final jingleService = _authService!.getJingleService(_callAccountId!);
-      // For now, we just simulate sending an invite.
-      // jingleService.sendConferenceInvite(targetJid, _sessionId!);
+
+    final auth = _authService;
+    if (_isGroupCall && _remoteJid != null && auth != null && _callAccountId != null) {
+      await auth.roomService.inviteToRoomDirect(
+        _callAccountId!,
+        _remoteJid!,
+        targetJid,
+        reason: 'Join group call',
+      );
+      _log('Invited $targetJid to join the call', isSent: true);
+    } else {
+      _log('Invited $targetJid to join the call', isSent: true);
     }
+    notifyListeners();
+  }
+
+  Future<void> muteParticipant(String nick, bool muted) async {
+    if (!_isGroupCall || _remoteJid == null) return;
+
+    debugPrint('CallProvider: ${muted ? 'Muting' : 'Unmuting'} participant $nick');
+
+    if (_janusService != null && _groupCallSession != null) {
+      // SFU: use Janus modify handles
+      // Janus plugin doesn't have direct mute per-peer, so we log for now
+      debugPrint('CallProvider: SFU per-peer mute not yet implemented');
+      _log('${muted ? 'Muted' : 'Unmuted'} $nick', isSent: true);
+    } else if (_multiPeerManager != null) {
+      // Mesh: mute via PeerConnection
+      // For mesh, we can't truly mute remote peers - we can only remove their tracks locally
+      final renderer = _groupRenderers[nick];
+      if (renderer?.srcObject != null) {
+        for (var track in renderer!.srcObject!.getAudioTracks()) {
+          track.enabled = !muted;
+        }
+      }
+      _log('${muted ? 'Muted' : 'Unmuted'} $nick', isSent: true);
+    }
+
+    notifyListeners();
+  }
+
+  Future<void> kickParticipant(String nick) async {
+    if (!_isGroupCall || _remoteJid == null || _authService == null || _callAccountId == null) return;
+
+    debugPrint('CallProvider: Kicking participant $nick from group call');
+
+    await _authService!.roomService.kickUser(
+      _callAccountId!,
+      _remoteJid!,
+      nick,
+      reason: 'Removed from call',
+    );
+
+    // Remove renderer for kicked participant
+    final renderer = _groupRenderers.remove(nick);
+    if (renderer != null) {
+      renderer.srcObject = null;
+      renderer.dispose();
+    }
+    _groupAudioLevels.remove(nick);
+    _log('Removed $nick from the call', isSent: true);
+    notifyListeners();
   }
 
   Future<void> endCall() async {
@@ -1834,6 +1947,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _releaseSchedulerForCall();
 
     _statsSub?.cancel();
+    _qualityStatsSub?.cancel();
+    _qualityStatsSub = null;
     _roomParticipantSub?.cancel();
     _roomParticipantSub = null;
     _janusSpeakingSub?.cancel();
@@ -1906,11 +2021,14 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _callAccountId = null;
     _isMicMuted = false;
     _isCameraOff = false;
+    _isOnHold = false;
+    _isScreenSharing = false;
     _callStartTime = null;
     _localVolume = 0.0;
     _remoteVolume = 0.0;
     _remoteAnswerProcessed = false;
     _iceCheckingStartTime = null;
+    _qualityStats = null;
 
     // Reset audio effects and stop playback on call end
     _audioEffects.reset();
