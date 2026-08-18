@@ -78,8 +78,12 @@ class XmppOmemoService with ChangeNotifier {
     return identities.any((iden) => (iden['trust_level'] as int? ?? 0) == 0);
   }
 
-  Future<int> getChatSecurityStatus(String chatId) async {
+  Future<int> getChatSecurityStatus(String chatId, {bool isGroup = false}) async {
     if (!isOmemoEnabled(chatId)) return -1;
+
+    if (isGroup) {
+      return await _getGroupChatSecurityStatus(chatId);
+    }
 
     final fingerprints = await _omemo.getFingerprintsDetailed(chatId);
     if (fingerprints.isEmpty) return -1;
@@ -96,6 +100,47 @@ class XmppOmemoService with ChangeNotifier {
     if (hasDistrusted) return 2;
     if (hasUnverified) return 0;
     return 1;
+  }
+
+  Future<int> _getGroupChatSecurityStatus(String chatId) async {
+    final fingerprints = await _omemo.getFingerprintsDetailed(chatId);
+    if (fingerprints.isEmpty) return -1;
+
+    int unverifiedCount = 0;
+    int distrustedCount = 0;
+    int verifiedCount = 0;
+
+    for (var device in fingerprints.values) {
+      final level = device['trustLevel'] as int;
+      final isOwn = device['isOwn'] as bool? ?? false;
+      if (isOwn) continue;
+      if (level == 2) distrustedCount++;
+      if (level == 0) unverifiedCount++;
+      if (level == 1) verifiedCount++;
+    }
+
+    if (distrustedCount > 0) return 2;
+    if (unverifiedCount > 0) return 0;
+    if (verifiedCount > 0) return 1;
+    return 1;
+  }
+
+  Future<int> getGroupParticipantKeyStatus(String chatId) async {
+    final fingerprints = await _omemo.getFingerprintsDetailed(chatId);
+    if (fingerprints.isEmpty) return 0;
+
+    int verifiedCount = 0;
+    int unverifiedCount = 0;
+
+    for (var device in fingerprints.values) {
+      final level = device['trustLevel'] as int;
+      final isOwn = device['isOwn'] as bool? ?? false;
+      if (isOwn) continue;
+      if (level >= 1) verifiedCount++;
+      if (level == 0) unverifiedCount++;
+    }
+
+    return verifiedCount + unverifiedCount;
   }
 
   Future<void> updateOmemoTrust(String jid, int deviceId, int trustLevel) async {

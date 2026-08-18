@@ -243,6 +243,47 @@ class _LoginScreenState extends State<LoginScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 16),
+          Center(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TextButton(
+                  onPressed: () => _showLegalDialog(context, 'terms'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: isDark ? Colors.white38 : const Color(0xFF9CA3AF),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text(
+                    'Terms of Service',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+                Text(
+                  ' · ',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.white38 : const Color(0xFF9CA3AF),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _showLegalDialog(context, 'privacy'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: isDark ? Colors.white38 : const Color(0xFF9CA3AF),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text(
+                    'Privacy Policy',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ],
     );
@@ -513,4 +554,94 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     }
   }
+
+  void _showLegalDialog(BuildContext context, String type) {
+    final title = type == 'terms' ? 'Terms of Service' : 'Privacy Policy';
+    final content = type == 'terms'
+        ? _termsContent
+        : _privacyContent;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            content,
+            style: const TextStyle(fontSize: 14, height: 1.5),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static const String _termsContent = '''
+Terms of Service
+
+Last updated: August 2026
+
+1. Acceptance of Terms
+By using Gibber, you agree to these terms. If you do not agree, do not use the service.
+
+2. Use of Service
+Gibber provides encrypted XMPP-based communication services. You agree to use the service lawfully and not to send spam, malware, or harmful content.
+
+3. Privacy
+Your messages are end-to-end encrypted. We do not have access to the content of your communications. See our Privacy Policy for details.
+
+4. Account Responsibility
+You are responsible for keeping your password secure and for all activity under your account.
+
+5. Service Availability
+We strive for uptime but do not guarantee uninterrupted service. We reserve the right to modify or discontinue service with reasonable notice.
+
+6. Limitation of Liability
+Gibber is provided "as is" without warranties. We are not liable for damages arising from use of the service.
+
+7. Changes to Terms
+We may update these terms. Continued use after changes constitutes acceptance.
+
+Contact: admin@gibberapp.online
+''';
+
+  static const String _privacyContent = '''
+Privacy Policy
+
+Last updated: August 2026
+
+1. Information We Collect
+We collect minimal information necessary to provide the service: your XMPP username (JID) and authentication credentials. We do not require a phone number or email.
+
+2. How We Use Information
+- Authentication: Your credentials are used solely to authenticate with the XMPP server.
+- Service operation: Minimal metadata (connection timestamps, IP addresses) may be logged for operational purposes.
+- Payments: If you subscribe, payment processing is handled by third-party providers (Stripe, BTCPay Server). We do not store payment card details.
+
+3. End-to-End Encryption
+All messages are encrypted using OMEMO or OpenPGP. We cannot read, access, or decrypt your messages. Group chat encryption keys are distributed among participants.
+
+4. Data Retention
+- Account data: Retained until you delete your account.
+- Message archives (MAM): Stored encrypted on the server per your preference and applicable server settings.
+- Logs: Connection metadata retained for up to 30 days.
+
+5. Third-Party Services
+- Federation: Messages to/from other XMPP servers pass through their servers, governed by their privacy policies.
+- Gateway transports (Telegram, Discord, etc.): When you use gateway bridges, your messages are processed by those third-party services.
+
+6. Your Rights
+You may request deletion of your account and all associated data at any time by contacting admin@gibberapp.online.
+
+7. Security
+We use industry-standard encryption (TLS, OMEMO) to protect data in transit and at rest.
+
+8. Contact
+admin@gibberapp.online
+''';
 }

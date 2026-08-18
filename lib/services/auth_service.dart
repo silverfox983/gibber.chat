@@ -309,7 +309,11 @@ class AuthService with ChangeNotifier {
 
   Future<bool> hasUnverifiedDevices(String jid) => _omemoService.hasUnverifiedDevices(jid);
 
-  Future<int> getChatSecurityStatus(String chatId) => _omemoService.getChatSecurityStatus(chatId);
+  Future<int> getChatSecurityStatus(String chatId, {bool isGroup = false}) =>
+      _omemoService.getChatSecurityStatus(chatId, isGroup: isGroup);
+
+  Future<int> getGroupParticipantKeyStatus(String chatId) =>
+      _omemoService.getGroupParticipantKeyStatus(chatId);
 
   Future<void> updateOmemoTrust(String jid, int deviceId, int trustLevel) => _omemoService.updateOmemoTrust(jid, deviceId, trustLevel);
 

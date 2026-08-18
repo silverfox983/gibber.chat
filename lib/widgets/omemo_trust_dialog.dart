@@ -6,12 +6,14 @@ class OmemoTrustDialog extends StatefulWidget {
   final String chatId;
   final String chatName;
   final String? accountId;
+  final bool isGroupChat;
 
   const OmemoTrustDialog({
     super.key,
     required this.chatId,
     required this.chatName,
     this.accountId,
+    this.isGroupChat = false,
   });
 
   @override

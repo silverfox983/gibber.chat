@@ -36,6 +36,7 @@ import '../widgets/omemo_trust_dialog.dart';
 import '../widgets/room_participants_dialog.dart';
 import '../providers/theme_provider.dart';
 import '../services/xep_0392_service.dart';
+import '../services/backend_config.dart';
 import './contacts_screen.dart';
 import './feed_screen.dart';
 import './nexus_search_screen.dart';
@@ -1178,59 +1179,101 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   );
                 },
               ),
-            if (!activeChat.isGroup)
-              FutureBuilder<int>(
-                future: _authService.getChatSecurityStatus(activeChat.id),
-                builder: (context, snapshot) {
-                  final status = snapshot.data ?? 0;
-                  final isEnabled = _authService.isOmemoEnabled(activeChat.id);
+              if (!activeChat.isGroup)
+                FutureBuilder<int>(
+                  future: _authService.getChatSecurityStatus(activeChat.id),
+                  builder: (context, snapshot) {
+                    final status = snapshot.data ?? 0;
+                    final isEnabled = _authService.isOmemoEnabled(activeChat.id);
 
-                  IconData icon;
-                  Color color;
+                    IconData icon;
+                    Color color;
 
-                  if (!isEnabled) {
-                    icon = Icons.lock_open_rounded;
-                    color = Theme.of(context).disabledColor;
-                  } else {
-                    switch (status) {
-                      case 1:
-                        icon = Icons.verified_user_rounded;
-                        color = Colors.green;
-                        break;
-                      case 2:
-                        icon = Icons.gpp_bad_rounded;
-                        color = Colors.red;
-                        break;
-                      case 0:
-                      default:
-                        icon = Icons.gpp_maybe_rounded;
-                        color = Colors.orange;
-                        break;
+                    if (!isEnabled) {
+                      icon = Icons.lock_open_rounded;
+                      color = Theme.of(context).disabledColor;
+                    } else {
+                      switch (status) {
+                        case 1:
+                          icon = Icons.verified_user_rounded;
+                          color = Colors.green;
+                          break;
+                        case 2:
+                          icon = Icons.gpp_bad_rounded;
+                          color = Colors.red;
+                          break;
+                        case 0:
+                        default:
+                          icon = Icons.gpp_maybe_rounded;
+                          color = Colors.orange;
+                          break;
+                      }
                     }
-                  }
 
-                  return IconButton(
-                    icon: Icon(icon, color: color),
-                    tooltip: isEnabled
-                        ? 'Identity Trust & Encryption'
-                        : 'Enable Encryption',
-                    onPressed: () {
-                      if (isEnabled) {
+                    return IconButton(
+                      icon: Icon(icon, color: color),
+                      tooltip: isEnabled
+                          ? 'Identity Trust & Encryption'
+                          : 'Enable Encryption',
+                      onPressed: () {
+                        if (isEnabled) {
+                          showDialog(
+                            context: context,
+                            builder: (context) => OmemoTrustDialog(
+                              chatId: activeChat.id,
+                              chatName: activeChat.name,
+                              accountId: activeChat.accountId,
+                            ),
+                          );
+                        } else {
+                          _authService.toggleOmemo(activeChat.id);
+                        }
+                      },
+                    );
+                  },
+                ),
+              if (activeChat.isGroup)
+                FutureBuilder<int>(
+                  future: _authService.getGroupParticipantKeyStatus(activeChat.id),
+                  builder: (context, snapshot) {
+                    final participantCount = snapshot.data ?? 0;
+                    final isEnabled = _authService.isOmemoEnabled(activeChat.id);
+                    
+                    IconData icon;
+                    Color color;
+                    String tooltip;
+
+                    if (!isEnabled) {
+                      icon = Icons.group_add_outlined;
+                      color = Theme.of(context).disabledColor;
+                      tooltip = 'Group encryption disabled';
+                    } else if (participantCount == 0) {
+                      icon = Icons.group_outlined;
+                      color = Theme.of(context).disabledColor;
+                      tooltip = 'No participant keys loaded';
+                    } else {
+                      icon = Icons.group_rounded;
+                      color = Colors.green;
+                      tooltip = '$participantCount participant(s) with encryption keys';
+                    }
+
+                    return IconButton(
+                      icon: Icon(icon, color: color),
+                      tooltip: tooltip,
+                      onPressed: () {
                         showDialog(
                           context: context,
                           builder: (context) => OmemoTrustDialog(
                             chatId: activeChat.id,
                             chatName: activeChat.name,
                             accountId: activeChat.accountId,
+                            isGroupChat: true,
                           ),
                         );
-                      } else {
-                        _authService.toggleOmemo(activeChat.id);
-                      }
-                    },
-                  );
-                },
-              ),
+                      },
+                    );
+                  },
+                ),
             PopupMenuButton<String>(
               icon: Icon(
                 Icons.more_vert_rounded,
