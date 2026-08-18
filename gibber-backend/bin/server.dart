@@ -546,7 +546,7 @@ void main(List<String> args) async {
   });
 
   // Graceful shutdown (SIGTERM from Railway)
-  ProcessSignal.sigterm().listen((signal) async {
+  ProcessSignal.sigterm.watch().listen((signal) async {
     print('Received SIGTERM - starting graceful shutdown...');
     print('Closing server (stop accepting new connections)...');
     await server.close(force: true);
