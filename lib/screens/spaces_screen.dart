@@ -1777,22 +1777,28 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         final rest = members.where((m) =>
             m.affiliation != 'owner' && m.affiliation != 'publisher').toList();
 
-        return ListView(padding: const EdgeInsets.symmetric(vertical: 8), children: [
-          if (owners.isNotEmpty) ...[
-            _membersHeader(theme, '👑  Owners', owners.length),
-            ...owners.map((m) => _buildMemberTile(theme, m, 'Owner')),
-          ],
-          if (publishers.isNotEmpty) ...[
-            _membersHeader(theme, '✏️  Publishers', publishers.length),
-            ...publishers.map((m) => _buildMemberTile(theme, m, 'Publisher')),
-          ],
-          if (rest.isNotEmpty) ...[
-            _membersHeader(theme, '👥  Members', rest.length),
-            ...rest.map((m) => _buildMemberTile(theme, m,
-                m.affiliation.isNotEmpty ? m.affiliation[0].toUpperCase() + m.affiliation.substring(1) : 'Member')),
-          ],
-          const SizedBox(height: 80),
-        ]);
+        return RefreshIndicator(
+          onRefresh: () async {
+            _membersFuture = widget.spacesService.fetchMembers(widget.space.domain, widget.space.node);
+            await _membersFuture;
+          },
+          child: ListView(padding: const EdgeInsets.symmetric(vertical: 8), children: [
+            if (owners.isNotEmpty) ...[
+              _membersHeader(theme, '👑  Owners', owners.length),
+              ...owners.map((m) => _buildMemberTile(theme, m, 'Owner')),
+            ],
+            if (publishers.isNotEmpty) ...[
+              _membersHeader(theme, '✏️  Publishers', publishers.length),
+              ...publishers.map((m) => _buildMemberTile(theme, m, 'Publisher')),
+            ],
+            if (rest.isNotEmpty) ...[
+              _membersHeader(theme, '👥  Members', rest.length),
+              ...rest.map((m) => _buildMemberTile(theme, m,
+                  m.affiliation.isNotEmpty ? m.affiliation[0].toUpperCase() + m.affiliation.substring(1) : 'Member')),
+            ],
+            const SizedBox(height: 80),
+          ]),
+        );
       },
     );
   }
