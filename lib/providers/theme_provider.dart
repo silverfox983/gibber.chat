@@ -4,8 +4,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ThemeProvider extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
 
+  static const Color _defaultSeedColor = Color(0xFF3B82F6);
+  static const String _defaultFontFamily = 'Outfit';
+
+  Color _seedColor = _defaultSeedColor;
+  bool _useDynamicColors = false;
+  bool _amoledMode = false;
+  String _fontFamily = _defaultFontFamily;
+
   ThemeProvider() {
-    _loadTheme();
+    _loadAppearance();
   }
 
   ThemeMode get themeMode => _themeMode;
@@ -18,7 +26,12 @@ class ThemeProvider extends ChangeNotifier {
     return _themeMode == ThemeMode.dark;
   }
 
-  Future<void> _loadTheme() async {
+  Color get seedColor => _seedColor;
+  bool get useDynamicColors => _useDynamicColors;
+  bool get amoledMode => _amoledMode;
+  String get fontFamily => _fontFamily;
+
+  Future<void> _loadAppearance() async {
     final prefs = await SharedPreferences.getInstance();
     final mode = prefs.getString('theme_mode');
     if (mode == 'light') {
@@ -28,6 +41,20 @@ class ThemeProvider extends ChangeNotifier {
     } else {
       _themeMode = ThemeMode.system;
     }
+
+    final seedColorValue = prefs.getInt('seed_color');
+    if (seedColorValue != null) {
+      _seedColor = Color(seedColorValue);
+    }
+
+    _useDynamicColors = prefs.getBool('use_dynamic_colors') ?? false;
+    _amoledMode = prefs.getBool('amoled_mode') ?? false;
+
+    final savedFont = prefs.getString('font_family');
+    if (savedFont != null && savedFont.isNotEmpty) {
+      _fontFamily = savedFont;
+    }
+
     notifyListeners();
   }
 
@@ -47,5 +74,48 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('theme_mode', mode.name);
+  }
+
+  Future<void> setSeedColor(Color color) async {
+    _seedColor = color;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('seed_color', color.toARGB32());
+  }
+
+  Future<void> setUseDynamicColors(bool value) async {
+    _useDynamicColors = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('use_dynamic_colors', value);
+  }
+
+  Future<void> setAmoledMode(bool value) async {
+    _amoledMode = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('amoled_mode', value);
+  }
+
+  Future<void> setFontFamily(String fontFamily) async {
+    _fontFamily = fontFamily;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('font_family', fontFamily);
+  }
+
+  Future<void> resetToDefaults() async {
+    _themeMode = ThemeMode.system;
+    _seedColor = _defaultSeedColor;
+    _useDynamicColors = false;
+    _amoledMode = false;
+    _fontFamily = _defaultFontFamily;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('theme_mode', 'system');
+    await prefs.remove('seed_color');
+    await prefs.setBool('use_dynamic_colors', false);
+    await prefs.setBool('amoled_mode', false);
+    await prefs.setString('font_family', _defaultFontFamily);
   }
 }

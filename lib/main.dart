@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'services/db_init_native.dart' if (dart.library.html) 'services/db_init_web.dart';
@@ -250,15 +251,35 @@ class _ChatAppState extends State<ChatApp> {
         ChangeNotifierProvider.value(value: _subscriptionService!),
         ChangeNotifierProvider.value(value: _gatewayService!),
       ],
-      child: Consumer<ThemeProvider>(
-        builder: (context, tp, _) => MaterialApp.router(
-          title: 'Gibber',
-          themeMode: tp.themeMode,
-          theme: GibberTheme.light,
-          darkTheme: GibberTheme.dark,
-          routerConfig: router,
-          debugShowCheckedModeBanner: false,
-        ),
+      child: DynamicColorBuilder(
+        builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+          return Consumer<ThemeProvider>(
+            builder: (context, tp, _) {
+              final useDynamic = tp.useDynamicColors && lightDynamic != null;
+              final lightScheme = useDynamic ? lightDynamic.harmonized() : null;
+              final darkScheme = useDynamic ? darkDynamic?.harmonized() : null;
+              return MaterialApp.router(
+                title: 'Gibber',
+                themeMode: tp.themeMode,
+                theme: GibberTheme.buildTheme(
+                  brightness: Brightness.light,
+                  seedColor: tp.seedColor,
+                  fontFamily: tp.fontFamily,
+                  dynamicScheme: lightScheme,
+                ),
+                darkTheme: GibberTheme.buildTheme(
+                  brightness: Brightness.dark,
+                  seedColor: tp.seedColor,
+                  fontFamily: tp.fontFamily,
+                  amoledMode: tp.amoledMode,
+                  dynamicScheme: darkScheme,
+                ),
+                routerConfig: router,
+                debugShowCheckedModeBanner: false,
+              );
+            },
+          );
+        },
       ),
     );
   }

@@ -468,14 +468,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         return Column(
                           children: [
                             ListTile(
-                              leading: Icon(Icons.brightness_medium_rounded, color: Theme.of(context).colorScheme.primary),
-                              title: const Text('Theme Mode', style: TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text(themeProv.themeMode.name.toUpperCase()),
-                              trailing: Switch(
-                                value: themeProv.isDarkMode,
-                                onChanged: (_) => themeProv.toggleTheme(),
-                                activeThumbColor: Theme.of(context).colorScheme.primary,
+                              leading: Icon(Icons.palette_rounded, color: Theme.of(context).colorScheme.primary),
+                              title: const Text('Appearance', style: TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text(
+                                '${themeProv.themeMode.name.toUpperCase()} • ${themeProv.fontFamily}',
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  fontSize: 13,
+                                ),
                               ),
+                              trailing: Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                              onTap: () => context.goNamed('appearance'),
                             ),
                           ],
                         );

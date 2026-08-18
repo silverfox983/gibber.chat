@@ -37,6 +37,7 @@ import '../screens/post_thread_screen.dart';
 import '../screens/article_view_screen.dart';
 import '../screens/group_settings_screen.dart';
 import '../screens/new_message_screen.dart';
+import '../screens/appearance_settings_screen.dart';
 import '../screens/register_screen.dart';
 
 CustomTransitionPage<void> _fadePage({
@@ -152,6 +153,11 @@ GoRouter createAppRouter({
                 path: 'profile',
                 name: 'profile',
                 pageBuilder: (context, state) => _fadePage(state: state, child: const ProfileScreen(isSidebar: false)),
+              ),
+              GoRoute(
+                path: 'appearance',
+                name: 'appearance',
+                pageBuilder: (context, state) => _fadePage(state: state, child: const AppearanceSettingsScreen()),
               ),
               GoRoute(
                 path: 'preferences',
