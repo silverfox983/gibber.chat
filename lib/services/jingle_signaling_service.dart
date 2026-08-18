@@ -13,6 +13,7 @@ enum JingleAction {
   propose,
   ringing,
   proceed,
+  sessionInfo,
   roomTopicUpdate,
   chatMarker,
   retract,
@@ -1338,6 +1339,16 @@ class JingleSignalingService {
         reason = text != null && text.isNotEmpty
             ? '$condition: $text'
             : condition;
+      }
+    } else if (actionStr == 'session-info') {
+      action = JingleAction.sessionInfo;
+      // Extract reason/info from session-info (used for transfer response, etc.)
+      final transferEl = jingle.getChild('transfer');
+      if (transferEl != null) {
+        reason = 'transfer';
+      } else {
+        final infoEl = jingle.getChild('info');
+        reason = infoEl?.textValue ?? 'session-info';
       }
     }
 

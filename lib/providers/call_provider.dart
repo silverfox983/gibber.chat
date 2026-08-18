@@ -843,6 +843,18 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           endCall();
         }
         break;
+      case JingleAction.sessionInfo:
+        // Handle session-info actions like transfer responses (XEP-0251)
+        debugPrint('CallProvider: Received session-info from ${event.fromJid}: ${event.reason ?? "unknown"}');
+        if (event.reason == 'transfer') {
+          // Transfer was accepted by the transfer target
+          _log('Call transfer accepted', isSent: true);
+          _lastError = 'Transfer accepted - ending original call';
+          endCall();
+        } else if (event.reason != null) {
+          _log('Call info: ${event.reason}', isSent: false);
+        }
+        break;
     }
   }
 
@@ -2139,6 +2151,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   }
 
   @override
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _signalingSub?.cancel();
@@ -2150,7 +2163,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _sipService = null;
     _janusSpeakingSub?.cancel();
     _janusRemoteTrackSub?.cancel();
-    _cleanup(reason: 'provider disposed');
+    // Cleanup is async but dispose cannot await - run it fire-and-forget with error suppression
+    _cleanup(reason: 'provider disposed').catchError((_) {});
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     for (var r in _groupRenderers.values) {
