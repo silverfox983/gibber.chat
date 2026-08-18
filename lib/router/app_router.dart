@@ -36,6 +36,7 @@ import '../screens/post_detail_screen.dart';
 import '../screens/post_thread_screen.dart';
 import '../screens/article_view_screen.dart';
 import '../screens/group_settings_screen.dart';
+import '../screens/new_message_screen.dart';
 import '../screens/register_screen.dart';
 
 CustomTransitionPage<void> _fadePage({
@@ -241,6 +242,11 @@ GoRouter createAppRouter({
                 path: 'search',
                 name: 'search',
                 pageBuilder: (context, state) => _fadePage(state: state, child: const NexusSearchScreen()),
+              ),
+              GoRoute(
+                path: 'new-message',
+                name: 'newMessage',
+                pageBuilder: (context, state) => _fadePage(state: state, child: const NewMessageScreen()),
               ),
               GoRoute(
                 path: 'feed',

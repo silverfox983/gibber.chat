@@ -3063,6 +3063,23 @@ class _MainChatScreenState extends State<MainChatScreen> {
             ),
           ),
         );
+
+      case MessageStatus.failed:
+        return Tooltip(
+          message: 'Failed',
+          child: Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              Icons.error_outline_rounded,
+              size: 12,
+              color: Colors.redAccent,
+            ),
+          ),
+        );
     }
   }
 
@@ -3942,6 +3959,16 @@ class _MainChatScreenState extends State<MainChatScreen> {
       onSelected: (val) => _onAddActionSelected(val, authService),
       itemBuilder: (context) => [
         const PopupMenuItem(
+          value: 'newMessage',
+          child: Row(
+            children: [
+              Icon(Icons.chat_bubble_rounded, size: 18),
+              SizedBox(width: 8),
+              Text('New Message', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
           value: 'buddy',
           child: Row(
             children: [
@@ -4007,6 +4034,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
   void _onAddActionSelected(String val, AuthService authService) {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    if (val == 'newMessage') {
+      context.goNamed('newMessage');
+      return;
+    }
     if (val == 'buddy') chatProvider.setSidebarTab(1);
     if (val == 'group') _showJoinRoomDialog(authService);
     if (val == 'discover') {
@@ -4430,40 +4461,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
       floatingActionButton: FloatingActionButton(
         heroTag: 'newMessage',
         backgroundColor: Theme.of(context).colorScheme.primary,
-        onPressed: () => _showNewMessageDialog(chatProvider),
+        onPressed: () => context.goNamed('newMessage'),
         child: const Icon(Icons.message_rounded, color: Colors.white),
-      ),
-    );
-  }
-
-  void _showNewMessageDialog(ChatProvider cp) {
-    final ctrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('New Message'),
-        content: TextField(
-          controller: ctrl,
-          decoration: const InputDecoration(
-            labelText: 'JID (e.g. user@domain.com)',
-            prefixIcon: Icon(Icons.person_outline),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('CANCEL'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (ctrl.text.isNotEmpty) {
-                cp.setActiveConversation(ctrl.text);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('CHAT'),
-          ),
-        ],
       ),
     );
   }
