@@ -760,14 +760,20 @@ class ChatProvider with ChangeNotifier {
 
           // Background Load Avatar
           _loadAvatarForConversation(newConv);
-        } else if (index != -1) {
+          } else if (index != -1) {
           if (message.text == 'UPDATE_PROFILE' &&
               message.type == MessageType.system) {
-            final contactId = message.senderId?.split('/').first;
+            final contactId = message.senderId?.split('/').first.toLowerCase();
             if (contactId != null) {
-              final cIdx = _contacts.indexWhere((c) => c.id == contactId);
-              if (cIdx != -1 && message.senderName != null) {
-                _contacts[cIdx].name = message.senderName!;
+              final authContacts = _authService?.currentContacts ?? [];
+              final authContact = authContacts.where((c) => c.id.toLowerCase() == contactId).toList();
+              final cIdx = _contacts.indexWhere((c) => c.id.toLowerCase() == contactId);
+              if (cIdx != -1) {
+                if (authContact.isNotEmpty) {
+                  _contacts[cIdx] = authContact.first;
+                } else if (message.senderName != null) {
+                  _contacts[cIdx].name = message.senderName!;
+                }
                 _loadAvatarForContact(_contacts[cIdx]);
               }
             }
@@ -864,24 +870,25 @@ class ChatProvider with ChangeNotifier {
   Future<void> _handleProfileUpdate(String jid, String? newName) async {
     final bareJid = jid.split('/').first.toLowerCase();
 
-    // 1. Update In-Memory Contacts
-    final cIdx = _contacts.indexWhere((c) => c.id == bareJid);
+    // 1. Update In-Memory Contacts — sync full vCard fields from AuthService
+    final authContacts = _authService?.currentContacts ?? [];
+    final authContact = authContacts.where((c) => c.id.toLowerCase() == bareJid).toList();
+    final cIdx = _contacts.indexWhere((c) => c.id.toLowerCase() == bareJid);
     if (cIdx != -1) {
-      if (newName != null) _contacts[cIdx].name = newName;
-      _contacts[cIdx].avatarBytes = await AvatarCacheService().getAvatar(
-        bareJid,
-      );
+      if (authContact.isNotEmpty) {
+        _contacts[cIdx] = authContact.first;
+      } else {
+        if (newName != null) _contacts[cIdx].name = newName;
+        _contacts[cIdx].avatarBytes = await AvatarCacheService().getAvatar(bareJid);
+      }
     }
 
     // 2. Update In-Memory Conversations
-    final convIdx = _conversations.indexWhere((c) => c.id == bareJid);
+    final convIdx = _conversations.indexWhere((c) => c.id.toLowerCase() == bareJid);
     if (convIdx != -1) {
       if (newName != null) {
-        // We don't want to replace with null if fetched name is missing
-        // but we should probably keep existing name if newName is null
       }
-      _conversations[convIdx].avatarBytes = await AvatarCacheService()
-          .getAvatar(bareJid);
+      _conversations[convIdx].avatarBytes = await AvatarCacheService().getAvatar(bareJid);
     }
   }
 
