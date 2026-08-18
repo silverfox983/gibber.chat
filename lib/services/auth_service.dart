@@ -161,11 +161,32 @@ class AuthService with ChangeNotifier {
   final Map<String, StreamSubscription> _rosterSubs = {};
   final Map<String, StreamSubscription> _presenceSubs = {};
   final Set<String> _pendingVCardFetches = {};
-  final Map<String, DateTime> _vCardLastFetch = {};
+  Map<String, DateTime> _vCardLastFetch = {};
 
   // Track failed vcard supports to avoid spamming feature-not-implemented
-  final Set<String> _vCardUnsupportedJids = {};
+  Set<String> _vCardUnsupportedJids = {};
   Set<String> get vCardUnsupportedJids => _vCardUnsupportedJids;
+  Map<String, DateTime> get vCardLastFetch => _vCardLastFetch;
+
+  Future<void> _loadVCardState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final lastFetchJson = prefs.getString('vcard_last_fetch');
+    if (lastFetchJson != null) {
+      final Map<String, dynamic> decoded = json.decode(lastFetchJson);
+      _vCardLastFetch = decoded.map((k, v) => MapEntry(k, DateTime.parse(v as String)));
+    }
+    final unsupportedList = prefs.getStringList('vcard_unsupported_jids');
+    if (unsupportedList != null) {
+      _vCardUnsupportedJids = unsupportedList.toSet();
+    }
+  }
+
+  Future<void> _saveVCardState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final lastFetchEncoded = json.encode(_vCardLastFetch.map((k, v) => MapEntry(k, v.toIso8601String())));
+    await prefs.setString('vcard_last_fetch', lastFetchEncoded);
+    await prefs.setStringList('vcard_unsupported_jids', _vCardUnsupportedJids.toList());
+  }
 
   // XEP-0153: Track avatar hashes to avoid redundant fetches and trigger updates
   final Map<String, String> _contactAvatarHashes = {};
@@ -178,7 +199,6 @@ class AuthService with ChangeNotifier {
   final Map<String, List<Map<String, dynamic>>> _accountIceServers = {};
   Map<String, List<Map<String, dynamic>>> get accountIceServers => _accountIceServers;
   Set<String> get pendingVCardFetches => _pendingVCardFetches;
-  Map<String, DateTime> get vCardLastFetch => _vCardLastFetch;
   final Map<String, SpacesService> _spacesServices = {};
   final OfflineQueueService _offlineQueue = OfflineQueueService();
   late final XmppRoomService _roomService;
@@ -824,7 +844,7 @@ class AuthService with ChangeNotifier {
                         (stanza.id != null &&
                             stanza.id!.startsWith('vcard_'))) {
                       _vCardUnsupportedJids.add(cleanJid);
-                      // debugPrint('VCard not supported by $cleanJid - blacklisting.');
+                      _saveVCardState();
                     }
                   }
                 }
@@ -1072,6 +1092,7 @@ class AuthService with ChangeNotifier {
                   final cacheKey = '$id:$bareResponseJid';
                   _pendingVCardFetches.remove(cacheKey);
                   _vCardLastFetch[cacheKey] = DateTime.now();
+                  await _saveVCardState();
 
                   // Update local profile if it's our JID
                   final myJid = _xmppJids[id];
@@ -1695,6 +1716,7 @@ class AuthService with ChangeNotifier {
 
   Future<void> loadSavedAccounts() async {
     await _loadJoinedRooms();
+    await _loadVCardState();
     final prefs = await SharedPreferences.getInstance();
 
     // Load Profile
