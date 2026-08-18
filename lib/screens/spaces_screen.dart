@@ -42,12 +42,11 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
 
   SpaceNode? _selectedSpace;
   final List<SpaceNode> _spaceHistory = [];
-  
-  SpacesService? _spacesService;
+
   List<SpaceNode> _mySpaces = [];
   List<SpaceNode> _lastSeenJoinedSpaces = [];
   List<SpaceNode> _featuredSpaces = [];
-  List<SpaceNode> _filteredFeaturedSpaces = []; // Pre-computed, re-sorted cache
+  List<SpaceNode> _filteredFeaturedSpaces = [];
   bool _isLoading = false;
   
   // O(1) membership cache — rebuilt whenever joinedSpaces changes
@@ -78,8 +77,12 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
   void dispose() {
     _searchController.dispose();
     _mySpacesSearchController.dispose();
-    _spacesService?.dispose();
     super.dispose();
+  }
+
+  SpacesService? get _spacesService {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    return auth.spacesService;
   }
 
   Future<void> _initializeSpaces({bool forceRefresh = false}) async {
@@ -103,10 +106,6 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
 
     setState(() => _isLoading = true);
 
-    if (_spacesService == null || _spacesService!.connection != conn) {
-      _spacesService?.dispose();
-      _spacesService = SpacesService(conn);
-    }
     if (mounted) {
       setState(() {
         _mySpaces = persisted;
@@ -126,10 +125,12 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     if (_spacesService == null) return;
     try {
       final featured = await _spacesService!.discoverAllSpaces('movim.eu', forceRefresh: forceRefresh);
-      if (mounted) setState(() {
-        _featuredSpaces = featured;
-        _recomputeFilteredList();
-      });
+      if (mounted) {
+        setState(() {
+          _featuredSpaces = featured;
+          _recomputeFilteredList();
+        });
+      }
     } catch (e) {
       debugPrint('Error loading featured spaces: $e');
     }
@@ -261,10 +262,11 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                     final auth = Provider.of<AuthService>(context, listen: false);
                     final conn = auth.activeXmppConnection;
                     if (conn != null) {
+                      final svc = auth.spacesService;
                       showDialog(
                         context: context,
                         builder: (context) => CreateSpaceDialog(
-                          spacesService: _spacesService ?? SpacesService(conn),
+                          spacesService: svc ?? SpacesService(conn),
                           domain: conn.fullJid.domain,
                           onSuccess: _refresh,
                         ),
@@ -389,14 +391,19 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                     ? (domain) async {
                         final trimmed = domain.trim();
                         if (trimmed.isEmpty || _spacesService == null) return;
-                        setState(() { _isLoading = true; _tabIndex = 0; });
+                        setState(() {
+                          _isLoading = true;
+                          _tabIndex = 0;
+                        });
                         try {
                           final results = await _spacesService!.discoverAllSpaces(trimmed);
-                          if (mounted) setState(() {
-                            _featuredSpaces = results;
-                            _recomputeFilteredList();
-                            _isLoading = false;
-                          });
+                          if (mounted) {
+                            setState(() {
+                              _featuredSpaces = results;
+                              _recomputeFilteredList();
+                              _isLoading = false;
+                            });
+                          }
                         } catch (e) {
                           if (mounted) {
                             setState(() => _isLoading = false);
@@ -695,11 +702,13 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                         setState(() { _isLoading = true; _tabIndex = 0; });
                         try {
                           final results = await _spacesService?.discoverAllSpaces('movim.eu') ?? [];
-                          if (mounted) setState(() {
-                            _featuredSpaces = results;
-                            _recomputeFilteredList();
-                            _isLoading = false;
-                          });
+                          if (mounted) {
+                            setState(() {
+                              _featuredSpaces = results;
+                              _recomputeFilteredList();
+                              _isLoading = false;
+                            });
+                          }
                         } catch (_) {
                           if (mounted) setState(() => _isLoading = false);
                         }
@@ -756,14 +765,19 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
         label: Text(domain, style: const TextStyle(fontSize: 12)),
         onPressed: () async {
           _searchController.text = domain;
-          setState(() { _isLoading = true; _tabIndex = 0; });
+          setState(() {
+            _isLoading = true;
+            _tabIndex = 0;
+          });
           try {
             final results = await _spacesService?.discoverAllSpaces(domain) ?? [];
-            if (mounted) setState(() {
-              _featuredSpaces = results;
-              _recomputeFilteredList();
-              _isLoading = false;
-            });
+            if (mounted) {
+              setState(() {
+                _featuredSpaces = results;
+                _recomputeFilteredList();
+                _isLoading = false;
+              });
+            }
           } catch (_) {
             if (mounted) setState(() => _isLoading = false);
           }
@@ -1314,9 +1328,14 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
           onPressed: () async {
             final conn = auth.activeXmppConnection;
             if (conn == null) return;
-            await widget.spacesService.subscribeToSpace(space.domain, space.node, conn.fullJid.userAtDomain, spaceType: space.type);
+            final success = await widget.spacesService.subscribeToSpace(space.domain, space.node, conn.fullJid.userAtDomain, spaceType: space.type);
+            if (!success) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to subscribe. Please try again.')));
+              }
+              return;
+            }
             await auth.joinPersistedSpace(space.domain, space.node, space.name);
-            // Persist full metadata into SQLite right away
             final enriched = space.copyWith(isSubscribed: true, syncedAt: DateTime.now());
             await auth.updatePersistedSpace(enriched);
             if (mounted) {
@@ -1650,18 +1669,23 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         : FilledButton.icon(
             onPressed: () async {
               final conn = auth.activeXmppConnection;
-              if (conn != null) {
-                await widget.spacesService.subscribeToSpace(
-                    space.domain, space.node, conn.fullJid.userAtDomain, spaceType: space.type);
-                await auth.joinPersistedSpace(space.domain, space.node, space.name);
-                // Persist full metadata into SQLite right away
-                final enriched = space.copyWith(isSubscribed: true, syncedAt: DateTime.now());
-                await auth.updatePersistedSpace(enriched);
-                setState(() {});
+              if (conn == null) return;
+              final success = await widget.spacesService.subscribeToSpace(
+                  space.domain, space.node, conn.fullJid.userAtDomain, spaceType: space.type);
+              if (!success) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Subscribed to space! Content will now appear in your Feed.')));
+                      const SnackBar(content: Text('Failed to subscribe. Please try again.')));
                 }
+                return;
+              }
+              await auth.joinPersistedSpace(space.domain, space.node, space.name);
+              final enriched = space.copyWith(isSubscribed: true, syncedAt: DateTime.now());
+              await auth.updatePersistedSpace(enriched);
+              setState(() {});
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Subscribed to space! Content will now appear in your Feed.')));
               }
             },
             icon: const Icon(Icons.person_add_rounded),
@@ -1822,14 +1846,16 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
       ),
       trailing: PopupMenuButton<String>(
         icon: Icon(Icons.more_vert_rounded, color: theme.colorScheme.onSurfaceVariant),
-        onSelected: (action) async {
+          onSelected: (action) async {
           switch (action) {
             case 'promote':
-              await widget.spacesService.setAffiliation(widget.space.domain, widget.space.node, member.jid, 'publisher');
+              final ok = await widget.spacesService.setAffiliation(widget.space.domain, widget.space.node, member.jid, 'publisher');
+              if (ok) _membersFuture = widget.spacesService.fetchMembers(widget.space.domain, widget.space.node);
               if (mounted) setState(() {});
               break;
             case 'owner':
-              await widget.spacesService.setAffiliation(widget.space.domain, widget.space.node, member.jid, 'owner');
+              final ok = await widget.spacesService.setAffiliation(widget.space.domain, widget.space.node, member.jid, 'owner');
+              if (ok) _membersFuture = widget.spacesService.fetchMembers(widget.space.domain, widget.space.node);
               if (mounted) setState(() {});
               break;
             case 'demote':
@@ -2201,10 +2227,15 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                       child: GestureDetector(
-                        onTap: () => setState(() {
-                          if (isExpanded) _expandedItems.remove(item.id);
-                          else _expandedItems.add(item.id);
-                        }),
+                        onTap: () {
+                          setState(() {
+                            if (isExpanded) {
+                              _expandedItems.remove(item.id);
+                            } else {
+                              _expandedItems.add(item.id);
+                            }
+                          });
+                        },
                         child: Text(
                           isExpanded ? 'Show less' : 'Read more',
                           style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: theme.colorScheme.primary),

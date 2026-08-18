@@ -1747,6 +1747,8 @@ class AuthService with ChangeNotifier {
       _xmppStanzaSubs.remove(acc.fullJid);
       _xmppProxies[acc.fullJid]?.stop();
       _xmppProxies.remove(acc.fullJid);
+      _spacesServices[acc.fullJid]?.dispose();
+      _spacesServices.remove(acc.fullJid);
       conn.dispose();
       _xmppConnections.remove(acc.fullJid);
     }

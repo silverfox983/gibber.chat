@@ -108,7 +108,7 @@ class SpaceNode {
       'cover_url': coverUrl,
       'affiliation': affiliation,
       'member_count': memberCount,
-      'features': features.join(','),
+      'features': '|${features.join('|')}|',
       'type': type,
       'access_model': accessModel,
       'publish_model': publishModel,
@@ -124,6 +124,12 @@ class SpaceNode {
   }
 
   factory SpaceNode.fromMap(Map<String, dynamic> map) {
+    final featuresStr = map['features'] as String?;
+    final features = featuresStr == null || featuresStr.isEmpty
+        ? <String>[]
+        : featuresStr.split('|').where((s) => s.isNotEmpty).toList();
+    final subVal = map['is_subscribed'];
+    final notifVal = map['notifications_enabled'];
     return SpaceNode(
       domain: map['domain'] ?? '',
       node: map['node'] ?? '',
@@ -134,14 +140,14 @@ class SpaceNode {
       coverUrl: map['cover_url'],
       affiliation: map['affiliation'],
       memberCount: map['member_count'],
-      features: (map['features'] as String?)?.split(',').where((s) => s.isNotEmpty).toList() ?? [],
+      features: features,
       type: map['type'],
       accessModel: map['access_model'],
       publishModel: map['publish_model'],
       numSubscribers: map['num_subscribers'],
       ownerJid: map['owner_jid'],
-      isSubscribed: map['is_subscribed'] == 1,
-      notificationsEnabled: map['notifications_enabled'] == 1,
+      isSubscribed: subVal is bool ? subVal : (subVal == 1 || subVal == '1'),
+      notificationsEnabled: notifVal is bool ? notifVal : (notifVal == 1 || notifVal == '1'),
       notificationLevel: map['notification_level'],
       lastActivity: map['last_activity'] != null ? DateTime.tryParse(map['last_activity']) : null,
       postCount: map['post_count'],

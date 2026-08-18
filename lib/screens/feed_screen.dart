@@ -25,13 +25,13 @@ class FeedScreen extends StatefulWidget {
 
 class _FeedScreenState extends State<FeedScreen>
     with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
-  SpacesService? _spacesService;
   List<SpaceNode> _mySpaces = [];
   List<SpaceNode> _lastSeenJoinedSpaces = [];
   bool _isLoading = false;
   Future<List<SpaceItem>>? _feedFuture;
   List<SpaceItem>? _cachedItems;
   StreamSubscription<SpaceItem>? _liveStreamSub;
+  SpacesService? _spacesServiceInstance;
   int _newLiveCount = 0;
   String? _attachedImageUrl;
 
@@ -62,6 +62,11 @@ class _FeedScreenState extends State<FeedScreen>
     });
   }
 
+  SpacesService? get _spacesService {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    return auth.spacesService;
+  }
+
   Future<void> _initializeFeed() async {
     final auth = Provider.of<AuthService>(context, listen: false);
     final conn = auth.activeXmppConnection;
@@ -69,28 +74,29 @@ class _FeedScreenState extends State<FeedScreen>
 
     setState(() => _isLoading = true);
 
-    if (_spacesService == null || _spacesService!.connection != conn) {
-      _liveStreamSub?.cancel();
-      _spacesService?.dispose();
-      _spacesService = SpacesService(conn);
-      _liveStreamSub = _spacesService!.liveItemStream.listen((item) {
-        if (!mounted) return;
-        setState(() {
-          _cachedItems = [item, ...(_cachedItems ?? [])];
-          _newLiveCount++;
-        });
+    final svc = auth.spacesService;
+    if (svc == null) return;
+
+    _liveStreamSub?.cancel();
+    _spacesServiceInstance?.removeListener(_onSpacesServiceChanged);
+    _spacesServiceInstance = svc;
+    _liveStreamSub = svc.liveItemStream.listen((item) {
+      if (!mounted) return;
+      setState(() {
+        _cachedItems = [item, ...(_cachedItems ?? [])];
+        _newLiveCount++;
       });
-    }
+    });
+
+    svc.addListener(_onSpacesServiceChanged);
 
     try {
-      // Use joined spaces from AuthService for the unified feed
       _lastSeenJoinedSpaces = List.from(auth.joinedSpaces);
       _mySpaces = List.from(auth.joinedSpaces);
-      
-      final future = _spacesService!.fetchUnifiedFeed(_mySpaces);
+
+      final future = svc.fetchUnifiedFeed(_mySpaces);
       _feedFuture = future;
-      
-      // Update cache when future completes
+
       future.then((items) {
         if (mounted) setState(() => _cachedItems = items);
       });
@@ -103,9 +109,14 @@ class _FeedScreenState extends State<FeedScreen>
     }
   }
 
+  void _onSpacesServiceChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     _liveStreamSub?.cancel();
+    _spacesServiceInstance?.removeListener(_onSpacesServiceChanged);
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();

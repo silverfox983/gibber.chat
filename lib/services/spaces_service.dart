@@ -5,7 +5,7 @@ import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/space_models.dart';
 
-class SpacesService {
+class SpacesService extends ChangeNotifier {
   final xmpp.Connection _connection;
   xmpp.Connection get connection => _connection;
   
@@ -110,6 +110,7 @@ class SpacesService {
   }
 
 
+  @override
   void dispose() {
     _discoverCache.clear();
     _metadataCache.clear();
@@ -120,6 +121,7 @@ class SpacesService {
       if (!completer.isCompleted) completer.completeError('Service disposed');
     }
     _pendingIqs.clear();
+    super.dispose();
   }
 
   void _handleStanza(xmpp.AbstractStanza? stanza) {
@@ -239,19 +241,25 @@ class SpacesService {
     }
   }
 
-  Future<xmpp.IqStanza> _sendIq(xmpp.IqStanza iq, {int retries = 0, Duration timeout = const Duration(seconds: 15)}) async {
-    if (iq.toJid == null) return Future.error('No toJid');
-    
-    final domain = iq.toJid!.domain;
+  Future<xmpp.IqStanza> _sendIq(xmpp.IqStanza originalIq, {int retries = 0, Duration timeout = const Duration(seconds: 15)}) async {
+    if (originalIq.toJid == null) return Future.error('No toJid');
+
+    final domain = originalIq.toJid!.domain;
     if (!domain.contains('.') && domain != 'localhost') {
-      debugPrint('BLOCKING IQ to non-FQDN: ${iq.toJid!.fullJid}');
+      debugPrint('BLOCKING IQ to non-FQDN: ${originalIq.toJid!.fullJid}');
       return Future.error('Invalid target domain: $domain');
     }
 
     int attempt = 0;
     while (attempt <= retries) {
-      final id = iq.id ?? 'spaces_${xmpp.AbstractStanza.getRandomId()}';
-      iq.id = id;
+      final id = 'spaces_${xmpp.AbstractStanza.getRandomId()}';
+      final iq = xmpp.IqStanza(id, originalIq.type);
+      iq.toJid = originalIq.toJid;
+      iq.fromJid = originalIq.fromJid;
+      for (var child in originalIq.children) {
+        iq.addChild(child);
+      }
+
       final completer = Completer<xmpp.IqStanza>();
       _pendingIqs[id] = completer;
       _connection.writeStanza(iq);
@@ -269,10 +277,7 @@ class SpacesService {
         }
         attempt++;
         debugPrint('Retrying IQ to ${iq.toJid!.fullJid} (Attempt ${attempt + 1})...');
-        // Small delay before retry
         await Future.delayed(Duration(milliseconds: 500 * attempt));
-        // Reset ID for retry
-        iq.id = 'spaces_retry_${xmpp.AbstractStanza.getRandomId()}';
       }
     }
     return Future.error('Unexpected fallthrough in _sendIq');
@@ -1141,7 +1146,9 @@ class SpacesService {
 
     try {
       final response = await _sendIq(iq);
-      return response.type != xmpp.IqStanzaType.ERROR;
+      final ok = response.type != xmpp.IqStanzaType.ERROR;
+      if (ok) notifyListeners();
+      return ok;
     } catch (e) {
       return false;
     }
@@ -1200,7 +1207,9 @@ class SpacesService {
 
     try {
       final response = await _sendIq(iq);
-      return response.type != xmpp.IqStanzaType.ERROR;
+      final ok = response.type != xmpp.IqStanzaType.ERROR;
+      if (ok) notifyListeners();
+      return ok;
     } catch (e) {
       return false;
     }
@@ -2009,6 +2018,8 @@ class _BoundedCache<K, V> {
       _store.remove(key);
       return null;
     }
+    // LRU: promote to front by updating timestamp on access
+    _store[key] = _CacheEntry(entry.value, DateTime.now());
     return entry.value;
   }
 

@@ -38,7 +38,8 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
 
   Future<void> _loadNotificationPref() async {
     final prefs = await SharedPreferences.getInstance();
-    final pref = prefs.getString('space_notify_${widget.space.node}');
+    final key = 'notif_level_${widget.space.domain}|${widget.space.node}';
+    final pref = prefs.getString(key);
     if (pref != null && mounted) {
       setState(() => _notificationPref = pref);
     }
@@ -47,7 +48,8 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
   Future<void> _saveNotificationPref(String val) async {
     setState(() => _notificationPref = val);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('space_notify_${widget.space.node}', val);
+    final key = 'notif_level_${widget.space.domain}|${widget.space.node}';
+    await prefs.setString(key, val);
   }
 
   Future<void> _loadMembers() async {
@@ -164,7 +166,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
           Text('PRIVACY', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            initialValue: _accessModel,
+            value: _accessModel,
             decoration: const InputDecoration(labelText: 'Access Model', border: OutlineInputBorder()),
             items: const [
               DropdownMenuItem(value: 'open', child: Text('Public (Open)')),
@@ -178,7 +180,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
           Text('NOTIFICATIONS', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            initialValue: _notificationPref,
+            value: _notificationPref,
             decoration: const InputDecoration(
               labelText: 'Alerts',
               border: OutlineInputBorder(),
