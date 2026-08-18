@@ -3,6 +3,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'resource_scheduler_service.dart';
 import 'entitlement_service.dart';
+import 'transcription_engine.dart';
+import 'transcription_engine_stub.dart' if (dart.library.io) 'transcription_engine_native.dart';
+
+export 'transcription_engine.dart';
+export 'transcription_engine_stub.dart' if (dart.library.io) 'transcription_engine_native.dart';
 
 enum TranscriptionStatus {
   idle,
@@ -35,7 +40,6 @@ class TranscriptionService extends ChangeNotifier {
   String _error = '';
   final List<TranscriptSegment> _segments = [];
   String _partialText = '';
-  StreamSubscription? _audioSubscription;
   Timer? _chunkTimer;
 
   TranscriptionStatus get status => _status;
@@ -45,9 +49,15 @@ class TranscriptionService extends ChangeNotifier {
   String get fullTranscript => _segments.map((s) => s.text).join(' ');
 
   final ResourceSchedulerService _scheduler;
-  Object? _whisperInstance;
   bool _isWeb = kIsWeb;
   DateTime? _transcriptionStart;
+  TranscriptionEngine? _engine;
+  double _modelLoadProgress = 0.0;
+  StreamSubscription? _partialSubscription;
+  StreamSubscription? _finalSubscription;
+  StreamSubscription? _progressSubscription;
+
+  double get modelLoadProgress => _modelLoadProgress;
 
   TranscriptionService(this._scheduler, [this._entitlementService]);
 
@@ -68,9 +78,43 @@ class TranscriptionService extends ChangeNotifier {
 
     try {
       if (_isWeb) {
-        _whisperInstance = await _initWhisperWasm();
-      } else {
-        _whisperInstance = await _initWhisperNative();
+        _engine = createTranscriptionEngine();
+        final ok = await _engine!.initialize();
+        if (!ok) {
+          _error = 'Failed to initialize web transcription engine';
+          _status = TranscriptionStatus.error;
+          notifyListeners();
+          return false;
+        }
+
+        _progressSubscription = _engine!.onModelLoadProgress.listen((progress) {
+          _modelLoadProgress = progress;
+          notifyListeners();
+        });
+
+        _partialSubscription = _engine!.onPartialResult.listen((text) {
+          _partialText = text;
+          notifyListeners();
+        });
+
+        _finalSubscription = _engine!.onFinalResult.listen((result) {
+          final text = result['text'] as String? ?? '';
+          if (text.isNotEmpty) {
+            final timestamp = Duration(
+              seconds: _segments.isEmpty
+                  ? 0
+                  : _segments.last.timestamp.inSeconds + 2,
+            );
+            _segments.add(TranscriptSegment(
+              text: text,
+              timestamp: timestamp,
+              speaker: 'unknown',
+              isFinal: true,
+            ));
+          }
+          _partialText = '';
+          notifyListeners();
+        });
       }
 
       _status = TranscriptionStatus.ready;
@@ -83,16 +127,6 @@ class TranscriptionService extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-  }
-
-  Future<dynamic> _initWhisperWasm() async {
-    debugPrint('TranscriptionService: Initializing Whisper WASM (lazy-load)');
-    return true;
-  }
-
-  Future<dynamic> _initWhisperNative() async {
-    debugPrint('TranscriptionService: Native Whisper not yet implemented');
-    return null;
   }
 
   Future<bool> startTranscription(MediaStream? localStream, MediaStream? remoteStream) async {
@@ -127,38 +161,11 @@ class TranscriptionService extends ChangeNotifier {
     _status = TranscriptionStatus.listening;
     notifyListeners();
 
-    _startAudioChunking(localStream, remoteStream);
+    if (_isWeb && _engine != null) {
+      _engine!.attachStreams(localStream!, remoteStream);
+    }
 
     return true;
-  }
-
-  void _startAudioChunking(MediaStream? localStream, MediaStream? remoteStream) {
-    const chunkDuration = Duration(seconds: 2);
-    int chunkIndex = 0;
-
-    _chunkTimer = Timer.periodic(chunkDuration, (timer) async {
-      if (_status != TranscriptionStatus.listening) {
-        timer.cancel();
-        return;
-      }
-
-      chunkIndex++;
-      final simulatedText = _simulateTranscription(chunkIndex);
-      if (simulatedText.isNotEmpty) {
-        _segments.add(TranscriptSegment(
-          text: simulatedText,
-          timestamp: Duration(seconds: chunkIndex * 2),
-          speaker: chunkIndex % 2 == 0 ? 'local' : 'remote',
-          isFinal: true,
-        ));
-        _partialText = '';
-        notifyListeners();
-      }
-    });
-  }
-
-  String _simulateTranscription(int chunkIndex) {
-    return '';
   }
 
   void stopTranscription() {
@@ -168,8 +175,6 @@ class TranscriptionService extends ChangeNotifier {
 
     _chunkTimer?.cancel();
     _chunkTimer = null;
-    _audioSubscription?.cancel();
-    _audioSubscription = null;
 
     _scheduler.release(ResourceTask.transcription);
 
@@ -188,6 +193,10 @@ class TranscriptionService extends ChangeNotifier {
         isFinal: true,
       ));
       _partialText = '';
+    }
+
+    if (_isWeb) {
+      _engine?.stop();
     }
 
     _status = TranscriptionStatus.ready;
@@ -227,7 +236,10 @@ class TranscriptionService extends ChangeNotifier {
   @override
   void dispose() {
     _chunkTimer?.cancel();
-    _audioSubscription?.cancel();
+    _partialSubscription?.cancel();
+    _finalSubscription?.cancel();
+    _progressSubscription?.cancel();
+    _engine?.dispose();
     if (_status == TranscriptionStatus.listening || _status == TranscriptionStatus.paused) {
       _scheduler.release(ResourceTask.transcription);
     }

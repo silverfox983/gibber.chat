@@ -82,49 +82,77 @@ class _LiveCaptionsPanelState extends State<LiveCaptionsPanel> {
   }
 
   Widget _buildHeader(BuildContext context, TranscriptionService service) {
+    final isLoading = service.status == TranscriptionStatus.loading;
+    final loadProgress = service.modelLoadProgress;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            service.status == TranscriptionStatus.listening
-                ? Icons.record_voice_over
-                : service.status == TranscriptionStatus.loading
+          Row(
+            children: [
+              Icon(
+                isLoading
                     ? Icons.hourglass_empty
-                    : Icons.subtitles,
-            size: 18,
-            color: service.status == TranscriptionStatus.listening
-                ? Colors.cyan
-                : Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              _getStatusText(service),
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+                    : service.status == TranscriptionStatus.listening
+                        ? Icons.record_voice_over
+                        : Icons.subtitles,
+                size: 18,
                 color: service.status == TranscriptionStatus.listening
                     ? Colors.cyan
                     : Theme.of(context).colorScheme.onSurfaceVariant,
               ),
-            ),
-          ),
-          if (service.status == TranscriptionStatus.listening)
-            Container(
-              width: 8,
-              height: 8,
-              decoration: const BoxDecoration(
-                color: Colors.red,
-                shape: BoxShape.circle,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _getStatusText(service),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: service.status == TranscriptionStatus.listening
+                        ? Colors.cyan
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
-            ),
-          IconButton(
-            icon: const Icon(Icons.close, size: 18),
-            onPressed: widget.onToggleExpand,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              if (isLoading && loadProgress > 0)
+                Text(
+                  '${(loadProgress * 100).toInt()}%',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              if (service.status == TranscriptionStatus.listening)
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: widget.onToggleExpand,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
+            ],
           ),
+          if (isLoading && loadProgress > 0) ...[
+            const SizedBox(height: 6),
+            LinearProgressIndicator(
+              value: loadProgress,
+              backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                Theme.of(context).colorScheme.primary,
+              ),
+              minHeight: 3,
+            ),
+          ],
         ],
       ),
     );

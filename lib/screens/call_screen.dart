@@ -1402,6 +1402,9 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
 
   Widget _buildAssistantPanel(AssistantService assistant) {
     final theme = Theme.of(context);
+    final isLoading = assistant.status == AssistantStatus.loading;
+    final loadProgress = assistant.modelLoadProgress;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(12),
@@ -1418,26 +1421,65 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             Icon(Icons.auto_awesome_rounded, size: 16, color: Colors.purpleAccent),
             const SizedBox(width: 6),
             Text('Gibber AI', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+            if (isLoading) ...[
+              const SizedBox(width: 8),
+              Text('(${assistant.modelLoadStatus})', style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurfaceVariant)),
+            ],
             const Spacer(),
             IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => setState(() => _showAssistant = false), padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),
           ]),
-          const SizedBox(height: 8),
-          Wrap(spacing: 8, runSpacing: 4, children: [
-            ActionChip(avatar: Icon(Icons.summarize_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Summarize', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('Summarize the call', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
-            ActionChip(avatar: Icon(Icons.checklist_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Actions', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('List action items', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
-            ActionChip(avatar: Icon(Icons.email_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Follow Up', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('Draft a follow-up', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
-          ]),
-          const SizedBox(height: 8),
-          Row(children: [
-            Expanded(child: TextField(controller: _assistantController, style: const TextStyle(fontSize: 13), decoration: InputDecoration(hintText: 'Ask about the call...', hintStyle: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant), filled: true, fillColor: theme.colorScheme.surface, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none), isDense: true), onSubmitted: (v) => _askAssistant(v, assistant))),
-            const SizedBox(width: 8),
-            IconButton(icon: Icon(Icons.send_rounded, color: Colors.purpleAccent, size: 20), onPressed: () => _askAssistant(_assistantController.text, assistant), padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 32, minHeight: 32)),
-          ]),
-          if (assistant.messages.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Container(constraints: const BoxConstraints(maxHeight: 100), child: ListView.builder(shrinkWrap: true, itemCount: assistant.messages.length, itemBuilder: (ctx, i) { final m = assistant.messages[i]; return Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('${m.isUser ? "You" : "AI"}: ${m.text}', style: TextStyle(fontSize: 12, color: m.isUser ? Colors.purpleAccent.shade100 : Colors.cyan.shade100))); })),
+          if (isLoading && loadProgress > 0) ...[
+            const SizedBox(height: 6),
+            LinearProgressIndicator(
+              value: loadProgress,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.purpleAccent),
+              minHeight: 3,
+            ),
           ],
-          if (assistant.status == AssistantStatus.generating) const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.purpleAccent)))),
+          if (!isLoading) ...[
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, runSpacing: 4, children: [
+              ActionChip(avatar: Icon(Icons.summarize_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Summarize', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('Summarize the call', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
+              ActionChip(avatar: Icon(Icons.checklist_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Actions', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('List action items', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
+              ActionChip(avatar: Icon(Icons.email_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Follow Up', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('Draft a follow-up', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
+            ]),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(child: TextField(controller: _assistantController, style: const TextStyle(fontSize: 13), decoration: InputDecoration(hintText: 'Ask about the call...', hintStyle: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant), filled: true, fillColor: theme.colorScheme.surface, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none), isDense: true), onSubmitted: (v) => _askAssistant(v, assistant))),
+              const SizedBox(width: 8),
+              IconButton(icon: Icon(Icons.send_rounded, color: Colors.purpleAccent, size: 20), onPressed: () => _askAssistant(_assistantController.text, assistant), padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 32, minHeight: 32)),
+            ]),
+            if (assistant.partialResponse.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.purpleAccent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.auto_awesome_rounded, size: 12, color: Colors.purpleAccent),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        assistant.partialResponse,
+                        style: TextStyle(fontSize: 12, color: Colors.purpleAccent.shade100, fontStyle: FontStyle.italic),
+                      ),
+                    ),
+                    const SizedBox(width: 8, height: 8, child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.purpleAccent)),
+                  ],
+                ),
+              ),
+            ],
+            if (assistant.messages.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(constraints: const BoxConstraints(maxHeight: 100), child: ListView.builder(shrinkWrap: true, itemCount: assistant.messages.length, itemBuilder: (ctx, i) { final m = assistant.messages[i]; return Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('${m.isUser ? "You" : "AI"}: ${m.text}', style: TextStyle(fontSize: 12, color: m.isUser ? Colors.purpleAccent.shade100 : Colors.cyan.shade100))); })),
+            ],
+            if (assistant.status == AssistantStatus.generating && assistant.partialResponse.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.purpleAccent)))),
+          ],
         ],
       ),
     );

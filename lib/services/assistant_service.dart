@@ -3,6 +3,11 @@ import 'package:flutter/foundation.dart';
 import 'transcription_service.dart';
 import 'resource_scheduler_service.dart';
 import 'entitlement_service.dart';
+import 'llm_engine.dart';
+import 'llm_engine_stub.dart' if (dart.library.io) 'llm_engine_native.dart';
+
+export 'llm_engine.dart';
+export 'llm_engine_stub.dart' if (dart.library.io) 'llm_engine_native.dart';
 
 enum AssistantStatus {
   idle,
@@ -29,13 +34,20 @@ class AssistantService extends ChangeNotifier {
   String _error = '';
   final List<AssistantMessage> _messages = [];
   String _partialResponse = '';
-  Object? _llmInstance;
   bool _isWeb = kIsWeb;
+  LLMEngine? _engine;
+  double _modelLoadProgress = 0.0;
+  String _modelLoadStatus = '';
+  StreamSubscription? _tokenSubscription;
+  StreamSubscription? _progressSubscription;
+  StreamSubscription? _statusSubscription;
 
   AssistantStatus get status => _status;
   String get error => _error;
   List<AssistantMessage> get messages => List.unmodifiable(_messages);
   String get partialResponse => _partialResponse;
+  double get modelLoadProgress => _modelLoadProgress;
+  String get modelLoadStatus => _modelLoadStatus;
 
   final ResourceSchedulerService _scheduler;
   final TranscriptionService? _transcriptionService;
@@ -48,7 +60,6 @@ class AssistantService extends ChangeNotifier {
     _entitlementService = es;
   }
 
-
   Future<bool> initialize() async {
     if (_status == AssistantStatus.ready || _status == AssistantStatus.generating) {
       return true;
@@ -60,9 +71,30 @@ class AssistantService extends ChangeNotifier {
 
     try {
       if (_isWeb) {
-        _llmInstance = await _initLlmWeb();
-      } else {
-        _llmInstance = await _initLlmNative();
+        _engine = createLLMEngine();
+        final ok = await _engine!.initialize();
+        if (!ok) {
+          _error = 'Failed to initialize web LLM engine';
+          _status = AssistantStatus.error;
+          notifyListeners();
+          return false;
+        }
+
+        _progressSubscription = _engine!.onModelLoadProgress.listen((progress) {
+          _modelLoadProgress = progress;
+          notifyListeners();
+        });
+
+        _statusSubscription = _engine!.onModelLoadStatus.listen((status) {
+          _modelLoadStatus = status;
+          notifyListeners();
+        });
+
+        _tokenSubscription = _engine!.onToken.listen((token) {
+          if (token == '[DONE]') return;
+          _partialResponse += token;
+          notifyListeners();
+        });
       }
 
       _status = AssistantStatus.ready;
@@ -77,27 +109,16 @@ class AssistantService extends ChangeNotifier {
     }
   }
 
-  Future<dynamic> _initLlmWeb() async {
-    debugPrint('AssistantService: Initializing Web LLM (lazy-load)');
-    return true;
-  }
-
-  Future<dynamic> _initLlmNative() async {
-    debugPrint('AssistantService: Native LLM not yet implemented');
-    return null;
-  }
-
   String _buildContext() {
     final buffer = StringBuffer();
-    buffer.writeln('=== Call Context ===');
-    buffer.writeln('Time: ${DateTime.now().toIso8601String()}');
+    buffer.writeln('You are a helpful AI assistant in a video call. Keep responses brief and helpful.');
 
-    if (_transcriptionService != null && _transcriptionService!.segments.isNotEmpty) {
+    if (_transcriptionService != null && _transcriptionService.segments.isNotEmpty) {
       buffer.writeln('\n=== Recent Transcript ===');
-      final recent = _transcriptionService!.segments.length > 20
-          ? _transcriptionService!.segments.sublist(
-              _transcriptionService!.segments.length - 20)
-          : _transcriptionService!.segments;
+      final recent = _transcriptionService.segments.length > 20
+          ? _transcriptionService.segments.sublist(
+              _transcriptionService.segments.length - 20)
+          : _transcriptionService.segments;
       for (final segment in recent) {
         buffer.writeln('[${segment.speaker}] ${segment.text}');
       }
@@ -158,10 +179,9 @@ class AssistantService extends ChangeNotifier {
   }
 
   Future<String> _generateResponse(String query, String context) async {
-    if (_llmInstance == null) {
-      return _simulateResponse(query);
+    if (_engine != null) {
+      return _engine!.generate(query, context);
     }
-
     return _simulateResponse(query);
   }
 
@@ -182,9 +202,9 @@ class AssistantService extends ChangeNotifier {
   }
 
   String _simulateSummary() {
-    if (_transcriptionService != null && _transcriptionService!.segments.isNotEmpty) {
-      final count = _transcriptionService!.segments.length;
-      final speakers = _transcriptionService!.segments.map((s) => s.speaker).toSet();
+    if (_transcriptionService != null && _transcriptionService.segments.isNotEmpty) {
+      final count = _transcriptionService.segments.length;
+      final speakers = _transcriptionService.segments.map((s) => s.speaker).toSet();
       return 'Call summary ($count transcript segments, $speakers participants): The discussion covered the main topics on the agenda. Key points were raised and addressed. A follow-up is planned.';
     }
     return 'No transcript available yet. Start transcription first, then I can provide a summary of the call.';
@@ -206,6 +226,10 @@ class AssistantService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _tokenSubscription?.cancel();
+    _progressSubscription?.cancel();
+    _statusSubscription?.cancel();
+    _engine?.dispose();
     if (_status == AssistantStatus.generating) {
       _scheduler.release(ResourceTask.llmQuery);
     }
