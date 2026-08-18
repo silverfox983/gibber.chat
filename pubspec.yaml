@@ -53,6 +53,7 @@ dependencies:
   go_router: ^17.5.0
   flutter_turnstile: ^1.2.0
   web_socket_channel: ^3.0.1
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

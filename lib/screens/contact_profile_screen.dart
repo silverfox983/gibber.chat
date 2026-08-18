@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import 'dart:typed_data';
 import '../models/chat_models.dart';
 import '../services/auth_service.dart';
@@ -40,6 +42,7 @@ class ContactProfileScreen extends StatelessWidget {
               icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
               onSelected: (val) {
                 if (val == 'rename') _showRenameDialog(context, chatProvider, authService);
+                if (val == 'share') _showShareQRDialog(context);
                 if (val == 'block') {
                    chatProvider.blockContact(contact.id, authService);
                    Navigator.pop(context);
@@ -51,6 +54,7 @@ class ContactProfileScreen extends StatelessWidget {
               },
               itemBuilder: (context) => [
                 const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.edit_rounded, size: 18), title: Text('Rename'), dense: true)),
+                const PopupMenuItem(value: 'share', child: ListTile(leading: Icon(Icons.qr_code_rounded, size: 18), title: Text('Share via QR'), dense: true)),
                 const PopupMenuItem(value: 'block', child: ListTile(leading: Icon(Icons.block_rounded, size: 18, color: Colors.redAccent), title: Text('Block'), dense: true)),
                 const PopupMenuItem(value: 'remove', child: ListTile(leading: Icon(Icons.delete_forever_rounded, size: 18, color: Colors.redAccent), title: Text('Remove'), dense: true)),
               ],
@@ -276,6 +280,66 @@ class ContactProfileScreen extends StatelessWidget {
           title: Text(s.name),
         )),
       ],
+    );
+  }
+
+  void _showShareQRDialog(BuildContext context) {
+    final uri = 'xmpp:${contact.id}';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Share Contact', style: TextStyle(fontWeight: FontWeight.w900)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: QrImageView(
+                data: uri,
+                version: QrVersions.auto,
+                size: 200,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              contact.id,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Scan to add contact',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CLOSE'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Share.share(uri, subject: 'XMPP Contact: ${contact.name}');
+              Navigator.pop(ctx);
+            },
+            icon: const Icon(Icons.share_rounded, size: 18),
+            label: const Text('SHARE'),
+          ),
+        ],
+      ),
     );
   }
 

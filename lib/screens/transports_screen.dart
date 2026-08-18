@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../services/entitlement_service.dart';
 import '../services/transport_service.dart';
+import '../services/database_service.dart';
 import '../models/transport_models.dart';
 import '../widgets/transport_registration_dialog.dart';
 
@@ -76,6 +77,9 @@ class _TransportsScreenState extends State<TransportsScreen> {
 
     _transportService?.dispose();
     _transportService = TransportService(conn);
+    _transportService!.setDatabase(DatabaseService());
+    _transportService!.setAccountId(auth.activeAccountId);
+    _transportService!.startListening();
 
     final domain = conn.fullJid.domain;
 

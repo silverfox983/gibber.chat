@@ -29,7 +29,7 @@ class DatabaseService {
     }
     return await openDatabase(
       path,
-      version: 15,
+      version: 16,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -327,7 +327,60 @@ class DatabaseService {
             'CREATE INDEX IF NOT EXISTS idx_pending_messages_created ON pending_messages(created_at)',
           );
         }
+        if (oldVersion < 16) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS registered_transports (
+              gateway_jid TEXT PRIMARY KEY,
+              gateway_name TEXT,
+              gateway_type TEXT,
+              username TEXT,
+              password TEXT,
+              account_id TEXT,
+              registered_at TEXT DEFAULT (datetime('now'))
+            )
+          ''');
+        }
       },
+    );
+  }
+
+  // --- Message CRUD ---
+
+  // --- Registered Transports ---
+  Future<void> saveRegisteredTransport({
+    required String gatewayJid,
+    required String gatewayName,
+    required String gatewayType,
+    String? username,
+    String? password,
+    String? accountId,
+  }) async {
+    final db = await database;
+    await db.insert(
+      'registered_transports',
+      {
+        'gateway_jid': gatewayJid,
+        'gateway_name': gatewayName,
+        'gateway_type': gatewayType,
+        'username': username,
+        'password': password,
+        'account_id': accountId,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getRegisteredTransports() async {
+    final db = await database;
+    return await db.query('registered_transports');
+  }
+
+  Future<void> removeRegisteredTransport(String gatewayJid) async {
+    final db = await database;
+    await db.delete(
+      'registered_transports',
+      where: 'gateway_jid = ?',
+      whereArgs: [gatewayJid],
     );
   }
 

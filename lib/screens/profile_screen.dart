@@ -3,8 +3,9 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import 'dart:io';
-import 'dart:typed_data';
 import '../services/auth_service.dart';
 import '../services/avatar_cache_service.dart';
 import '../providers/theme_provider.dart';
@@ -60,6 +61,69 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _bioController.dispose();
     _statusMsgController.dispose();
     super.dispose();
+  }
+
+  void _showMyQRCode() {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final jid = _selectedAccountId ?? authService.activeAccountId ?? '';
+    final uri = 'xmpp:$jid';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('My XMPP Address', style: TextStyle(fontWeight: FontWeight.w900)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: QrImageView(
+                data: uri,
+                version: QrVersions.auto,
+                size: 200,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              jid,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Scan to add me',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CLOSE'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Share.share(uri, subject: 'My XMPP: $jid');
+              Navigator.pop(ctx);
+            },
+            icon: const Icon(Icons.share_rounded, size: 18),
+            label: const Text('SHARE'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _saveProfile() async {
@@ -160,11 +224,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
             )
-          else
+          else ...[
+            IconButton(
+              icon: Icon(Icons.qr_code_rounded, color: Theme.of(context).colorScheme.onPrimary),
+              onPressed: _showMyQRCode,
+              tooltip: 'Share via QR',
+            ),
             IconButton(
               icon: Icon(Icons.check_rounded, color: Theme.of(context).colorScheme.onPrimary),
               onPressed: _saveProfile,
             ),
+          ],
         ],
       ),
       body: SingleChildScrollView(

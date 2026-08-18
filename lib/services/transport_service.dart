@@ -2,13 +2,26 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/transport_models.dart';
+import 'database_service.dart';
 
 class TransportService {
   final xmpp.Connection _connection;
   final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
   late StreamSubscription<xmpp.AbstractStanza?> _subscription;
+  DatabaseService? _db;
+  String? _accountId;
 
-  TransportService(this._connection) {
+  TransportService(this._connection);
+
+  void setDatabase(DatabaseService db) {
+    _db = db;
+  }
+
+  void setAccountId(String? accountId) {
+    _accountId = accountId;
+  }
+
+  void startListening() {
     _subscription = _connection.inStanzasStream.listen(_handleStanza);
   }
 
@@ -340,7 +353,20 @@ class TransportService {
 
     try {
       final response = await _sendIq(iq);
-      return response.type == xmpp.IqStanzaType.RESULT;
+      final success = response.type == xmpp.IqStanzaType.RESULT;
+      if (success && _db != null) {
+        await _db!.saveRegisteredTransport(
+          gatewayJid: gatewayJid,
+          gatewayName: gatewayJid.split('.').first,
+          gatewayType: gatewayJid.contains('telegram') ? 'telegram' :
+                       gatewayJid.contains('discord') ? 'discord' :
+                       gatewayJid.contains('irc') ? 'irc' : 'gateway',
+          username: formData['username'],
+          password: formData['password'],
+          accountId: _accountId,
+        );
+      }
+      return success;
     } catch (e) {
       debugPrint('Error submitting registration: $e');
       return false;
@@ -362,10 +388,19 @@ class TransportService {
 
     try {
       final response = await _sendIq(iq);
-      return response.type == xmpp.IqStanzaType.RESULT;
+      final success = response.type == xmpp.IqStanzaType.RESULT;
+      if (success && _db != null) {
+        await _db!.removeRegisteredTransport(gatewayJid);
+      }
+      return success;
     } catch (e) {
       debugPrint('Error unregistering: $e');
       return false;
     }
+  }
+
+  Future<List<Map<String, dynamic>>> getRegisteredTransports() async {
+    if (_db == null) return [];
+    return await _db!.getRegisteredTransports();
   }
 }
