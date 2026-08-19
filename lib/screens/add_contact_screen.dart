@@ -14,7 +14,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
   final TextEditingController _nicknameController = TextEditingController();
   
   // Custom groupings
-  final List<String> _commonDomains = ['@jabber.org', '@movim.eu', '@xmpp.jp', '@blabber.im', '@conversations.im'];
+  final List<String> _commonDomains = ['@jabber.org', '@movim.eu', '@xmpp.jp', '@blabber.im', '@conversations.im', '@cheogram.com'];
   
   // Pre-defined or standard groups
   final List<String> _standardGroups = ['General', 'Friends', 'Work', 'Family'];
