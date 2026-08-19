@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
 import 'package:record/record.dart';
 import '../../core/app_colors.dart';
 import '../../models/chat_models.dart';
+import '../../providers/call_provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../services/auth_service.dart';
 
@@ -176,11 +179,18 @@ class _ChatViewState extends State<ChatView> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          icon: const Icon(Icons.call_rounded),
-          onPressed: () {},
-          tooltip: 'Voice call',
-        ),
+        if (!conv.isGroup) ...[
+          IconButton(
+            icon: const Icon(Icons.call_rounded),
+            tooltip: 'Voice call',
+            onPressed: () => _startCall(context, conv, false),
+          ),
+          IconButton(
+            icon: const Icon(Icons.videocam_rounded),
+            tooltip: 'Video call',
+            onPressed: () => _startCall(context, conv, true),
+          ),
+        ],
         if (!conv.isGroup && widget.authService.isOmemoEnabled(conv.id))
           Padding(
             padding: const EdgeInsets.only(right: 4),
@@ -199,6 +209,44 @@ class _ChatViewState extends State<ChatView> {
           ],
         ),
       ],
+    );
+  }
+
+  Future<void> _startCall(BuildContext context, Conversation conv, bool isVideo) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final callProvider = Provider.of<CallProvider>(context, listen: false);
+    final statuses = await [
+      Permission.microphone,
+      if (isVideo) Permission.camera,
+    ].request();
+
+    if (statuses[Permission.microphone] != PermissionStatus.granted) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(isVideo
+              ? 'Camera and microphone permissions are required for video calls.'
+              : 'Microphone permission is required for voice calls.'),
+          action: SnackBarAction(
+            label: 'Settings',
+            onPressed: () => openAppSettings(),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (isVideo && statuses[Permission.camera] != PermissionStatus.granted) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Camera permission is required for video calls.')),
+      );
+      return;
+    }
+
+    callProvider.startCall(
+      conv.id,
+      accountId: conv.accountId,
+      isVideo: isVideo,
+      protocol: conv.protocol,
     );
   }
 
