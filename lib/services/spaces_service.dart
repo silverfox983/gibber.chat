@@ -718,7 +718,7 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
-  Future<String?> createSpace(String domain, String node, String name, {String? description, String accessModel = 'open', String publishModel = 'publishers'}) async {
+  Future<String?> createSpace(String domain, String node, String name, {String? description, String? topic, String? avatarUrl, String? bannerUrl, String accessModel = 'open', String publishModel = 'publishers'}) async {
     final iq = xmpp.IqStanza('create_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
     iq.toJid = xmpp.Jid.fromFullJid(domain);
 
@@ -755,6 +755,9 @@ class SpacesService extends ChangeNotifier {
     addField('FORM_TYPE', 'http://jabber.org/protocol/pubsub#node_config', type: 'hidden');
     addField('pubsub#title', name);
     if (description != null) addField('pubsub#description', description);
+    if (topic != null && topic.isNotEmpty) addField('pubsub#title', topic);
+    if (avatarUrl != null && avatarUrl.isNotEmpty) addField('pubsub#node_avatar_url', avatarUrl);
+    if (bannerUrl != null && bannerUrl.isNotEmpty) addField('pubsub#node_banner_url', bannerUrl);
     addField('pubsub#node_type', 'leaf');
     addField('pubsub#access_model', accessModel);
     addField('pubsub#publish_model', publishModel);
@@ -784,6 +787,21 @@ class SpacesService extends ChangeNotifier {
         }
         return 'Server rejected the space creation request.';
       }
+
+      // SUCCESS — now create MUC room and auto-subscribe
+      try {
+        final mucJid = '$node@conference.$domain';
+        final myJid = _connection.account.fullJid.userAtDomain;
+
+        // Create MUC room (lazy — joining creates it)
+        await _joinMucRoom(mucJid, myJid);
+
+        // Auto-subscribe to the PubSub node so creator sees posts
+        await subscribeToSpace(domain, node, myJid, spaceType: 'leaf');
+      } catch (e) {
+        debugPrint('SpacesService: MUC creation or subscribe failed (non-fatal): $e');
+      }
+
       return null;
     } catch (e) {
       return 'Network error: ${e.toString()}';
@@ -977,6 +995,13 @@ class SpacesService extends ChangeNotifier {
   }
 
   Future<bool> createSpaceChannel(String spaceDomain, String spaceNode, String channelName, String channelJid) async {
+    try {
+      final myJid = _connection.account.fullJid.userAtDomain;
+      await _joinMucRoom(channelJid, myJid);
+    } catch (e) {
+      debugPrint('SpacesService: Channel MUC creation failed (non-fatal): $e');
+    }
+
     final conference = xmpp.XmppElement();
     conference.name = 'conference';
     conference.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:bookmarks:1'));

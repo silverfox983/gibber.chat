@@ -271,6 +271,18 @@ GoRouter createAppRouter({
                 },
               ),
               GoRoute(
+                path: 'space-detail',
+                name: 'spaceDetail',
+                pageBuilder: (context, state) {
+                  final args = state.extra as Map<String, dynamic>;
+                  return _fadePage(state: state, child: SpaceDetailView(
+                    space: args['space'] as SpaceNode,
+                    spacesService: args['spacesService'] as SpacesService,
+                    onBack: () => context.pop(),
+                  ));
+                },
+              ),
+              GoRoute(
                 path: 'post-detail',
                 name: 'postDetail',
                 pageBuilder: (context, state) {

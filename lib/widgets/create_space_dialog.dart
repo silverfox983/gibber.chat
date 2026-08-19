@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/space_models.dart';
 import '../services/spaces_service.dart';
@@ -26,6 +27,9 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
   final _descController = TextEditingController();
   final _slugController = TextEditingController();
   late final TextEditingController _domainController;
+  final _topicController = TextEditingController();
+  final _avatarUrlController = TextEditingController();
+  final _bannerUrlController = TextEditingController();
   bool _isLoading = false;
   bool _domainValid = false;
   bool _domainChecked = false;
@@ -63,6 +67,9 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
     _descController.dispose();
     _slugController.dispose();
     _domainController.dispose();
+    _topicController.dispose();
+    _avatarUrlController.dispose();
+    _bannerUrlController.dispose();
     super.dispose();
   }
 
@@ -117,6 +124,9 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
       slug,
       name,
       description: _descController.text.trim(),
+      topic: _topicController.text.trim(),
+      avatarUrl: _avatarUrlController.text.trim(),
+      bannerUrl: _bannerUrlController.text.trim(),
       accessModel: _accessModel,
       publishModel: _publishModel,
     );
@@ -125,17 +135,33 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
 
     if (errorMessage == null) {
       if (mounted) {
-        Provider.of<AuthService>(context, listen: false).joinPersistedSpace(
-          targetDomain,
-          slug,
-          name,
-        );
+        final auth = Provider.of<AuthService>(context, listen: false);
+        auth.joinPersistedSpace(targetDomain, slug, name);
+
         Navigator.pop(context);
+
+        final newSpace = SpaceNode(
+          domain: targetDomain,
+          node: slug,
+          name: name,
+          isSubscribed: true,
+        );
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Space "$name" created!'),
             backgroundColor: Colors.green.shade700,
             duration: const Duration(seconds: 3),
+            action: SnackBarAction(
+              label: 'OPEN',
+              textColor: Colors.white,
+              onPressed: () {
+                context.pushNamed('spaceDetail', extra: {
+                  'space': newSpace,
+                  'spacesService': widget.spacesService,
+                });
+              },
+            ),
           ),
         );
       }
@@ -260,6 +286,32 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                   ),
                   const SizedBox(height: 16),
                   _buildTextField(
+                    controller: _topicController,
+                    label: 'Topic / Subject (Optional)',
+                    icon: Icons.subject_rounded,
+                    theme: theme,
+                    hintText: 'Short subject line for the space',
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    controller: _avatarUrlController,
+                    label: 'Avatar URL (Optional)',
+                    icon: Icons.image_rounded,
+                    theme: theme,
+                    hintText: 'https://example.com/avatar.jpg',
+                    keyboardType: TextInputType.url,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    controller: _bannerUrlController,
+                    label: 'Banner URL (Optional)',
+                    icon: Icons.photo_size_select_actual_rounded,
+                    theme: theme,
+                    hintText: 'https://example.com/banner.jpg',
+                    keyboardType: TextInputType.url,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
                     controller: _domainController,
                     label: 'Server',
                     icon: Icons.dns_rounded,
@@ -378,10 +430,12 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
     String? hintText,
     Widget? suffix,
     void Function(String)? onChanged,
+    TextInputType? keyboardType,
   }) {
     return TextField(
       controller: controller,
       maxLines: maxLines,
+      keyboardType: keyboardType,
       style: TextStyle(
         color: theme.colorScheme.onSurface,
         fontWeight: FontWeight.w500,
