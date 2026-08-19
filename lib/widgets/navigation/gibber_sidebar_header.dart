@@ -11,11 +11,13 @@ import '../../providers/theme_provider.dart';
 class GibberSidebarHeader extends StatelessWidget {
   final ChatProvider chatProvider;
   final AuthService authService;
+  final VoidCallback? onCollapseSidebar;
 
   const GibberSidebarHeader({
     super.key,
     required this.chatProvider,
     required this.authService,
+    this.onCollapseSidebar,
   });
 
   @override
@@ -79,6 +81,20 @@ class GibberSidebarHeader extends StatelessWidget {
           ),
         ),
         const Spacer(),
+        if (onCollapseSidebar != null) ...[
+          IconButton(
+            icon: const Icon(Icons.menu_open_rounded, color: Colors.white70, size: 20),
+            onPressed: onCollapseSidebar,
+            tooltip: 'Collapse Sidebar',
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white.withValues(alpha: 0.1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(DesignTokens.radiusSm),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+        ],
         _buildThemeToggle(context),
         const SizedBox(width: 4),
         _buildNexusButton(context),

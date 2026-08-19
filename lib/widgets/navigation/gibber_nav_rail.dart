@@ -8,11 +8,13 @@ import '../../services/auth_service.dart';
 class GibberNavRail extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
+  final VoidCallback? onExpandSidebar;
 
   const GibberNavRail({
     super.key,
     required this.selectedIndex,
     required this.onDestinationSelected,
+    this.onExpandSidebar,
   });
 
   @override
@@ -63,6 +65,23 @@ class GibberNavRail extends StatelessWidget {
                         _buildAccountSwitcher(context),
                         const SizedBox(height: 20),
                         const Divider(indent: 16, endIndent: 16),
+                        if (onExpandSidebar != null) ...[
+                          const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: IconButton(
+                              icon: const Icon(Icons.chevron_right_rounded, color: Colors.white70, size: 20),
+                              onPressed: onExpandSidebar,
+                              tooltip: 'Expand Sidebar',
+                              style: IconButton.styleFrom(
+                                backgroundColor: isDark ? Colors.white12 : Colors.black12,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(DesignTokens.radiusSm),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

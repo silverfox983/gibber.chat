@@ -146,6 +146,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
   bool _showScrollToBottom = false;
   bool _isTypingMsg = false;
   final Set<String> _requestedQuoteBackfills = {};
+  bool _isSidebarCollapsed = false;
 
   late AuthService _authService;
   late CallProvider _callProvider;
@@ -904,7 +905,12 @@ class _MainChatScreenState extends State<MainChatScreen> {
         children: [
           _buildNavRail(chatProvider, authService),
           if (showSidebar)
-            _buildSidebarLayout(chatProvider, authService, false),
+            _buildSidebarLayout(
+              chatProvider,
+              authService,
+              false,
+              onCollapseSidebar: () => setState(() => _isSidebarCollapsed = true),
+            ),
           Expanded(
             child: _buildDesktopContent(
               chatProvider: chatProvider,
@@ -3792,8 +3798,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
   Widget _buildSidebarLayout(
     ChatProvider chatProvider,
     AuthService authService,
-    bool isMobile,
-  ) {
+    bool isMobile, {
+    VoidCallback? onCollapseSidebar,
+  }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final content = DecoratedBox(
       decoration: BoxDecoration(
@@ -3809,7 +3816,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
       ),
       child: Column(
         children: [
-          GibberSidebarHeader(chatProvider: chatProvider, authService: authService),
+          GibberSidebarHeader(
+            chatProvider: chatProvider,
+            authService: authService,
+            onCollapseSidebar: onCollapseSidebar,
+          ),
           Expanded(child: _buildSidebarContent(chatProvider, authService)),
         ],
       ),
@@ -3817,7 +3828,23 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
     if (isMobile) return content;
 
-    return SizedBox(width: 320, child: content);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+      width: _isSidebarCollapsed ? 0 : 320,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 150),
+        opacity: _isSidebarCollapsed ? 0 : 1.0,
+        child: ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.centerLeft,
+            maxWidth: 320,
+            minWidth: 320,
+            child: SizedBox(width: 320, child: content),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildNavRail(ChatProvider chatProvider, AuthService authService) {
@@ -3827,6 +3854,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
         debugPrint('ISOLATE: Selected Tab $idx');
         chatProvider.setSidebarTab(idx);
       },
+      onExpandSidebar: _isSidebarCollapsed ? () => setState(() => _isSidebarCollapsed = false) : null,
     );
   }
 
