@@ -19,6 +19,7 @@ import '../services/auth_service.dart';
 import '../services/spaces_service.dart';
 
 import '../models/space_models.dart';
+import '../models/unified_community.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/create_space_dialog.dart';
 import '../widgets/space_invite_dialog.dart';
@@ -36,6 +37,8 @@ class SpacesScreen extends StatefulWidget {
   State<SpacesScreen> createState() => _SpacesScreenState();
 }
 
+enum _SpacesTab { explore, myCommunities, rooms }
+
 class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
@@ -43,40 +46,46 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
   SpaceNode? _selectedSpace;
   final List<SpaceNode> _spaceHistory = [];
 
-  List<SpaceNode> _mySpaces = [];
-  List<SpaceNode> _lastSeenJoinedSpaces = [];
-  List<SpaceNode> _featuredSpaces = [];
-  List<SpaceNode> _filteredFeaturedSpaces = [];
-  bool _isLoading = false;
-  
-  // O(1) membership cache — rebuilt whenever joinedSpaces changes
-  Set<String> _joinedJidSet = {};
+  // ── Explore ──
+  final List<UnifiedCommunity> _exploreResults = [];
+  bool _exploreLoading = false;
+  String _exploreQuery = '';
+  final _exploreSearchController = TextEditingController();
+  String _exploreSort = 'Popular'; // Popular / Newest / A-Z
+  final _exploreSources = ['movim.eu', 'patchwork.chat', 'yax.im', 'jabber.at'];
 
-  final TextEditingController _searchController = TextEditingController();
-  final TextEditingController _mySpacesSearchController = TextEditingController();
-  String _mySpacesSearchQuery = '';
-  VoidCallback? _refreshSpace;
-  int _tabIndex = 0; // 0 = Featured, 1 = My Communities
+  // ── My Communities ──
+  List<UnifiedCommunity> _myCommunities = [];
+  final _mySearchController = TextEditingController();
+  String _mySearchQuery = '';
 
-  String _selectedCategory = 'All';
-  String _accessFilter = 'All'; // 'All', 'Public', 'Private'
-  final List<String> _categories = ['All', 'Tech', 'News', 'Gaming', 'Art', 'Music', 'Science', 'General'];
-  
-  String _sortMode = 'Trending';
-  final List<String> _sortOptions = ['Trending', 'Newest', 'A-Z'];
+  // ── Rooms ──
+  List<UnifiedCommunity> _rooms = [];
+  bool _roomsLoading = false;
+  String _selectedMucService = 'conference.movim.eu';
+  final _mucServices = [
+    'conference.movim.eu',
+    'conference.patchwork.chat',
+    'conference.yax.im',
+    'conference.jabber.at',
+    'chat.jabber.at',
+  ];
+  final _roomsSearchController = TextEditingController();
+  String _roomsSearchQuery = '';
+
+  Set<String> get _joinedKeys => _myCommunities.map((c) => c.id).toSet();
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeSpaces();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _init());
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
-    _mySpacesSearchController.dispose();
+    _exploreSearchController.dispose();
+    _mySearchController.dispose();
+    _roomsSearchController.dispose();
     super.dispose();
   }
 
@@ -85,139 +94,724 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     return auth.spacesService;
   }
 
-  Future<void> _initializeSpaces({bool forceRefresh = false}) async {
+  Future<void> _init() async {
+    await _loadMyCommunities();
+    _loadExplore();
+    _loadRooms();
+  }
+
+  Future<void> _loadMyCommunities() async {
     final auth = Provider.of<AuthService>(context, listen: false);
-    final conn = auth.activeXmppConnection;
-
-    // Always show persisted/joined spaces immediately — no connection needed
     final persisted = auth.joinedSpaces;
-    _lastSeenJoinedSpaces = List.from(persisted);
-    _joinedJidSet = {for (final s in persisted) '${s.domain}|${s.node}'};
+    final mucRooms = auth.joinedRooms;
 
-    if (conn == null) {
+    final communities = <UnifiedCommunity>[];
+
+    for (final space in persisted) {
+      communities.add(UnifiedCommunity.fromSpaceNode(space));
+    }
+    for (final room in mucRooms) {
+      final jid = room.id;
+      if (jid.contains('@')) {
+        communities.add(UnifiedCommunity(
+          id: jid,
+          name: room.name,
+          description: room.topic,
+          memberCount: room.participants.length,
+          isJoined: true,
+          type: CommunityType.room,
+          domain: jid.contains('@') ? jid.split('@').last : jid,
+          jid: jid,
+          isPublic: true,
+          features: [],
+        ));
+      }
+    }
+
+    communities.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    if (mounted) {
+      setState(() => _myCommunities = communities);
+    }
+  }
+
+  Future<void> _loadExplore() async {
+    if (_spacesService == null) return;
+    setState(() => _exploreLoading = true);
+
+    try {
+      final results = await Future.wait(
+        _exploreSources.map((domain) async {
+          try {
+            final spaces = await _spacesService!.discoverAllSpaces(domain);
+            final enriched = await Future.wait(
+              spaces.take(20).map((s) async {
+                try {
+                  return await _spacesService!.fetchSpaceMetadata(s.domain, s.node, fallbackName: s.name);
+                } catch (_) {
+                  return s;
+                }
+              }),
+            );
+            return enriched;
+          } catch (_) {
+            return <SpaceNode>[];
+          }
+        }),
+      );
+
+      final flat = results.expand((r) => r).whereType<SpaceNode>().toList();
+      flat.sort((a, b) => (b.numSubscribers ?? 0).compareTo(a.numSubscribers ?? 0));
+
+      final communities = flat.map((s) => UnifiedCommunity.fromSpaceNode(s)).toList();
+
       if (mounted) {
         setState(() {
-          _mySpaces = persisted;
-          _isLoading = false;
+          _exploreResults.clear();
+          _exploreResults.addAll(communities);
+          _exploreLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _exploreLoading = false);
+    }
+  }
+
+  Future<void> _loadRooms() async {
+    if (_spacesService == null) return;
+    setState(() => _roomsLoading = true);
+
+    try {
+      final mucSpaces = await _spacesService!.discoverMucRoomsAsSpaces(_selectedMucService);
+
+      final rooms = <UnifiedCommunity>[];
+      for (final space in mucSpaces) {
+        final details = await _spacesService!.fetchSpaceDetails(space);
+        rooms.add(UnifiedCommunity.fromSpaceNode(details));
+      }
+
+      rooms.sort((a, b) => (b.memberCount).compareTo(a.memberCount));
+
+      if (mounted) {
+        setState(() {
+          _rooms = rooms;
+          _roomsLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _roomsLoading = false);
+    }
+  }
+
+  Future<void> _refresh() async {
+    await _loadMyCommunities();
+    _loadExplore();
+    _loadRooms();
+  }
+
+  // ─── Tab builder delegates ─────────────────────────────────────────────
+
+  Widget _buildExplore() => _buildUnifiedList(
+        items: _filteredExplore(),
+        loading: _exploreLoading,
+        emptyIcon: Icons.explore_outlined,
+        emptyTitle: 'No communities found',
+        emptySubtitle: 'Try a different search or check your connection.',
+        onRefresh: () async { _loadExplore(); },
+        searchHint: 'Search communities...',
+        searchController: _exploreSearchController,
+        onSearchChanged: (v) => setState(() => _exploreQuery = v),
+        onSearchSubmit: (v) async {
+          if (v.trim().isEmpty) { _loadExplore(); return; }
+          if (_spacesService == null) return;
+          setState(() => _exploreLoading = true);
+          try {
+            final results = await _spacesService!.discoverAllSpaces(v.trim());
+            final enriched = await Future.wait(
+              results.take(30).map((s) async {
+                try {
+                  return await _spacesService!.fetchSpaceDetails(s);
+                } catch (_) { return s; }
+              }),
+            );
+            final communities = enriched.map((s) => UnifiedCommunity.fromSpaceNode(s)).toList();
+            if (mounted) {
+              setState(() {
+                _exploreResults.clear();
+                _exploreResults.addAll(communities);
+                _exploreLoading = false;
+              });
+            }
+          } catch (_) {
+            if (mounted) setState(() => _exploreLoading = false);
+          }
+        },
+        sortValue: _exploreSort,
+        sortOptions: const ['Popular', 'Newest', 'A-Z'],
+        onSortChanged: (v) => setState(() => _exploreSort = v),
+        domainChips: _exploreSources,
+        onDomainChip: (domain) {
+          _exploreSearchController.text = domain;
+          setState(() => _exploreQuery = domain);
+        },
+      );
+
+  Widget _buildMyCommunities() {
+    final items = _filteredMy();
+    return _buildUnifiedList(
+      items: items,
+      loading: false,
+      emptyIcon: Icons.workspaces_outline,
+      emptyTitle: _mySearchQuery.isNotEmpty
+          ? 'No communities match "$_mySearchQuery"'
+          : "You haven't joined any communities yet.",
+      emptySubtitle: _mySearchQuery.isEmpty
+          ? 'Explore communities and join ones you like.'
+          : null,
+      onRefresh: () async { await _loadMyCommunities(); },
+      searchHint: 'Filter my communities...',
+      searchController: _mySearchController,
+      onSearchChanged: (v) => setState(() => _mySearchQuery = v),
+      onSearchSubmit: null,
+      showEmptyAsCenter: true,
+      extraEmptyAction: _mySearchQuery.isEmpty
+          ? () => DefaultTabController.of(context).animateTo(0)
+          : null,
+      extraEmptyActionLabel: _mySearchQuery.isEmpty ? 'Explore Communities' : null,
+    );
+  }
+
+  Widget _buildRooms() => _buildUnifiedList(
+        items: _filteredRooms(),
+        loading: _roomsLoading,
+        emptyIcon: Icons.forum_outlined,
+        emptyTitle: 'No rooms found',
+        emptySubtitle: 'Try a different service or search.',
+        onRefresh: () async { _loadRooms(); },
+        searchHint: 'Filter rooms...',
+        searchController: _roomsSearchController,
+        onSearchChanged: (v) => setState(() => _roomsSearchQuery = v),
+        onSearchSubmit: null,
+        domainChips: _mucServices,
+        onDomainChip: (svc) {
+          setState(() => _selectedMucService = svc);
+          _loadRooms();
+        },
+        selectedDomainChip: _selectedMucService,
+      );
+
+  // ─── Unified list renderer ─────────────────────────────────────────────
+
+  Widget _buildUnifiedList({
+    required List<UnifiedCommunity> items,
+    required bool loading,
+    required IconData emptyIcon,
+    required String emptyTitle,
+    String? emptySubtitle,
+    required Future<void> Function() onRefresh,
+    required String searchHint,
+    required TextEditingController searchController,
+    required void Function(String) onSearchChanged,
+    void Function(String)? onSearchSubmit,
+    String? sortValue,
+    List<String>? sortOptions,
+    void Function(String)? onSortChanged,
+    List<String>? domainChips,
+    void Function(String)? onDomainChip,
+    String? selectedDomainChip,
+    bool showEmptyAsCenter = false,
+    VoidCallback? extraEmptyAction,
+    String? extraEmptyActionLabel,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth > 500;
+        final cardW = isWide ? 340.0 : 300.0;
+        final coverH = isWide ? 150.0 : 110.0;
+        final horiz = isWide ? 24.0 : 16.0;
+
+        return RefreshIndicator(
+          onRefresh: onRefresh,
+          child: CustomScrollView(
+            slivers: [
+              // ── Search ──
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(horiz, 16, horiz, 8),
+                  child: TextField(
+                    controller: searchController,
+                    decoration: InputDecoration(
+                      hintText: searchHint,
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: loading
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                width: 20, height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : (searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear_rounded),
+                                  onPressed: () {
+                                    searchController.clear();
+                                    onSearchChanged('');
+                                  },
+                                )
+                              : null),
+                      filled: true,
+                      fillColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    onChanged: onSearchChanged,
+                    onSubmitted: onSearchSubmit,
+                  ),
+                ),
+              ),
+
+              // ── Domain chips ──
+              if (domainChips != null && domainChips.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 44,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: EdgeInsets.symmetric(horizontal: horiz),
+                      itemCount: domainChips.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (context, i) {
+                        final chip = domainChips[i];
+                        final selected = chip == selectedDomainChip;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 0),
+                          child: FilterChip(
+                            label: Text(chip, style: const TextStyle(fontSize: 12)),
+                            selected: selected,
+                            onSelected: (_) => onDomainChip?.call(chip),
+                            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                            selectedColor: Theme.of(context).colorScheme.primaryContainer,
+                            side: BorderSide.none,
+                            showCheckmark: false,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+
+              // ── Sort row ──
+              if (sortOptions != null)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(horiz, 12, horiz, 4),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.sort_rounded, size: 16, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        ...sortOptions.map((opt) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: InkWell(
+                                onTap: () => onSortChanged?.call(opt),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: opt == sortValue
+                                        ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    opt,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: opt == sortValue ? FontWeight.bold : FontWeight.normal,
+                                      color: opt == sortValue
+                                          ? Theme.of(context).colorScheme.primary
+                                          : Colors.grey,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // ── Results ──
+              if (items.isNotEmpty)
+                SliverPadding(
+                  padding: EdgeInsets.symmetric(horizontal: horiz, vertical: 12),
+                  sliver: SliverGrid(
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: cardW,
+                      mainAxisSpacing: 16,
+                      crossAxisSpacing: 16,
+                      mainAxisExtent: cardW * 0.72,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => _buildUnifiedCommunityCard(
+                        items[i],
+                        coverHeight: coverH,
+                        isJoined: _joinedKeys.contains(items[i].id),
+                      ),
+                      childCount: items.length,
+                    ),
+                  ),
+                ),
+
+              // ── Empty state ──
+              if (items.isEmpty && !loading)
+                if (showEmptyAsCenter)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _buildEmptyState(
+                      emptyIcon, emptyTitle, emptySubtitle,
+                      extraEmptyAction: extraEmptyAction,
+                      extraEmptyActionLabel: extraEmptyActionLabel,
+                    ),
+                  )
+                else
+                  SliverToBoxAdapter(
+                    child: _buildEmptyState(
+                      emptyIcon, emptyTitle, emptySubtitle,
+                      extraEmptyAction: extraEmptyAction,
+                      extraEmptyActionLabel: extraEmptyActionLabel,
+                    ),
+                  ),
+
+              SliverToBoxAdapter(child: SizedBox(height: isWide ? 80 : 120)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyState(
+    IconData icon, String title, String? subtitle, {
+    VoidCallback? extraEmptyAction,
+    String? extraEmptyActionLabel,
+  }) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 64, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
+          const SizedBox(height: 16),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          if (subtitle != null) ...[
+            const SizedBox(height: 6),
+            Text(subtitle, style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ],
+          if (extraEmptyAction != null && extraEmptyActionLabel != null) ...[
+            const SizedBox(height: 20),
+            FilledButton.tonalIcon(
+              onPressed: extraEmptyAction,
+              icon: const Icon(Icons.explore_rounded, size: 18),
+              label: Text(extraEmptyActionLabel),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ─── Unified card ───────────────────────────────────────────────────────
+
+  Widget _buildUnifiedCommunityCard(UnifiedCommunity c, {double coverHeight = 130, bool isJoined = false}) {
+    final theme = Theme.of(context);
+    final hue = (c.id.hashCode.abs() % 360).toDouble();
+    final accent = HSLColor.fromAHSL(1, hue, 0.55, 0.55).toColor();
+
+    final typeIcon = switch (c.type) {
+      CommunityType.space => Icons.workspaces_rounded,
+      CommunityType.room => Icons.forum_rounded,
+      CommunityType.microblog => Icons.article_rounded,
+    };
+
+    final typeLabel = switch (c.type) {
+      CommunityType.space => 'SPACE',
+      CommunityType.room => 'ROOM',
+      CommunityType.microblog => 'BLOG',
+    };
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.4)),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.15),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _openCommunity(c),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Cover
+              Stack(
+                children: [
+                  SizedBox(
+                    height: coverHeight,
+                    width: double.infinity,
+                    child: c.avatarUrl != null
+                        ? Image.network(c.avatarUrl!, fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => _gradientPlaceholder(accent))
+                        : _gradientPlaceholder(accent),
+                  ),
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.65)],
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Type badge
+                  Positioned(
+                    top: 10, left: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: accent,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(children: [
+                        Icon(typeIcon, size: 10, color: Colors.white),
+                        const SizedBox(width: 4),
+                        Text(typeLabel, style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900)),
+                      ]),
+                    ),
+                  ),
+                  // Joined badge
+                  if (isJoined)
+                    Positioned(
+                      top: 10, right: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade600,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Row(children: [
+                          Icon(Icons.check_circle_rounded, size: 10, color: Colors.white),
+                          SizedBox(width: 4),
+                          Text('JOINED', style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900)),
+                        ]),
+                      ),
+                    ),
+                  // Domain
+                  Positioned(
+                    bottom: 8, left: 10,
+                    child: Text(
+                      c.domain.toUpperCase(),
+                      style: const TextStyle(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                    ),
+                  ),
+                  // Member count
+                  Positioned(
+                    bottom: 8, right: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.black38,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.people_outline_rounded, size: 10, color: Colors.white70),
+                        const SizedBox(width: 4),
+                        Text(
+                          c.memberCount > 0 ? _formatCount(c.memberCount) : '?',
+                          style: const TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.bold),
+                        ),
+                      ]),
+                    ),
+                  ),
+                ],
+              ),
+              // Details
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        c.name,
+                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, height: 1.2),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 5),
+                      if (c.description != null && c.description!.isNotEmpty)
+                        Expanded(
+                          child: Text(
+                            c.description!,
+                            style: TextStyle(fontSize: 11.5, color: theme.colorScheme.onSurfaceVariant, height: 1.4),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        )
+                      else
+                        const Spacer(),
+                      Row(
+                        children: [
+                          Icon(
+                            c.isPublic ? Icons.public_rounded : Icons.lock_outline_rounded,
+                            size: 11,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              c.isPublic ? 'Open Community' : 'Private',
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: theme.colorScheme.primary),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _gradientPlaceholder(Color accent) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [accent, accent.withValues(alpha: 0.45)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: const Center(
+        child: Icon(Icons.workspaces_rounded, size: 40, color: Colors.white54),
+      ),
+    );
+  }
+
+  String _formatCount(int count) {
+    if (count >= 1000000) return '${(count / 1000000).toStringAsFixed(1)}M';
+    if (count >= 1000) return '${(count / 1000).toStringAsFixed(1)}K';
+    return count.toString();
+  }
+
+  // ─── Filtering ──────────────────────────────────────────────────────────
+
+  List<UnifiedCommunity> _filteredExplore() {
+    var items = List<UnifiedCommunity>.from(_exploreResults);
+    if (_exploreQuery.isNotEmpty) {
+      final q = _exploreQuery.toLowerCase();
+      items = items.where((c) =>
+        c.name.toLowerCase().contains(q) ||
+        (c.description?.toLowerCase().contains(q) ?? false) ||
+        c.domain.toLowerCase().contains(q)
+      ).toList();
+    }
+    if (_exploreSort == 'Popular') {
+      items.sort((a, b) => b.memberCount.compareTo(a.memberCount));
+    } else if (_exploreSort == 'A-Z') {
+      items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    }
+    return items;
+  }
+
+  List<UnifiedCommunity> _filteredMy() {
+    if (_mySearchQuery.isEmpty) return _myCommunities;
+    final q = _mySearchQuery.toLowerCase();
+    return _myCommunities.where((c) =>
+      c.name.toLowerCase().contains(q) ||
+      (c.description?.toLowerCase().contains(q) ?? false) ||
+      c.domain.toLowerCase().contains(q)
+    ).toList();
+  }
+
+  List<UnifiedCommunity> _filteredRooms() {
+    if (_roomsSearchQuery.isEmpty) return _rooms;
+    final q = _roomsSearchQuery.toLowerCase();
+    return _rooms.where((c) =>
+      c.name.toLowerCase().contains(q) ||
+      (c.description?.toLowerCase().contains(q) ?? false)
+    ).toList();
+  }
+
+  // ─── Navigation ────────────────────────────────────────────────────────
+
+  void _openCommunity(UnifiedCommunity c) {
+    if (c.type == CommunityType.room) {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      final conn = auth.activeXmppConnection;
+      if (conn != null && c.jid != null) {
+        context.goNamed('roomInfo', extra: {
+          'room': {'jid': c.jid, 'name': c.name, 'topic': c.description ?? ''},
+          'accountId': conn.fullJid.userAtDomain,
         });
       }
       return;
     }
 
-    setState(() => _isLoading = true);
+    if (c.node == null || c.domain.isEmpty) return;
 
-    if (mounted) {
-      setState(() {
-        _mySpaces = persisted;
-      });
-    }
+    final spaceNode = SpaceNode(
+      domain: c.domain,
+      node: c.node!,
+      name: c.name,
+      description: c.description,
+      avatarUrl: c.avatarUrl,
+      coverUrl: c.coverUrl,
+      features: c.features,
+      accessModel: c.isPublic ? 'open' : 'authorize',
+      type: 'leaf',
+    );
 
-    // Load featured spaces from public hub in background — don't block UI
-    _loadFeaturedSpaces(forceRefresh: forceRefresh);
-    
-    // Sync metadata for local spaces in background (parallel)
-    _syncMySpacesMetadata(forceRefresh: forceRefresh);
+    setState(() {
+      _selectedSpace = spaceNode;
+      _spaceHistory.add(spaceNode);
+    });
 
-    if (mounted) setState(() => _isLoading = false);
-  }
-
-  Future<void> _loadFeaturedSpaces({bool forceRefresh = false}) async {
     if (_spacesService == null) return;
-    try {
-      final featured = await _spacesService!.discoverAllSpaces('movim.eu', forceRefresh: forceRefresh);
-      if (mounted) {
+    _spacesService!.fetchSpaceDetails(spaceNode).then((details) {
+      if (mounted && _selectedSpace?.node == spaceNode.node) {
         setState(() {
-          _featuredSpaces = featured;
-          _recomputeFilteredList();
+          _selectedSpace = details;
+          if (_spaceHistory.isNotEmpty) _spaceHistory.last = details;
         });
       }
-    } catch (e) {
-      debugPrint('Error loading featured spaces: $e');
-    }
+    });
   }
 
-  /// Re-sorts and filters [_featuredSpaces] into [_filteredFeaturedSpaces].
-  /// Must be called (inside setState) whenever source data or filter params change.
-  void _recomputeFilteredList() {
-    var items = List<SpaceNode>.from(_featuredSpaces);
-    if (_selectedCategory != 'All') {
-      items = items.where((s) =>
-        s.description?.toLowerCase().contains(_selectedCategory.toLowerCase()) ?? false
-      ).toList();
-    }
-    if (_accessFilter == 'Public') {
-      items = items.where((s) => s.isPublic).toList();
-    } else if (_accessFilter == 'Private') {
-      items = items.where((s) => !s.isPublic).toList();
-    }
-    if (_sortMode == 'Trending') {
-      items.sort((a, b) => (b.numSubscribers ?? 0).compareTo(a.numSubscribers ?? 0));
-    } else if (_sortMode == 'A-Z') {
-      items.sort((a, b) => a.name.compareTo(b.name));
-    }
-    _filteredFeaturedSpaces = items;
-  }
+  // ─── UI ROUTER ────────────────────────────────────────────────────────
 
-  Future<void> _syncMySpacesMetadata({bool forceRefresh = false}) async {
-    if (_spacesService == null || _mySpaces.isEmpty) return;
-    
-    final spacesToSync = List<SpaceNode>.from(_mySpaces);
-    const batchSize = 4;
-
-    for (int start = 0; start < spacesToSync.length; start += batchSize) {
-      final batch = spacesToSync.skip(start).take(batchSize).toList();
-      await Future.wait(batch.map((space) async {
-        try {
-          final metadata = await _spacesService!.fetchSpaceMetadata(
-            space.domain, space.node, fallbackName: space.name, forceRefresh: forceRefresh);
-          if (metadata != null && mounted) {
-            setState(() {
-              final idx = _mySpaces.indexWhere(
-                  (s) => s.domain == space.domain && s.node == space.node);
-              if (idx != -1) _mySpaces[idx] = metadata;
-            });
-            final auth = Provider.of<AuthService>(context, listen: false);
-            auth.updatePersistedSpace(metadata);
-          }
-        } catch (e) {
-          debugPrint('Error syncing metadata for ${space.node}: $e');
-        }
-      }));
-    }
-  }
-
-  Future<void> _refresh() async {
-    await _initializeSpaces(forceRefresh: true);
-  }
-
-  // === UI ROUTER ===
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    super.build(context);
     final theme = Theme.of(context);
     final canGoBack = _selectedSpace != null;
-
-    // Check if joined spaces changed (intelligent delta check)
-    final auth = Provider.of<AuthService>(context);
-    final joined = auth.joinedSpaces;
-    bool changed = joined.length != _lastSeenJoinedSpaces.length;
-    if (!changed) {
-      for (int i = 0; i < joined.length; i++) {
-        if (joined[i].domain != _lastSeenJoinedSpaces[i].domain || joined[i].node != _lastSeenJoinedSpaces[i].node) {
-          changed = true;
-          break;
-        }
-      }
-    }
-    
-    if (changed && !canGoBack && !_isLoading) {
-       WidgetsBinding.instance.addPostFrameCallback((_) => _initializeSpaces());
-    }
-
-    // Rebuild joined-JID set whenever the list changes
-    if (changed) {
-      _joinedJidSet = {for (final s in joined) '${s.domain}|${s.node}'};
-    }
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -236,21 +830,19 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                   });
                 },
               ),
-              title: Text(_selectedSpace?.name ?? 'Space'),
+              title: Text(_selectedSpace?.name ?? 'Community'),
             )
-            : AppBar(
-                title: Row(
-                  children: [
-                    Image.asset(
-                      'assets/logo.png',
-                      height: 24,
-                      width: 24,
-                    ),
-                    const SizedBox(width: 12),
-                    const Text('Communities Hub',
-                        style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -0.5)),
-                  ],
-                ),
+          : AppBar(
+              title: Row(
+                children: [
+                  Image.asset('assets/logo.png', height: 24, width: 24),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Communities Hub',
+                    style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -0.5),
+                  ),
+                ],
+              ),
               centerTitle: false,
               elevation: 0,
               backgroundColor: theme.scaffoldBackgroundColor,
@@ -280,7 +872,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
           ? SpaceDetailView(
               space: _selectedSpace!,
               spacesService: _spacesService!,
-              onCreated: (refresh) => _refreshSpace = refresh,
+              onCreated: (_) {},
               onBack: () {
                 setState(() {
                   if (_spaceHistory.isNotEmpty) {
@@ -292,19 +884,18 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                 });
               },
             )
-          : _buildDashboard(theme),
+          : _buildBody(theme),
       floatingActionButton: _selectedSpace != null && _spacesService != null
           ? FloatingActionButton.extended(
               heroTag: null,
               onPressed: () {
+                final auth = Provider.of<AuthService>(context, listen: false);
                 showDialog(
                   context: context,
                   builder: (context) => CreatePostDialog(
                     spacesService: _spacesService!,
                     space: _selectedSpace!,
-                    onSuccess: () {
-                      _refreshSpace?.call();
-                    },
+                    onSuccess: () {},
                     authService: auth,
                   ),
                 );
@@ -318,766 +909,80 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     );
   }
 
-  // === DASHBOARD VIEW ===
-  Widget _buildDashboard(ThemeData theme) {
-    final auth = Provider.of<AuthService>(context, listen: false);
-    final isOffline = auth.activeXmppConnection == null;
+  _SpacesTab _currentTab = _SpacesTab.explore;
 
-    if (_isLoading && _mySpaces.isEmpty && _featuredSpaces.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    // Apply live search filter for My Spaces
-    final filteredMySpaces = _mySpacesSearchQuery.isEmpty
-        ? _mySpaces
-        : _mySpaces.where((s) {
-            final q = _mySpacesSearchQuery.toLowerCase();
-            return s.name.toLowerCase().contains(q) ||
-                (s.description?.toLowerCase().contains(q) ?? false);
-          }).toList();
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth > 500;
-        final maxCardExtent = isWide ? 320.0 : 280.0;
-        final coverHeight = isWide ? 140.0 : 100.0;
-        final bottomPad = isWide ? 80.0 : 120.0;
-        final horizontalPad = isWide ? 24.0 : 16.0;
-
-        return RefreshIndicator(
-      onRefresh: _refresh,
-      child: CustomScrollView(
-        slivers: [
-          // ── Offline banner ──
-          if (isOffline)
-            SliverToBoxAdapter(
-              child: Container(
-                margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.wifi_off_rounded, color: Colors.orange, size: 18),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'You\'re offline. Showing cached spaces.',
-                      style: TextStyle(fontSize: 13, color: Colors.orange.shade700, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ]),
-              ),
-            ),
-          // Search Bar
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-              child: TextField(
-                controller: _tabIndex == 1 ? _mySpacesSearchController : _searchController,
-                decoration: InputDecoration(
-                  hintText: _tabIndex == 1
-                      ? 'Filter my spaces...'
-                      : 'Search a domain (e.g., movim.eu)',
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  suffixIcon: _isLoading
-                      ? const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                        )
-                      : null,
-                  filled: true,
-                  fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                ),
-                onChanged: _tabIndex == 1
-                    ? (v) => setState(() => _mySpacesSearchQuery = v)
-                    : null,
-                onSubmitted: _tabIndex == 0
-                    ? (domain) async {
-                        final trimmed = domain.trim();
-                        if (trimmed.isEmpty || _spacesService == null) return;
-                        setState(() {
-                          _isLoading = true;
-                          _tabIndex = 0;
-                        });
-                        try {
-                          final results = await _spacesService!.discoverAllSpaces(trimmed);
-                          if (mounted) {
-                            setState(() {
-                              _featuredSpaces = results;
-                              _recomputeFilteredList();
-                              _isLoading = false;
-                            });
-                          }
-                        } catch (e) {
-                          if (mounted) {
-                            setState(() => _isLoading = false);
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to search $trimmed')));
-                          }
-                        }
-                      }
-                    : null,
-              ),
-            ),
-          ),
-          
-          // Server Presets
-          if (_tabIndex == 0) SliverToBoxAdapter(
-            child: SizedBox(
-              height: 40,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(right: 8, top: 10),
-                    child: Text('Explore:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
-                  ),
-                  _buildServerChip('movim.eu'),
-                  _buildServerChip('patchwork.chat'),
-                  _buildServerChip('jabber.at'),
-                  _buildServerChip('yax.im'),
-                ],
-              ),
-            ),
-          ),
-
-          // Filters and Sorting
-          if (_tabIndex == 0) SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    height: 36,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _categories.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
-                      itemBuilder: (context, index) {
-                        final cat = _categories[index];
-                        final selected = cat == _selectedCategory;
-                        final theme = Theme.of(context);
-                        return ChoiceChip(
-                          label: Text(cat, style: TextStyle(fontSize: 12, fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
-                          selected: selected,
-                          onSelected: (val) => setState(() {
-                            _selectedCategory = cat;
-                            _recomputeFilteredList();
-                          }),
-                          backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                          selectedColor: theme.colorScheme.primaryContainer,
-                          labelStyle: TextStyle(color: selected ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurfaceVariant),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide.none),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const Icon(Icons.sort_rounded, size: 16, color: Colors.grey),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: _sortOptions.map((sort) => Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: InkWell(
-                                onTap: () => setState(() {
-                                      _sortMode = sort;
-                                      _recomputeFilteredList();
-                                    }),
-                                borderRadius: BorderRadius.circular(12),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: _sortMode == sort ? theme.colorScheme.primary.withValues(alpha: 0.1) : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(sort, style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: _sortMode == sort ? FontWeight.bold : FontWeight.normal,
-                                    color: _sortMode == sort ? theme.colorScheme.primary : Colors.grey,
-                                  )),
-                                ),
-                              ),
-                            )).toList(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.lock_outline_rounded, size: 16, color: Colors.grey),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: ['All', 'Public', 'Private'].map((filter) => Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: InkWell(
-                                onTap: () => setState(() {
-                                      _accessFilter = filter;
-                                      _recomputeFilteredList();
-                                    }),
-                                borderRadius: BorderRadius.circular(12),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: _accessFilter == filter ? theme.colorScheme.primary.withValues(alpha: 0.1) : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(filter, style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: _accessFilter == filter ? FontWeight.bold : FontWeight.normal,
-                                    color: _accessFilter == filter ? theme.colorScheme.primary : Colors.grey,
-                                  )),
-                                ),
-                              ),
-                            )).toList(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          // Tabs
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => setState(() => _tabIndex = 0),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: _tabIndex == 0 ? theme.colorScheme.surface : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: _tabIndex == 0 ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))] : [],
-                          ),
-                          alignment: Alignment.center,
-                          child: Text('Featured', style: TextStyle(
-                            fontWeight: _tabIndex == 0 ? FontWeight.bold : FontWeight.normal,
-                            color: _tabIndex == 0 ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
-                          )),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => setState(() => _tabIndex = 1),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: _tabIndex == 1 ? theme.colorScheme.surface : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: _tabIndex == 1 ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))] : [],
-                          ),
-                          alignment: Alignment.center,
-                          child: Text('My Spaces', style: TextStyle(
-                            fontWeight: _tabIndex == 1 ? FontWeight.bold : FontWeight.normal,
-                            color: _tabIndex == 1 ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
-                          )),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // Active Grid
-          if (_tabIndex == 0 && _featuredSpaces.isNotEmpty)
-            SliverPadding(
-              padding: EdgeInsets.symmetric(horizontal: horizontalPad),
-              sliver: SliverGrid(
-                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: maxCardExtent,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  mainAxisExtent: maxCardExtent + 60,
-                ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    if (index >= _filteredFeaturedSpaces.length) return const SizedBox.shrink();
-                    final space = _filteredFeaturedSpaces[index];
-                    // O(1) membership check via pre-built Set
-                    final isJoined = _joinedJidSet.contains('${space.domain}|${space.node}');
-                    return _buildSpaceGridCard(theme, space, isJoined: isJoined, coverHeight: coverHeight);
-                  },
-                  childCount: _filteredFeaturedSpaces.length,
-                ),
-              ),
-            ),
-
-          if (_tabIndex == 1 && filteredMySpaces.isNotEmpty)
-            SliverPadding(
-              padding: EdgeInsets.symmetric(horizontal: horizontalPad),
-              sliver: SliverGrid(
-                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: maxCardExtent,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  mainAxisExtent: maxCardExtent + 60,
-                ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final space = filteredMySpaces[index];
-                    // Find the real index in _mySpaces for dismissal
-                    final realIndex = _mySpaces.indexWhere(
-                        (s) => s.domain == space.domain && s.node == space.node);
-                    return Dismissible(
-                      key: ValueKey('${space.domain}|${space.node}'),
-                      direction: DismissDirection.startToEnd,
-                      background: Container(
-                        decoration: BoxDecoration(color: Colors.red.shade400, borderRadius: BorderRadius.circular(24)),
-                        alignment: Alignment.centerLeft,
-                        padding: const EdgeInsets.only(left: 20),
-                        child: const Icon(Icons.exit_to_app_rounded, color: Colors.white, size: 32),
-                      ),
-                      confirmDismiss: (direction) async {
-                        return await showDialog(
-                          context: context,
-                          builder: (c) => AlertDialog(
-                            title: const Text('Leave Space?'),
-                            content: Text('Are you sure you want to leave ${space.name}?'),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-                              FilledButton(onPressed: () => Navigator.pop(c, true), style: FilledButton.styleFrom(backgroundColor: Colors.red), child: const Text('Leave')),
-                            ],
-                          ),
-                        );
-                      },
-                      onDismissed: (direction) async {
-                        final auth = Provider.of<AuthService>(context, listen: false);
-                        final conn = auth.activeXmppConnection;
-                        if (conn != null) {
-                          await _spacesService?.unsubscribeFromSpace(space.domain, space.node, conn.fullJid.userAtDomain);
-                          await auth.leavePersistedSpace(space.domain, space.node);
-                          if (realIndex != -1) setState(() { _mySpaces.removeAt(realIndex); });
-                        }
-                      },
-                      child: _buildSpaceGridCard(theme, space, isJoined: true),
-                    );
-                  },
-                  childCount: filteredMySpaces.length,
-                ),
-              ),
-            ),
-
-          if (_tabIndex == 0 && _featuredSpaces.isEmpty && !_isLoading)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.explore_outlined, size: 72, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.25)),
-                    const SizedBox(height: 16),
-                    Text('No spaces found', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.onSurfaceVariant)),
-                    const SizedBox(height: 6),
-                    Text('Try a different domain or explore featured communities.',
-                        style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
-                        textAlign: TextAlign.center),
-                    const SizedBox(height: 20),
-                    FilledButton.icon(
-                      onPressed: () async {
-                        _searchController.text = 'movim.eu';
-                        setState(() { _isLoading = true; _tabIndex = 0; });
-                        try {
-                          final results = await _spacesService?.discoverAllSpaces('movim.eu') ?? [];
-                          if (mounted) {
-                            setState(() {
-                              _featuredSpaces = results;
-                              _recomputeFilteredList();
-                              _isLoading = false;
-                            });
-                          }
-                        } catch (_) {
-                          if (mounted) setState(() => _isLoading = false);
-                        }
-                      },
-                      icon: const Icon(Icons.travel_explore_rounded, size: 18),
-                      label: const Text('Browse Featured Communities'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            
-          if (_tabIndex == 1 && filteredMySpaces.isEmpty && !_isLoading)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.workspaces_outline, size: 64, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
-                    const SizedBox(height: 16),
-                    Text(
-                      _mySpacesSearchQuery.isNotEmpty
-                          ? 'No spaces match \'$_mySpacesSearchQuery\''
-                          : 'You haven\'t joined any spaces yet.',
-                      style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-                      textAlign: TextAlign.center,
-                    ),
-                    if (_mySpacesSearchQuery.isEmpty) ...[
-                      const SizedBox(height: 16),
-                      FilledButton.tonalIcon(
-                        onPressed: () => setState(() => _tabIndex = 0),
-                        icon: const Icon(Icons.explore_rounded, size: 18),
-                        label: const Text('Explore Communities'),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-
-
-
-          SliverToBoxAdapter(child: SizedBox(height: bottomPad)),
-        ],
-      ),
-    );
-    });
-  }
-
-  Widget _buildServerChip(String domain) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: ActionChip(
-        label: Text(domain, style: const TextStyle(fontSize: 12)),
-        onPressed: () async {
-          _searchController.text = domain;
-          setState(() {
-            _isLoading = true;
-            _tabIndex = 0;
-          });
-          try {
-            final results = await _spacesService?.discoverAllSpaces(domain) ?? [];
-            if (mounted) {
-              setState(() {
-                _featuredSpaces = results;
-                _recomputeFilteredList();
-                _isLoading = false;
-              });
-            }
-          } catch (_) {
-            if (mounted) setState(() => _isLoading = false);
-          }
-        },
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
-        side: BorderSide.none,
-      ),
-    );
-  }
-
-
-  // === VERBOSE UI WIDGETS ===
-  // === VERBOSE UI WIDGETS ===
-
-  // ── FEATURED SPACE CARD (horizontal scroll) ─────────────────────────────
-  Widget _buildSpaceGridCard(ThemeData theme, SpaceNode space, {bool isJoined = false, double coverHeight = 100}) {
-    final auth = Provider.of<AuthService>(context, listen: false);
-    final isOwner = space.ownerJid == auth.activeXmppConnection?.fullJid.userAtDomain;
-    // Use cached Set for O(1) affiliation lookup
-    final joined = auth.joinedSpaces.where(
-        (s) => s.domain == space.domain && s.node == space.node).firstOrNull;
-    final affiliation = joined?.affiliation;
-    final isPrivate = space.accessModel == 'authorize';
-    final hue = (space.node.hashCode.abs() % 360).toDouble();
-    final accent = HSLColor.fromAHSL(1, hue, 0.45, 0.5).toColor();
-
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.5)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _navigateTo(space),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Header / Cover ──
-              Stack(
-                children: [
-                  SizedBox(
-                    height: coverHeight,
-                    width: double.infinity,
-                    child: space.avatarUrl != null
-                        ? Image.network(space.avatarUrl!, fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _gradientPlaceholder(accent))
-                        : _gradientPlaceholder(accent),
-                  ),
-                  // Overlay gradient
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.6)],
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Affiliation badge
-                  if (isJoined || isOwner)
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: isOwner ? Colors.amber.shade700 : (affiliation == 'publisher' ? Colors.deepPurpleAccent : theme.colorScheme.primary),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(children: [
-                          Icon(isOwner ? Icons.shield_rounded : (affiliation == 'publisher' ? Icons.edit_note_rounded : Icons.check_circle_rounded), size: 10, color: Colors.white),
-                          const SizedBox(width: 4),
-                          Text(isOwner ? 'OWNER' : (affiliation?.toUpperCase() ?? 'JOINED'), style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900)),
-                        ]),
-                      ),
-                    ),
-                  // Feature icons
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.5),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(children: [
-                            Icon(space.isPublic ? Icons.public_rounded : Icons.lock_outline_rounded, size: 10, color: Colors.white70),
-                            const SizedBox(width: 4),
-                            Text(space.isPublic ? 'PUBLIC' : 'PRIVATE', style: TextStyle(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.bold)),
-                          ]),
-                        ),
-                        if (space.features.isNotEmpty) const SizedBox(width: 4),
-                        ..._buildFeatureIcons(space),
-                      ]
-                    ),
-                  ),
-                  // Domain tag
-                  Positioned(
-                    bottom: 8,
-                    left: 10,
-                    child: Text(space.domain.toUpperCase(),
-                        style: TextStyle(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
-                  ),
-                ],
-              ),
-
-              // ── Extensive Details ──
-              Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      space.name.isNotEmpty ? space.name : space.node,
-                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, height: 1.2),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      space.description ?? 'No description provided.',
-                      style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant, height: 1.4),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 14),
-                    // Stats Row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        if (space.type == 'muc')
-                          _buildStatPill(theme, Icons.people_outline_rounded, '${space.numSubscribers ?? '?'}', 'Users')
-                        else ...[
-                          _buildStatPill(theme, Icons.people_outline_rounded, '${space.numSubscribers ?? 0}', 'Subs'),
-                          _buildStatPill(theme, Icons.article_outlined, '${space.postCount ?? 0}', 'Posts'),
-                        ],
-                        if (space.lastActivity != null)
-                          _buildStatPill(theme, Icons.history_rounded, _timeAgo(space.lastActivity!), 'Active')
-                        else
-                          _buildStatPill(theme, Icons.history_rounded, 'Idle', 'Active'),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    // Access text
-                    Row(
-                      children: [
-                        Icon(isPrivate ? Icons.admin_panel_settings_outlined : Icons.language_rounded, size: 12, color: theme.colorScheme.primary),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(
-                            isPrivate ? 'Approval Required' : 'Open Community',
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: theme.colorScheme.primary),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (space.publishModel != null) ...[
-                          const SizedBox(width: 8),
-                          Text(
-                            space.publishModel!.toUpperCase(),
-                            style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    // Sync info
-                    Row(
-                      children: [
-                        Icon(Icons.sync_rounded, size: 10, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
-                        const SizedBox(width: 4),
-                        Text(
-                          space.syncedAt != null && _timeAgo(space.syncedAt!) != 'just now'
-                              ? 'SYNCED ${_timeAgo(space.syncedAt!).toUpperCase()} AGO'
-                              : 'SYNCED JUST NOW',
-                          style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatPill(ThemeData theme, IconData icon, String value, String label) {
+  Widget _buildBody(ThemeData theme) {
     return Column(
       children: [
-        Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
-        const SizedBox(height: 4),
-        Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurface)),
-        Text(label, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurfaceVariant)),
+        // ── 3-tab segmented control ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              children: [
+                Expanded(child: _tabButton(theme, _SpacesTab.explore, Icons.explore_rounded, 'Explore')),
+                Expanded(child: _tabButton(theme, _SpacesTab.myCommunities, Icons.groups_rounded, 'My Communities')),
+                Expanded(child: _tabButton(theme, _SpacesTab.rooms, Icons.forum_rounded, 'Rooms')),
+              ],
+            ),
+          ),
+        ),
+        // ── Tab content ──
+        Expanded(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            child: switch (_currentTab) {
+              _SpacesTab.explore => _buildExplore(),
+              _SpacesTab.myCommunities => _buildMyCommunities(),
+              _SpacesTab.rooms => _buildRooms(),
+            },
+          ),
+        ),
       ],
     );
   }
 
-  String _timeAgo(DateTime date) {
-    final diff = DateTime.now().difference(date);
-    if (diff.inDays > 365) return '${(diff.inDays / 365).floor()}y';
-    if (diff.inDays > 30) return '${(diff.inDays / 30).floor()}mo';
-    if (diff.inDays > 0) return '${diff.inDays}d';
-    if (diff.inHours > 0) return '${diff.inHours}h';
-    if (diff.inMinutes > 0) return '${diff.inMinutes}m';
-    return 'now';
-  }
-
-  List<Widget> _buildFeatureIcons(SpaceNode space) {
-    final List<Widget> icons = [];
-    final features = space.features.map((f) => f.toLowerCase()).toList();
-
-    if (features.any((f) => f.contains('microblog'))) {
-      icons.add(_featureIcon(Icons.article_rounded));
-    }
-    if (features.any((f) => f.contains('muc') || f.contains('conference'))) {
-      icons.add(_featureIcon(Icons.forum_rounded));
-    }
-    if (features.any((f) => f.contains('avatar') || f.contains('media'))) {
-      icons.add(_featureIcon(Icons.photo_library_rounded));
-    }
-    if (features.any((f) => f.contains('pubsub'))) {
-      icons.add(_featureIcon(Icons.rss_feed_rounded));
-    }
-
-    return icons;
-  }
-
-  Widget _featureIcon(IconData icon) {
-    return Container(
-      margin: const EdgeInsets.only(left: 4),
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(6)),
-      child: Icon(icon, size: 10, color: Colors.white70),
-    );
-  }
-
-  Widget _gradientPlaceholder(Color accent) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [accent, accent.withValues(alpha: 0.5)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+  Widget _tabButton(ThemeData theme, _SpacesTab tab, IconData icon, String label) {
+    final selected = _currentTab == tab;
+    return GestureDetector(
+      onTap: () => setState(() => _currentTab = tab),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? theme.colorScheme.surface : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: selected
+              ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4, offset: const Offset(0, 2))]
+              : [],
+        ),
+        alignment: Alignment.center,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: selected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                color: selected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
       ),
-      child: const Center(
-        child: Icon(Icons.workspaces_rounded, size: 40, color: Colors.white54),
-      ),
     );
-  }
-
-  void _navigateTo(SpaceNode space) async {
-    if (space.type == 'muc') {
-      final auth = Provider.of<AuthService>(context, listen: false);
-      final conn = auth.activeXmppConnection;
-      if (conn != null) {
-        context.goNamed('roomInfo', extra: {'room': {
-              'jid': '${space.node}@${space.domain}',
-              'name': space.name,
-              'topic': space.description ?? '',
-            }, 'accountId': conn.fullJid.userAtDomain});
-        }
-        return;
-    }
-
-    setState(() {
-      _selectedSpace = space;
-      _spaceHistory.add(space);
-    });
-    if (_spacesService == null) return;
-    final details = await _spacesService!.fetchSpaceDetails(space);
-    if (mounted && _selectedSpace?.node == space.node) {
-      setState(() {
-        _selectedSpace = details;
-        if (_spaceHistory.isNotEmpty) _spaceHistory.last = details;
-      });
-    }
   }
 }
 
