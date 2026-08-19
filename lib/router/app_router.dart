@@ -36,6 +36,7 @@ import '../screens/group_settings_screen.dart';
 import '../screens/new_message_screen.dart';
 import '../screens/appearance_settings_screen.dart';
 import '../screens/register_screen.dart';
+import '../screens/nexus_search_screen.dart';
 
 CustomTransitionPage<void> _fadePage({
   required GoRouterState state,
@@ -63,25 +64,6 @@ CustomTransitionPage<void> _fadePage({
     },
     transitionDuration: const Duration(milliseconds: 280),
     reverseTransitionDuration: const Duration(milliseconds: 180),
-  );
-}
-
-CustomTransitionPage<void> _slideUpPage({
-  required GoRouterState state,
-  required Widget child,
-}) {
-  return CustomTransitionPage(
-    key: state.pageKey,
-    child: child,
-    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
-      return SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero).animate(curved),
-        child: FadeTransition(opacity: curved, child: child),
-      );
-    },
-    transitionDuration: const Duration(milliseconds: 320),
-    reverseTransitionDuration: const Duration(milliseconds: 200),
   );
 }
 
@@ -254,6 +236,11 @@ GoRouter createAppRouter({
                 path: 'new-message',
                 name: 'newMessage',
                 pageBuilder: (context, state) => _fadePage(state: state, child: const NewMessageScreen()),
+              ),
+              GoRoute(
+                path: 'search',
+                name: 'search',
+                pageBuilder: (context, state) => _fadePage(state: state, child: const NexusSearchScreen()),
               ),
               GoRoute(
                 path: 'feed',
