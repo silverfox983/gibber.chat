@@ -143,8 +143,7 @@ class GibberSidebarHeader extends StatelessWidget {
         _menuItem('group', Icons.group_add_rounded, 'Create/Join Group'),
         _menuItem('discover', Icons.explore_rounded, 'Discover Rooms'),
         _menuItem('invite', Icons.person_add_alt_rounded, 'Invite Friends'),
-        _menuItem('transports', Icons.hub_rounded, 'Discover Transports'),
-        _menuItem('gateways', Icons.dns_rounded, 'Manage Server Gateways'),
+        _menuItem('connections', Icons.hub_rounded, 'Connections'),
       ],
     );
   }
@@ -170,16 +169,13 @@ class GibberSidebarHeader extends StatelessWidget {
     if (val == 'buddy') chatProvider.setSidebarTab(1);
     if (val == 'group') _showJoinRoomDialog(context);
     if (val == 'discover') {
-      context.goNamed('roomDiscovery');
+      chatProvider.setSidebarTab(3);
     }
     if (val == 'invite') {
       context.goNamed('invite');
     }
-    if (val == 'transports') {
-      context.goNamed('transports');
-    }
-    if (val == 'gateways') {
-      context.goNamed('gateways');
+    if (val == 'connections') {
+      context.goNamed('connections');
     }
   }
 

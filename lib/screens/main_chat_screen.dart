@@ -813,12 +813,12 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       ),
                     ),
                     const PopupMenuItem(
-                      value: 'gateways',
+                      value: 'connections',
                       child: Row(
                         children: [
-                          Icon(Icons.dns_rounded, size: 18),
+                          Icon(Icons.hub_rounded, size: 18),
                           SizedBox(width: 8),
-                          Text('Manage Server Gateways', style: TextStyle(fontSize: 13)),
+                          Text('Connections', style: TextStyle(fontSize: 13)),
                         ],
                       ),
                     ),
@@ -3995,8 +3995,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
     if (val == 'invite') {
       context.goNamed('invite');
     }
-    if (val == 'gateways') {
-      context.goNamed('gateways');
+    if (val == 'connections') {
+      context.goNamed('connections');
     }
   }
 

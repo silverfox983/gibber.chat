@@ -514,7 +514,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           subtitle: const Text('Manage your platform bridges'),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () {
-                            context.goNamed('bridges');
+                            context.goNamed('connections');
                           },
                         ),
                         const Divider(height: 1),

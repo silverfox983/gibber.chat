@@ -21,9 +21,7 @@ import '../screens/identity_trust_screen.dart';
 import '../screens/invite_screen.dart';
 import '../screens/recordings_screen.dart';
 import '../screens/tier_screen.dart';
-import '../screens/transports_screen.dart';
-import '../screens/gateways_screen.dart';
-import '../screens/bridges_screen.dart';
+import '../screens/connections_screen.dart';
 import '../screens/create_room_screen.dart';
 import '../screens/room_info_screen.dart';
 import '../screens/room_settings_screen.dart';
@@ -193,19 +191,9 @@ GoRouter createAppRouter({
                 pageBuilder: (context, state) => _fadePage(state: state, child: const TierScreen()),
               ),
               GoRoute(
-                path: 'transports',
-                name: 'transports',
-                pageBuilder: (context, state) => _fadePage(state: state, child: const TransportsScreen()),
-              ),
-              GoRoute(
-                path: 'gateways',
-                name: 'gateways',
-                pageBuilder: (context, state) => _fadePage(state: state, child: const GatewaysScreen()),
-              ),
-              GoRoute(
-                path: 'bridges',
-                name: 'bridges',
-                pageBuilder: (context, state) => _fadePage(state: state, child: const BridgesScreen()),
+                path: 'connections',
+                name: 'connections',
+                pageBuilder: (context, state) => _fadePage(state: state, child: const ConnectionsScreen()),
               ),
               GoRoute(
                 path: 'create-room',
