@@ -273,11 +273,7 @@ class JingleSignalingService {
   }
 
   void _handleProceed(String sid, String fromJid) {
-    final pendingKey = _pendingProposeSessions.keys.firstWhere(
-      (key) => key.startsWith('$sid:'),
-      orElse: () => '',
-    );
-    final pending = pendingKey.isNotEmpty ? _pendingProposeSessions[pendingKey] : null;
+    final pending = _pendingProposeSessions[sid];
     if (pending == null) {
       debugPrint(
         'Jingle: [XEP-0353] Received proceed for unknown session: $sid from $fromJid',
@@ -295,7 +291,7 @@ class JingleSignalingService {
     final sdp = pending['sdp'] as String;
     final isVideo = pending['isVideo'] as bool? ?? false;
 
-    _pendingProposeSessions.remove(pendingKey);
+    _pendingProposeSessions.remove(sid);
 
     sendSessionInitiateIq(fromJid, sid, sdp, isVideo: isVideo);
 
@@ -307,14 +303,7 @@ class JingleSignalingService {
     _proceedTimers[sid]?.cancel();
     _proceedTimers.remove(sid);
 
-    final pendingKey = _pendingProposeSessions.keys.firstWhere(
-      (key) => key.startsWith('$sid:'),
-      orElse: () => '',
-    );
-    if (pendingKey.isNotEmpty) {
-      _pendingProposeSessions.remove(pendingKey);
-    }
-
+    _pendingProposeSessions.remove(sid);
 
     String? reason;
     final reasonEl = element.getChild('reason');
@@ -522,9 +511,8 @@ class JingleSignalingService {
         : '📞 Incoming audio call...';
     proposeMessage.addChild(propose);
 
-    // Store SDP for when proceed is received (composite key to avoid collision)
-    final pendingKey = '$sessionId:$toJid';
-    _pendingProposeSessions[pendingKey] = {
+    // Store SDP for when proceed is received
+    _pendingProposeSessions[sessionId] = {
       'sdp': sdp,
       'toJid': toJid,
       'isVideo': isVideo,
@@ -535,7 +523,7 @@ class JingleSignalingService {
     _proceedTimers[sessionId]?.cancel();
     _proceedTimers[sessionId] = Timer(const Duration(seconds: 30), () {
       debugPrint('Jingle: [XEP-0353] Proceed timeout for session $sessionId, falling back to direct IQ');
-      _pendingProposeSessions.remove(pendingKey);
+      _pendingProposeSessions.remove(sessionId);
       _proceedTimers.remove(sessionId);
       sendSessionInitiateIq(toJid, sessionId, sdp, isVideo: isVideo);
     });
@@ -1435,29 +1423,26 @@ class JingleSignalingService {
     }
 
     if (orderedContents.length > 1) {
+      // Use numeric MIDs for BUNDLE (per WebRTC spec) - index matches a=mid: lines
       final mids = orderedContents
           .asMap()
           .entries
-          .map(
-            (e) =>
-                e.value?.getAttribute('name')?.value ??
-                (expectedOrder != null && e.key < expectedOrder.length
-                    ? expectedOrder[e.key]
-                    : '${e.key}'),
-          )
+          .map((e) => '${e.key}')
           .toList();
       writeSdpLine('a=group:BUNDLE ${mids.join(' ')}');
     }
 
     for (int i = 0; i < orderedContents.length; i++) {
       final content = orderedContents[i];
-      final sectionMid = expectedOrder != null && i < expectedOrder.length
-          ? expectedOrder[i]
-          : '$i';
+      // Use numeric MID matching the BUNDLE group above
+      final sectionMid = '$i';
 
       if (content == null) {
         // Generate a REJECTED media section to maintain m-line order (WebRTC requirement)
-        final mediaType = sectionMid.contains('video') ? 'video' : 'audio';
+        // Infer media type from position: 0=audio, 1=video (matching expectedOrder convention)
+        final mediaType = (expectedOrder != null && i < expectedOrder.length && expectedOrder[i].contains('video'))
+            ? 'video'
+            : 'audio';
         writeSdpLine('m=$mediaType 0 UDP/TLS/RTP/SAVPF 0');
         writeSdpLine('c=IN IP4 $placeholderIp');
         writeSdpLine('a=mid:$sectionMid');

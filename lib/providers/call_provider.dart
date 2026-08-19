@@ -210,6 +210,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       if (_state == CallState.outgoing) {
         debugPrint('CallProvider: Call timeout - no response received');
         _lastError = 'Call timeout - no response from gateway';
+        _stopAllSounds();
         endCall();
       }
     });
@@ -954,9 +955,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _incomingOfferSdp = offerSdp;
     _callAccountId = accountId;
     
-    // Basic detection of video in SDP (default to false for proposals)
+    // Basic detection of video in SDP (default to audio-only for proposals without SDP)
     if (offerSdp != null) {
       _isVideo = offerSdp.contains('m=video');
+    } else {
+      _isVideo = false;
     }
 
     // Play incoming ringtone
@@ -2149,6 +2152,13 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     for (var r in _groupRenderers.values) {
       r.srcObject = null;
     }
+
+    _localRenderer.dispose();
+    _remoteRenderer.dispose();
+    for (var r in _groupRenderers.values) {
+      r.dispose();
+    }
+    _groupRenderers.clear();
     _groupRenderers.clear();
     _groupAudioLevels.clear();
     await _multiPeerManager?.dispose();
@@ -2240,7 +2250,6 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   }
 
   @override
-  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _signalingSub?.cancel();
@@ -2252,14 +2261,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _sipService = null;
     _janusSpeakingSub?.cancel();
     _janusRemoteTrackSub?.cancel();
-    // Cleanup is async but dispose cannot await - run it fire-and-forget with error suppression
-    _cleanup(reason: 'provider disposed').catchError((_) {});
-    _localRenderer.dispose();
-    _remoteRenderer.dispose();
-    for (var r in _groupRenderers.values) {
-      r.dispose();
-    }
-    _groupRenderers.clear();
+    _stopAllSounds();
+    _cleanup(reason: 'provider disposed');
     _multiPeerManager?.dispose();
     _janusService?.dispose();
     _janusService = null;

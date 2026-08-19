@@ -230,8 +230,10 @@ class WebRTCManager {
       }
 
       // HAL SYNC: Short delay for Android 13+ AIDL mapping to complete before routing change
-      // Only 500ms needed for modern drivers
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Only needed on Android; no-op on iOS/Web
+      if (!kIsWeb && Platform.isAndroid) {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
 
       // HARDENING: Use standard Helper for hardware routing to avoid session-level conflicts
       // HARDENING: Only attempt native speakerphone routing on supported mobile platforms
@@ -472,7 +474,10 @@ class WebRTCManager {
     // Save pending candidates that arrived early via trickle ICE before they are wiped
     final pendingCandidates = List<RTCIceCandidate>.from(_remoteCandidatesQueue);
 
-    // CRITICAL: Dispose and recreate peer connection for fresh state
+    // CRITICAL: Dispose and recreate peer connection for fresh state.
+    // Note: Remote candidates arriving during this window (between dispose completing
+    // and the new onIceCandidate being attached) are saved to _remoteCandidatesQueue
+    // and restored below, preventing ICE candidates from being lost in that gap.
     await _disposePeerConnection();
     await _initPeerConnection();
 

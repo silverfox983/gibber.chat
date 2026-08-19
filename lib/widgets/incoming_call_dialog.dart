@@ -2,20 +2,44 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/call_provider.dart';
 
-class IncomingCallDialog extends StatelessWidget {
+class IncomingCallDialog extends StatefulWidget {
   const IncomingCallDialog({super.key});
+
+  @override
+  State<IncomingCallDialog> createState() => _IncomingCallDialogState();
+}
+
+class _IncomingCallDialogState extends State<IncomingCallDialog> {
+  @override
+  void initState() {
+    super.initState();
+    final callProvider = Provider.of<CallProvider>(context, listen: false);
+    callProvider.addListener(_onCallStateChanged);
+  }
+
+  @override
+  void dispose() {
+    final callProvider = Provider.of<CallProvider>(context, listen: false);
+    callProvider.removeListener(_onCallStateChanged);
+    super.dispose();
+  }
+
+  void _onCallStateChanged() {
+    final callProvider = Provider.of<CallProvider>(context, listen: false);
+    if (callProvider.state != CallState.incoming && mounted) {
+      final route = ModalRoute.of(context);
+      if (route != null && route.isCurrent) {
+        Navigator.of(context).pop();
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final callProvider = Provider.of<CallProvider>(context);
 
-    if (callProvider.state != CallState.incoming) {
-      // Auto-dismiss if state changed
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.of(context).pop();
-      });
-      return const SizedBox.shrink();
-    }
+    final isVideo = callProvider.isVideo;
+    final callerJid = callProvider.remoteJid?.split('@').first ?? 'Unknown';
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -43,16 +67,20 @@ class IncomingCallDialog extends StatelessWidget {
                 color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.call_received, color: Theme.of(context).colorScheme.primary, size: 32),
+              child: Icon(
+                isVideo ? Icons.videocam : Icons.call_received,
+                color: Theme.of(context).colorScheme.primary,
+                size: 32,
+              ),
             ),
             const SizedBox(height: 24),
-            const Text(
-              'Incoming Call',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            Text(
+              isVideo ? 'Incoming Video Call' : 'Incoming Call',
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             Text(
-              callProvider.remoteJid?.split('@').first ?? 'Unknown',
+              callerJid,
               style: TextStyle(fontSize: 16, color: Theme.of(context).hintColor),
             ),
             const SizedBox(height: 32),
@@ -60,7 +88,7 @@ class IncomingCallDialog extends StatelessWidget {
               children: [
                 Expanded(
                   child: TextButton(
-                    onPressed: () => callProvider.endCall(),
+                    onPressed: () => callProvider.declineCall(),
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       foregroundColor: Colors.red,
