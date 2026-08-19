@@ -1,4 +1,6 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/space_models.dart';
@@ -28,6 +30,10 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
   bool _isLoading = false;
   bool _hasChanges = false;
   List<SpaceMember>? _members;
+  bool _uploadingAvatar = false;
+  bool _uploadingCover = false;
+  Uint8List? _avatarPreview;
+  Uint8List? _coverPreview;
 
   @override
   void initState() {
@@ -142,6 +148,112 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
     );
   }
 
+  Future<void> _pickAndUploadAvatar() async {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (file == null || !mounted) return;
+
+    final bytes = await file.readAsBytes();
+    final contentType = 'image/${file.path.split('.').last.toLowerCase()}';
+
+    setState(() { _uploadingAvatar = true; _avatarPreview = bytes; });
+
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final uploadService = auth.activeUploadService;
+    if (uploadService == null) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('HTTP Upload not available on this server.')),
+      );
+      setState(() { _uploadingAvatar = false; _avatarPreview = null; });
+      return;
+    }
+
+    final fileName = 'avatar_${DateTime.now().millisecondsSinceEpoch}.${file.path.split('.').last}';
+    final size = bytes.length;
+
+    try {
+      final slot = await uploadService.requestUploadSlot(fileName, size, contentType: contentType);
+      if (slot == null) throw Exception('Failed to request upload slot.');
+
+      final uploaded = await uploadService.uploadFile(slot['put']!, bytes, contentType);
+      if (!uploaded) throw Exception('Upload failed.');
+
+      final imageUrl = slot['get']!;
+      final ownerJid = auth.activeXmppConnection?.fullJid.userAtDomain ?? '';
+      final error = await widget.spacesService.setSpaceAvatar(
+        widget.space.domain, widget.space.node, imageUrl, contentType, ownerJid,
+      );
+
+      if (mounted) {
+        if (error != null) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+          setState(() { _uploadingAvatar = false; _avatarPreview = null; });
+        } else {
+          setState(() { _uploadingAvatar = false; });
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Avatar updated!')));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        setState(() { _uploadingAvatar = false; _avatarPreview = null; });
+      }
+    }
+  }
+
+  Future<void> _pickAndUploadCover() async {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (file == null || !mounted) return;
+
+    final bytes = await file.readAsBytes();
+    final contentType = 'image/${file.path.split('.').last.toLowerCase()}';
+
+    setState(() { _uploadingCover = true; _coverPreview = bytes; });
+
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final uploadService = auth.activeUploadService;
+    if (uploadService == null) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('HTTP Upload not available on this server.')),
+      );
+      setState(() { _uploadingCover = false; _coverPreview = null; });
+      return;
+    }
+
+    final fileName = 'cover_${DateTime.now().millisecondsSinceEpoch}.${file.path.split('.').last}';
+    final size = bytes.length;
+
+    try {
+      final slot = await uploadService.requestUploadSlot(fileName, size, contentType: contentType);
+      if (slot == null) throw Exception('Failed to request upload slot.');
+
+      final uploaded = await uploadService.uploadFile(slot['put']!, bytes, contentType);
+      if (!uploaded) throw Exception('Upload failed.');
+
+      final imageUrl = slot['get']!;
+      final ownerJid = auth.activeXmppConnection?.fullJid.userAtDomain ?? '';
+      final error = await widget.spacesService.setSpaceAvatar(
+        widget.space.domain, widget.space.node, imageUrl, contentType, ownerJid,
+      );
+
+      if (mounted) {
+        if (error != null) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+          setState(() { _uploadingCover = false; _coverPreview = null; });
+        } else {
+          setState(() { _uploadingCover = false; });
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cover updated!')));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        setState(() { _uploadingCover = false; _coverPreview = null; });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -172,6 +284,68 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
             controller: _descController,
             maxLines: 3,
             decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 24),
+          Text('AVATAR & COVER', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
+          const SizedBox(height: 16),
+          // Avatar row
+          Row(children: [
+            GestureDetector(
+              onTap: () => _pickAndUploadAvatar(),
+              child: Stack(children: [
+                CircleAvatar(
+                  radius: 40,
+                  backgroundColor: theme.colorScheme.primaryContainer,
+                  backgroundImage: _avatarPreview != null ? MemoryImage(_avatarPreview!) : (widget.space.avatarUrl != null ? NetworkImage(widget.space.avatarUrl!) : null),
+                  child: _avatarPreview == null && widget.space.avatarUrl == null
+                      ? Icon(Icons.public_rounded, size: 32, color: theme.colorScheme.onPrimaryContainer)
+                      : null,
+                ),
+                if (_uploadingAvatar)
+                  Positioned.fill(child: CircleAvatar(backgroundColor: Colors.black38, child: const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))),
+                Positioned(
+                  bottom: 0, right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(color: theme.colorScheme.primary, shape: BoxShape.circle),
+                    child: const Icon(Icons.camera_alt_rounded, size: 14, color: Colors.white),
+                  ),
+                ),
+              ]),
+            ),
+            const SizedBox(width: 16),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Avatar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 4),
+              Text('Tap to upload a new avatar image', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+            ])),
+          ]),
+          const SizedBox(height: 20),
+          // Cover image
+          Text('Cover Image', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () => _pickAndUploadCover(),
+            child: Container(
+              height: 120,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.dividerColor.withValues(alpha: 0.3)),
+                image: _coverPreview != null ? DecorationImage(image: MemoryImage(_coverPreview!), fit: BoxFit.cover) : (widget.space.coverUrl != null ? DecorationImage(image: NetworkImage(widget.space.coverUrl!), fit: BoxFit.cover) : null),
+              ),
+              child: _coverPreview == null && widget.space.coverUrl == null
+                  ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Icon(Icons.add_photo_alternate_rounded, size: 32, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
+                      const SizedBox(height: 8),
+                      Text('Tap to add a cover image', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6))),
+                    ])
+                  : (_uploadingCover
+                      ? const Center(child: CircularProgressIndicator())
+                      : Stack(children: [
+                          Positioned(top: 8, right: 8, child: Container(padding: const EdgeInsets.all(6), decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle), child: const Icon(Icons.camera_alt_rounded, size: 16, color: Colors.white)))])),
+            ),
           ),
           const SizedBox(height: 24),
           Text('PRIVACY', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
