@@ -1583,7 +1583,16 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 Share.share(text, subject: space.name);
               }, theme),
               const SizedBox(height: 6),
-              _iconBtn(Icons.notifications_outlined, () => _showNotificationSheet(space), theme),
+              _iconBtn(
+                Icons.notifications_outlined,
+                () => _showNotificationSheet(space),
+                theme,
+                badge: space.notificationLevel == 'off'
+                    ? 'MUTED'
+                    : space.notificationLevel == 'mentions'
+                        ? ' @ '
+                        : null,
+              ),
             ]),
           ),
           // Subscribe/Joined button in hero
@@ -1658,6 +1667,9 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 await prefs?.setString(prefKey, level);
                 setSheetState(() {});
                 if (ctx.mounted) Navigator.pop(ctx);
+                await widget.spacesService.setSpaceNotificationLevel(
+                  space.domain, space.node, level,
+                );
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Notifications set to: $level')),
@@ -1722,17 +1734,31 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
     );
   }
 
-  Widget _iconBtn(IconData icon, VoidCallback onTap, ThemeData theme) {
-    return Material(
-      color: Colors.black45,
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
+  Widget _iconBtn(IconData icon, VoidCallback onTap, ThemeData theme, {String? badge}) {
+    return Stack(clipBehavior: Clip.none, children: [
+      Material(
+        color: Colors.black45,
         borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Padding(padding: const EdgeInsets.all(8),
-            child: Icon(icon, color: Colors.white, size: 20)),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Padding(padding: const EdgeInsets.all(8),
+              child: Icon(icon, color: Colors.white, size: 20)),
+        ),
       ),
-    );
+      if (badge != null)
+        Positioned(
+          top: -6, right: -6,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: badge == 'MUTED' ? Colors.red.shade700 : theme.colorScheme.primary,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(badge, style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
+          ),
+        ),
+    ]);
   }
 
   // ── INFO TAB ──────────────────────────────────────────────

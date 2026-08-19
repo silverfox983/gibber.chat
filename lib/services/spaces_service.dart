@@ -929,6 +929,53 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
+  Future<String?> setSpaceNotificationLevel(String domain, String node, String level) async {
+    final iq = xmpp.IqStanza('set_notif_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
+
+    final pubsub = xmpp.XmppElement();
+    pubsub.name = 'pubsub';
+    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub#owner'));
+
+    final configure = xmpp.XmppElement();
+    configure.name = 'configure';
+    configure.addAttribute(xmpp.XmppAttribute('node', node));
+
+    final x = xmpp.XmppElement();
+    x.name = 'x';
+    x.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
+    x.addAttribute(xmpp.XmppAttribute('type', 'submit'));
+
+    void addField(String fieldName, String value, {String? type}) {
+      final field = xmpp.XmppElement();
+      field.name = 'field';
+      field.addAttribute(xmpp.XmppAttribute('var', fieldName));
+      if (type != null) field.addAttribute(xmpp.XmppAttribute('type', type));
+      final val = xmpp.XmppElement();
+      val.name = 'value';
+      val.textValue = value;
+      field.addChild(val);
+      x.addChild(field);
+    }
+
+    addField('FORM_TYPE', 'http://jabber.org/protocol/pubsub#node_config', type: 'hidden');
+    addField('pubsub#notification_type', level == 'off' ? 'disable' : 'always');
+
+    configure.addChild(x);
+    pubsub.addChild(configure);
+    iq.addChild(pubsub);
+
+    try {
+      final response = await _sendIq(iq);
+      if (response.type == xmpp.IqStanzaType.ERROR) {
+        return 'Server rejected notification settings.';
+      }
+      return null;
+    } catch (e) {
+      return 'Network error: ${e.toString()}';
+    }
+  }
+
   Future<bool> createSpaceChannel(String spaceDomain, String spaceNode, String channelName, String channelJid) async {
     final conference = xmpp.XmppElement();
     conference.name = 'conference';

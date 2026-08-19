@@ -66,6 +66,9 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     final key = 'notif_level_${widget.space.domain}|${widget.space.node}';
     await prefs.setString(key, val);
+    await widget.spacesService.setSpaceNotificationLevel(
+      widget.space.domain, widget.space.node, val,
+    );
   }
 
   Future<void> _loadMembers() async {
@@ -78,6 +81,37 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
     _nameController.dispose();
     _descController.dispose();
     super.dispose();
+  }
+
+  Widget _notifTile(IconData icon, String title, String subtitle, String value, ThemeData theme) {
+    final isSelected = _notificationPref == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _notificationPref = value);
+        _saveNotificationPref(value);
+      },
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isSelected ? theme.colorScheme.primaryContainer.withValues(alpha: 0.3) : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? theme.colorScheme.primary : theme.dividerColor.withValues(alpha: 0.3),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(children: [
+          Icon(icon, size: 22, color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: isSelected ? theme.colorScheme.primary : null)),
+            const SizedBox(height: 2),
+            Text(subtitle, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+          ])),
+          if (isSelected) Icon(Icons.check_circle_rounded, color: theme.colorScheme.primary, size: 22),
+        ]),
+      ),
+    );
   }
 
   Future<void> _saveSettings() async {
@@ -377,22 +411,11 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
           const SizedBox(height: 24),
           Text('NOTIFICATIONS', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
           const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            value: _notificationPref,
-            decoration: const InputDecoration(
-              labelText: 'Alerts',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.notifications_active_outlined),
-            ),
-            items: const [
-              DropdownMenuItem(value: 'all', child: Text('All Messages')),
-              DropdownMenuItem(value: 'mentions', child: Text('Mentions Only')),
-              DropdownMenuItem(value: 'off', child: Text('Muted')),
-            ],
-            onChanged: (val) {
-              if (val != null) _saveNotificationPref(val);
-            },
-          ),
+          _notifTile(Icons.notifications_active_rounded, 'All Notifications', 'Get notified for every new post', 'all', theme),
+          const SizedBox(height: 8),
+          _notifTile(Icons.alternate_email_rounded, 'Mentions Only', 'Only when someone @mentions you', 'mentions', theme),
+          const SizedBox(height: 8),
+          _notifTile(Icons.notifications_off_rounded, 'Muted', 'No notifications from this space', 'off', theme),
           const SizedBox(height: 32),
           Row(
             children: [
