@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/app_colors.dart';
@@ -20,99 +21,93 @@ class GibberNavRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = isDark ? AppColors.primaryLight : AppColors.primaryDark;
+    final dividerColor = Theme.of(context).dividerColor;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: IntrinsicHeight(
-              child: NavigationRail(
-                selectedIndex: selectedIndex,
-                onDestinationSelected: onDestinationSelected,
-                indicatorColor: (isDark ? AppColors.primary : AppColors.primaryLight).withValues(alpha: 0.2),
-                selectedIconTheme: IconThemeData(
-                  color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
-                ),
-                unselectedIconTheme: IconThemeData(
-                  color: isDark
-                      ? AppColors.textDarkSecondary
-                      : AppColors.textLightSecondary,
-                ),
-                selectedLabelTextStyle: TextStyle(
-                  color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                ),
-                unselectedLabelTextStyle: TextStyle(
-                  color: isDark
-                      ? AppColors.textDarkSecondary
-                      : AppColors.textLightSecondary,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                ),
-                labelType: constraints.maxHeight > 600
-                    ? NavigationRailLabelType.all
-                    : NavigationRailLabelType.selected,
-                leading: ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 400),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 16),
-                        _buildLogo(isDark),
-                        const SizedBox(height: 24),
-                        _buildAccountSwitcher(context),
-                        const SizedBox(height: 20),
-                        const Divider(indent: 16, endIndent: 16),
-                        if (onExpandSidebar != null) ...[
-                          const SizedBox(height: 8),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: IconButton(
-                              icon: const Icon(Icons.chevron_right_rounded, color: Colors.white70, size: 20),
-                              onPressed: onExpandSidebar,
-                              tooltip: 'Expand Sidebar',
-                              style: IconButton.styleFrom(
-                                backgroundColor: isDark ? Colors.white12 : Colors.black12,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(DesignTokens.radiusSm),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                destinations: _destinations,
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Container(
+          width: 72,
+          decoration: BoxDecoration(
+            color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.75),
+            border: Border(
+              right: BorderSide(
+                color: dividerColor.withValues(alpha: 0.15),
               ),
             ),
           ),
-        );
-      },
+          child: SafeArea(
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+                _buildLogo(isDark),
+                const SizedBox(height: 20),
+                _buildAccountSwitcher(context),
+                const SizedBox(height: 16),
+                Divider(indent: 14, endIndent: 14, thickness: 1, color: dividerColor.withValues(alpha: 0.3)),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Column(
+                    children: List.generate(_destinations.length, (i) {
+                      final dest = _destinations[i];
+                      final isSelected = selectedIndex == i;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        child: _NavRailItem(
+                          icon: isSelected ? (dest.selectedIcon ?? dest.icon) : dest.icon,
+                          label: dest.label,
+                          isSelected: isSelected,
+                          primary: primary,
+                          isDark: isDark,
+                          onTap: () => onDestinationSelected(i),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+                if (onExpandSidebar != null) ...[
+                  Divider(indent: 14, endIndent: 14, thickness: 1, color: dividerColor.withValues(alpha: 0.3)),
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: IconButton(
+                      icon: const Icon(Icons.chevron_right_rounded, size: 20),
+                      color: isDark ? Colors.white54 : Colors.black54,
+                      onPressed: onExpandSidebar,
+                      tooltip: 'Expand sidebar',
+                      style: IconButton.styleFrom(
+                        backgroundColor: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(DesignTokens.radiusSm),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
   Widget _buildLogo(bool isDark) {
     return Container(
-      width: 40,
-      height: 40,
+      width: 42,
+      height: 42,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppColors.primary,
-            AppColors.primaryDark,
-          ],
+          colors: [AppColors.primary, AppColors.primaryDark],
         ),
         borderRadius: BorderRadius.circular(DesignTokens.radiusMd),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.4),
-            blurRadius: 12,
+            color: AppColors.primary.withValues(alpha: 0.35),
+            blurRadius: 14,
             offset: const Offset(0, 4),
           ),
         ],
@@ -133,64 +128,45 @@ class GibberNavRail extends StatelessWidget {
   Widget _buildAccountSwitcher(BuildContext context) {
     final authService = Provider.of<AuthService>(context, listen: false);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accounts = authService.savedAccounts;
+    if (accounts.isEmpty) return const SizedBox.shrink();
 
     return Column(
-      children: authService.savedAccounts.map((acc) {
+      children: accounts.map((acc) {
         final status = authService.getAccountStatus(acc.fullJid);
         final isSelected = authService.activeAccountId == acc.fullJid;
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Tooltip(
             message: '${acc.fullJid} (${status.name})',
-            child: Stack(
-              children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: isSelected
+            child: GestureDetector(
+              onTap: () => authService.switchAccount(acc.fullJid),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: isSelected
                       ? (isDark ? AppColors.primaryLight : AppColors.primaryDark)
                       : (isDark ? Colors.white12 : Colors.black12),
-                  child: Icon(
-                    acc.protocol == 'Discord'
-                        ? Icons.discord
-                        : (acc.protocol == 'IRC'
-                            ? Icons.tag
-                            : Icons.chat_bubble_outline),
-                    color: isSelected
-                        ? Colors.white
-                        : (isDark ? Colors.white70 : Colors.black54),
-                    size: 16,
-                  ),
+                  shape: BoxShape.circle,
+                  border: isSelected
+                      ? Border.all(color: AppColors.primary, width: 2)
+                      : null,
                 ),
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: _statusColor(status),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: isDark ? Colors.black : Colors.white, width: 2),
-                    ),
-                  ),
+                child: Icon(
+                  acc.protocol == 'Discord'
+                      ? Icons.discord
+                      : (acc.protocol == 'IRC' ? Icons.tag : Icons.chat_bubble_outline),
+                  color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black54),
+                  size: 16,
                 ),
-              ],
+              ),
             ),
           ),
         );
       }).toList(),
     );
-  }
-
-  Color _statusColor(ConnectionStatus status) {
-    switch (status) {
-      case ConnectionStatus.online:
-        return Colors.green;
-      case ConnectionStatus.connecting:
-        return Colors.orange;
-      default:
-        return Colors.grey;
-    }
   }
 
   List<NavigationRailDestination> get _destinations => const [
@@ -225,4 +201,97 @@ class GibberNavRail extends StatelessWidget {
           label: Text('Search'),
         ),
       ];
+}
+
+class _NavRailItem extends StatefulWidget {
+  final Widget icon;
+  final Widget label;
+  final bool isSelected;
+  final Color primary;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _NavRailItem({
+    required this.icon,
+    required this.label,
+    required this.isSelected,
+    required this.primary,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  State<_NavRailItem> createState() => _NavRailItemState();
+}
+
+class _NavRailItemState extends State<_NavRailItem> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 150),
+      vsync: this,
+    );
+    _scale = Tween<double>(begin: 1.0, end: 0.94).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) => _controller.reverse(),
+      onTapCancel: () => _controller.reverse(),
+      onTap: widget.onTap,
+      child: ScaleTransition(
+        scale: _scale,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 56,
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: widget.isSelected
+                ? widget.primary.withValues(alpha: 0.15)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(DesignTokens.radiusMd),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconTheme(
+                data: IconThemeData(
+                  color: widget.isSelected
+                      ? widget.primary
+                      : (widget.isDark ? Colors.white54 : Colors.black54),
+                  size: 22,
+                ),
+                child: widget.icon,
+              ),
+              const SizedBox(height: 5),
+              DefaultTextStyle(
+                style: TextStyle(
+                  color: widget.isSelected
+                      ? widget.primary
+                      : (widget.isDark ? Colors.white54 : Colors.black54),
+                  fontWeight: widget.isSelected ? FontWeight.w700 : FontWeight.w500,
+                  fontSize: 10.5,
+                ),
+                child: widget.label,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

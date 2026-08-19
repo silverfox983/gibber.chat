@@ -2728,20 +2728,32 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               final isExpanded = _expandedItems.contains(item.id);
               final shown = isLong && !isExpanded ? '${display.substring(0, maxLen)}…' : display;
 
+              final linked = shown.replaceAllMapped(
+                RegExp(r'(?<!\S)#(\w+)'),
+                (m) => '[#${m[1]}](tag:${Uri.encodeComponent(m[1]!)})',
+              );
+
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
                     child: MarkdownBody(
-                      data: shown, shrinkWrap: true,
+                      data: linked, shrinkWrap: true,
                       styleSheet: MarkdownStyleSheet(
                         p: TextStyle(fontSize: 15, color: theme.colorScheme.onSurface, height: 1.55),
                         a: TextStyle(color: theme.colorScheme.primary),
                         code: TextStyle(backgroundColor: theme.colorScheme.surfaceContainerHighest, fontFamily: 'monospace', fontSize: 13),
                       ),
                       onTapLink: (text, href, title) {
-                        if (href != null) { try { launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication); } catch (_) {} }
+                        if (href != null) {
+                          if (href.startsWith('tag:')) {
+                            final tag = Uri.decodeComponent(href.substring(4));
+                            _showPostsByTag(tag);
+                          } else {
+                            try { launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication); } catch (_) {}
+                          }
+                        }
                       },
                     ),
                   ),
@@ -3111,6 +3123,50 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               child: _isPosting
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text('Post Reply'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showPostsByTag(String tag) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (_, controller) => Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(children: [
+                Icon(Icons.tag_rounded, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(child: Text('#$tag', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+              ]),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: FutureBuilder<List<SpaceItem>>(
+                future: widget.spacesService.searchPostsByTag(widget.space.domain, widget.space.node, tag),
+                builder: (ctx, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+                  if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+                  final items = snap.data ?? [];
+                  if (items.isEmpty) return const Center(child: Text('No posts found with this tag'));
+                  return ListView.builder(
+                    controller: controller,
+                    padding: const EdgeInsets.all(16),
+                    itemCount: items.length,
+                    itemBuilder: (_, i) => _buildPostCard(Theme.of(ctx), items[i]),
+                  );
+                },
+              ),
             ),
           ],
         ),

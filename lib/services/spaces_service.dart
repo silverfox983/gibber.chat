@@ -2039,6 +2039,11 @@ class SpacesService extends ChangeNotifier {
     }).toList();
   }
 
+  Future<List<SpaceItem>> searchPostsByTag(String domain, String node, String tag) async {
+    final all = await fetchSpaceContent(domain, node);
+    return all.where((item) => item.categories.contains(tag)).toList();
+  }
+
   Future<bool> postReply(String domain, String node, String text, {String? replyToId, String? imageUrl, String? authorName, bool autoCreateNode = true}) async {
     // XEP-0277 / XEP-0060 posting logic
     // We reuse the publishMicroblogEntry logic but specifically for a reply node

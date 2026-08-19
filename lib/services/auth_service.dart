@@ -313,6 +313,17 @@ class AuthService with ChangeNotifier {
 
   String? _activeAccountId;
   String? get activeAccountId => _activeAccountId;
+
+  Future<void> switchAccount(String accountId) async {
+    if (_xmppConnections.containsKey(accountId)) {
+      _activeAccountId = accountId;
+      notifyListeners();
+      debugPrint('AuthService: Switched to account $accountId');
+    } else {
+      debugPrint('AuthService: Cannot switch to unknown account $accountId');
+    }
+  }
+
   String? get activeXmppDomain {
     if (_activeAccountId == null) return null;
     return _xmppJids[_activeAccountId]?.split('@').last.split('/').first;
