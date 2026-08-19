@@ -1403,11 +1403,13 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   Future<List<SpaceMember>>? _membersFuture;
+  final TextEditingController _membersSearchController = TextEditingController();
+  String _membersSearchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     if (widget.onCreated != null) {
       widget.onCreated!();
     }
@@ -1462,6 +1464,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   void dispose() {
     _liveStreamSub?.cancel();
     _searchController.dispose();
+    _membersSearchController.dispose();
     _tabController.dispose();
     super.dispose();
   }
@@ -1494,6 +1497,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             Tab(icon: Icon(Icons.group_outlined), text: 'Members'),
             Tab(icon: Icon(Icons.article_outlined), text: 'Posts'),
             Tab(icon: Icon(Icons.photo_library_outlined), text: 'Media'),
+            Tab(icon: Icon(Icons.person_search_rounded), text: 'People'),
           ],
         ),
         Expanded(
@@ -1505,6 +1509,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               _buildMembersTab(theme),
               _buildPostsTab(theme),
               _buildMediaTab(theme),
+              _buildPeopleTab(theme),
             ],
           ),
         ),
@@ -2072,6 +2077,151 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   }
 
   // ── MEMBERS TAB ───────────────────────────────────────────
+  Widget _buildPeopleTab(ThemeData theme) {
+    return Column(children: [
+      // Search bar
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: TextField(
+          controller: _membersSearchController,
+          onChanged: (v) => setState(() => _membersSearchQuery = v.trim()),
+          decoration: InputDecoration(
+            hintText: 'Search people on this server...',
+            prefixIcon: const Icon(Icons.search_rounded, size: 20),
+            suffixIcon: _membersSearchQuery.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear_rounded, size: 18),
+                    onPressed: () { _membersSearchController.clear(); setState(() => _membersSearchQuery = ''); },
+                  )
+                : null,
+            filled: true,
+            fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+            contentPadding: const EdgeInsets.symmetric(vertical: 8),
+          ),
+        ),
+      ),
+      // Invite by JID
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: OutlinedButton.icon(
+          onPressed: () => _showInviteByJidDialog(theme),
+          icon: const Icon(Icons.person_add_rounded, size: 16),
+          label: const Text('Invite by JID'),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+      ),
+      const SizedBox(height: 8),
+      // Results
+      Expanded(
+        child: _membersSearchQuery.isEmpty
+            ? Center(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.person_search_rounded, size: 56, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
+                  const SizedBox(height: 12),
+                  Text('Search for people on this server', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                ]),
+              )
+            : FutureBuilder<List<Map<String, String>>>(
+                future: () async {
+                  final auth = Provider.of<AuthService>(context, listen: false);
+                  return auth.searchUsers(_membersSearchQuery, accountId: auth.activeAccountId);
+                }(),
+                builder: (context, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final results = snap.data ?? [];
+                  if (results.isEmpty) {
+                    return Center(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.search_off_rounded, size: 48, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
+                        const SizedBox(height: 12),
+                        Text('No users found for "$_membersSearchQuery"', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                      ]),
+                    );
+                  }
+                  return ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: results.length,
+                    itemBuilder: (ctx, i) {
+                      final user = results[i];
+                      final jid = user['jid'] ?? '';
+                      final name = user['name'] ?? user['nickname'] ?? jid;
+                      final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+                      final colorSeed = jid.hashCode;
+                      final colors = [Colors.purple, Colors.blue, Colors.teal, Colors.orange, Colors.pink, Colors.indigo];
+                      final color = colors[colorSeed.abs() % colors.length];
+                      return ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        leading: CircleAvatar(
+                          backgroundColor: color.withValues(alpha: 0.8),
+                          child: Text(initial, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        ),
+                        title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text(jid, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+                        trailing: IconButton(
+                          icon: Icon(Icons.person_add_rounded, color: theme.colorScheme.primary),
+                          tooltip: 'Add to space',
+                          onPressed: () => _inviteUserToSpace(jid, name),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+      ),
+    ]);
+  }
+
+  void _showInviteByJidDialog(ThemeData theme) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Invite by JID'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Enter the full JID of the user you want to invite:'),
+          const SizedBox(height: 16),
+          TextField(
+            controller: controller,
+            decoration: const InputDecoration(
+              labelText: 'user@domain.example',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.alternate_email_rounded),
+            ),
+            keyboardType: TextInputType.emailAddress,
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              final jid = controller.text.trim();
+              if (jid.isNotEmpty) _inviteUserToSpace(jid, jid);
+            },
+            child: const Text('Invite'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _inviteUserToSpace(String jid, String displayName) async {
+    final success = await widget.spacesService.inviteMember(
+      widget.space.domain, widget.space.node, jid, 'member',
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(success ? 'Invitation sent to $displayName!' : 'Failed to invite $displayName')),
+      );
+    }
+  }
+
   Widget _buildMembersTab(ThemeData theme) {
     return FutureBuilder<List<SpaceMember>>(
       future: _membersFuture,
