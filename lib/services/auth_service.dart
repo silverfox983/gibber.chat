@@ -364,6 +364,25 @@ class AuthService with ChangeNotifier {
 
   Future<void> setStrictVerification(bool enabled) => _omemoService.setStrictVerification(enabled);
 
+  bool get sendReadReceipts => _sendReadReceipts;
+  Future<void> setSendReadReceipts(bool val) async {
+    _sendReadReceipts = val;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('pref_send_read_receipts', val);
+    notifyListeners();
+  }
+
+  bool get sendTypingIndicators => _sendTypingIndicators;
+  Future<void> setSendTypingIndicators(bool val) async {
+    _sendTypingIndicators = val;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('pref_send_typing', val);
+    notifyListeners();
+  }
+
+  bool _sendReadReceipts = true;
+  bool _sendTypingIndicators = true;
+
   Future<bool> hasUnverifiedDevices(String jid) => _omemoService.hasUnverifiedDevices(jid);
 
   Future<int> getChatSecurityStatus(String chatId, {bool isGroup = false}) =>
@@ -1832,6 +1851,10 @@ class AuthService with ChangeNotifier {
     if (profileStr != null) {
       _currentProfile = UserProfile.fromJson(json.decode(profileStr));
     }
+
+    // Load privacy prefs
+    _sendReadReceipts = prefs.getBool('pref_send_read_receipts') ?? true;
+    _sendTypingIndicators = prefs.getBool('pref_send_typing') ?? true;
 
     final jsonStr = prefs.getString('saved_accounts_json');
     if (jsonStr != null) {

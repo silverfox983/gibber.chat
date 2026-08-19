@@ -161,12 +161,35 @@ class SecuritySettingsScreen extends StatelessWidget {
       ),
       child: Column(
         children: [
-          SwitchListTile(
-            title: const Text('Always Re-Verify Devices', style: TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: const Text('Trigger trust dialogs for every new device session'),
-            value: authService.isStrictVerificationEnabled,
-            onChanged: (val) => authService.setStrictVerification(val),
-            activeThumbColor: Theme.of(context).colorScheme.primary,
+          ListenableBuilder(
+            listenable: authService,
+            builder: (context, _) => Column(
+              children: [
+                SwitchListTile(
+                  title: const Text('Send Read Receipts', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Let others know when you\'ve read their messages'),
+                  value: authService.sendReadReceipts,
+                  onChanged: (val) => authService.setSendReadReceipts(val),
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  title: const Text('Send Typing Indicators', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Let others see when you\'re typing'),
+                  value: authService.sendTypingIndicators,
+                  onChanged: (val) => authService.setSendTypingIndicators(val),
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  title: const Text('Always Re-Verify Devices', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Trigger trust dialogs for every new device session'),
+                  value: authService.isStrictVerificationEnabled,
+                  onChanged: (val) => authService.setStrictVerification(val),
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
+                ),
+              ],
+            ),
           ),
           const Divider(height: 1),
           ListTile(

@@ -24,6 +24,7 @@ class SpaceSettingsScreen extends StatefulWidget {
 class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
   late TextEditingController _nameController;
   late TextEditingController _descController;
+  late TextEditingController _memberSearchController;
   String _accessModel = 'open';
   String _publishModel = 'publishers';
   String _notificationPref = 'all'; // 'all', 'mentions', 'off'
@@ -35,11 +36,19 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
   Uint8List? _avatarPreview;
   Uint8List? _coverPreview;
 
+  List<SpaceMember> get _filteredMembers {
+    if (_members == null) return [];
+    final q = _memberSearchController.text.toLowerCase();
+    if (q.isEmpty) return _members!;
+    return _members!.where((m) => m.jid.toLowerCase().contains(q)).toList();
+  }
+
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.space.name.isNotEmpty ? widget.space.name : widget.space.node);
     _descController = TextEditingController(text: widget.space.description ?? '');
+    _memberSearchController = TextEditingController();
     _accessModel = widget.space.accessModel ?? 'open';
     _publishModel = widget.space.publishModel ?? 'publishers';
     _nameController.addListener(_onFormChanged);
@@ -80,6 +89,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
   void dispose() {
     _nameController.dispose();
     _descController.dispose();
+    _memberSearchController.dispose();
     super.dispose();
   }
 
@@ -421,14 +431,31 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
             children: [
               Text('MEMBERS', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
               const Spacer(),
+              TextButton.icon(
+                icon: const Icon(Icons.person_add_rounded, size: 18),
+                label: const Text('Invite'),
+                onPressed: () => _showInviteByJidDialog(theme),
+              ),
               if (_members == null) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
             ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _memberSearchController,
+            decoration: InputDecoration(
+              hintText: 'Search members...',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 8),
           if (_members != null && _members!.isEmpty)
              const Padding(padding: EdgeInsets.all(16), child: Text('No members found.'))
           else if (_members != null)
-             ..._members!.map((m) => ListTile(
+             ..._filteredMembers.map((m) => ListTile(
                leading: CircleAvatar(child: Text(m.jid[0].toUpperCase())),
                title: Text(m.jid),
                subtitle: Text('Role: ${m.affiliation}'),
@@ -501,5 +528,51 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
         ],
       ),
     );
+  }
+
+  void _showInviteByJidDialog(ThemeData theme) {
+    final controller = TextEditingController();
+    bool inviting = false;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Invite Member'),
+          content: TextField(
+            controller: controller,
+            decoration: const InputDecoration(
+              labelText: 'JID or username',
+              hintText: 'user@domain.org',
+              prefixIcon: Icon(Icons.person_add_rounded),
+            ),
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: inviting ? null : () async {
+                final jid = controller.text.trim();
+                if (jid.isEmpty) return;
+                setDialogState(() => inviting = true);
+                Navigator.pop(ctx);
+                await _inviteUserToSpace(jid);
+              },
+              child: inviting ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Invite'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _inviteUserToSpace(String jid) async {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final ok = await widget.spacesService.inviteMember(widget.space.domain, widget.space.node, jid, 'member');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ok ? 'Invitation sent to $jid' : 'Failed to invite $jid')),
+      );
+      if (ok) _loadMembers();
+    }
   }
 }
