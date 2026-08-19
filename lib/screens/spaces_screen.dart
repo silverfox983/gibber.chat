@@ -2949,6 +2949,15 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             _handleShare(item);
           },
         ),
+        if (item.type == 'entry')
+          ListTile(
+            leading: Icon(Icons.repeat_rounded, color: Theme.of(ctx).colorScheme.primary),
+            title: Text('Repost to Space', style: TextStyle(color: Theme.of(ctx).colorScheme.primary)),
+            onTap: () {
+              Navigator.pop(ctx);
+              _showRepostDialog(item);
+            },
+          ),
         const SizedBox(height: 8),
       ]),
     );
@@ -2975,6 +2984,57 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   void _handleShare(SpaceItem item) {
     final text = '${item.name ?? 'Post'} by ${item.author ?? 'Anonymous'}\n\n${item.description ?? ''}';
     Share.share(text, subject: item.name);
+  }
+
+  void _showRepostDialog(SpaceItem item) {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final spaces = auth.joinedSpaces;
+    if (spaces.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Join a space first to repost')));
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Repost to...'),
+        content: SizedBox(
+          width: 300,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: spaces.length,
+            itemBuilder: (_, i) {
+              final s = spaces[i];
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Theme.of(ctx).colorScheme.primaryContainer,
+                  child: Text(s.node[0].toUpperCase()),
+                ),
+                title: Text(s.name ?? s.node),
+                subtitle: Text(s.domain),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final body = item.rawContent ?? item.description ?? '';
+                  final title = item.name ?? '';
+                  final ok = await widget.spacesService.publishMicroblogEntry(
+                    s.domain,
+                    s.node,
+                    title: title,
+                    content: body,
+                    authorName: item.author,
+                  );
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(ok ? 'Reposted to ${s.name ?? s.node}' : 'Failed to repost')),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        ],
+      ),
+    );
   }
 
   void _showReplyDialog(SpaceItem item) {

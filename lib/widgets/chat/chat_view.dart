@@ -9,6 +9,7 @@ import '../../models/chat_models.dart';
 import '../../providers/call_provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../services/auth_service.dart';
+import '../../services/translation/translation_service.dart';
 
 class ChatView extends StatefulWidget {
   final Conversation conversation;
@@ -372,53 +373,118 @@ class _ChatViewState extends State<ChatView> {
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.75,
         ),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(16).copyWith(
-              bottomRight: isMe ? const Radius.circular(4) : null,
-              bottomLeft: !isMe ? const Radius.circular(4) : null,
+        child: GestureDetector(
+          onLongPress: () => _showMessageActions(context, msg, textColor),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(16).copyWith(
+                bottomRight: isMe ? const Radius.circular(4) : null,
+                bottomLeft: !isMe ? const Radius.circular(4) : null,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (msg.text.isNotEmpty)
+                  Text(
+                    msg.text,
+                    style: TextStyle(color: textColor, fontSize: 15),
+                  ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      DateFormat('HH:mm').format(msg.timestamp),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: textColor.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    if (isMe) ...[
+                      const SizedBox(width: 4),
+                      Icon(
+                        msg.status == MessageStatus.read
+                            ? Icons.done_all_rounded
+                            : msg.status == MessageStatus.delivered
+                                ? Icons.done_all_rounded
+                                : msg.status == MessageStatus.sent
+                                    ? Icons.done_rounded
+                                    : Icons.error_outline_rounded,
+                        size: 14,
+                        color: textColor.withValues(alpha: 0.5),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  void _showMessageActions(BuildContext ctx, ChatMessage msg, Color textColor) {
+    showModalBottomSheet(
+      context: ctx,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2))),
+        if (msg.text.isNotEmpty) ...[
+          ListTile(
+            leading: const Icon(Icons.translate_rounded),
+            title: const Text('Translate'),
+            onTap: () async {
+              Navigator.pop(ctx);
+              final translated = await TranslationService.translate(msg.text, toLang: 'en');
+              if (translated != null && translated != msg.text) {
+                _showTranslatedMessage(ctx, msg.text, translated, textColor);
+              } else {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  const SnackBar(content: Text('Translation unavailable')),
+                );
+              }
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.copy_rounded),
+            title: const Text('Copy'),
+            onTap: () {
+              Navigator.pop(ctx);
+              // Copy handled elsewhere
+            },
+          ),
+        ],
+        const SizedBox(height: 8),
+      ]),
+    );
+  }
+
+  void _showTranslatedMessage(BuildContext ctx, String original, String translated, Color textColor) {
+    showDialog(
+      context: ctx,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [Icon(Icons.translate_rounded, size: 20), SizedBox(width: 8), Text('Translation')]),
+        content: SingleChildScrollView(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              if (msg.text.isNotEmpty)
-                Text(
-                  msg.text,
-                  style: TextStyle(color: textColor, fontSize: 15),
-                ),
+              Text('Original:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.7))),
               const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    DateFormat('HH:mm').format(msg.timestamp),
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: textColor.withValues(alpha: 0.5),
-                    ),
-                  ),
-                  if (isMe) ...[
-                    const SizedBox(width: 4),
-                    Icon(
-                      msg.status == MessageStatus.read
-                          ? Icons.done_all_rounded
-                          : msg.status == MessageStatus.delivered
-                              ? Icons.done_all_rounded
-                              : msg.status == MessageStatus.sent
-                                  ? Icons.done_rounded
-                                  : Icons.error_outline_rounded,
-                      size: 14,
-                      color: textColor.withValues(alpha: 0.5),
-                    ),
-                  ],
-                ],
-              ),
+              Text(original, style: TextStyle(color: textColor)),
+              const Divider(height: 24),
+              Text('English:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(ctx).colorScheme.primary)),
+              const SizedBox(height: 4),
+              Text(translated),
             ],
           ),
         ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
       ),
     );
   }
