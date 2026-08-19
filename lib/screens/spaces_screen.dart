@@ -149,61 +149,84 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
   }
 
   Future<void> _loadExplore() async {
-    if (_spacesService == null) return;
+    if (_spacesService == null) {
+      if (mounted) setState(() => _exploreLoading = false);
+      return;
+    }
     setState(() => _exploreLoading = true);
 
-    try {
-      final results = await Future.wait(
-        _exploreSources.map((domain) async {
+    final allCommunities = <UnifiedCommunity>[];
+    final seen = <String>{};
+
+    for (final domain in List.of(_exploreSources)) {
+      try {
+        final spaces = await _spacesService!.discoverAllSpaces(domain).timeout(
+          const Duration(seconds: 30),
+          onTimeout: () => <SpaceNode>[],
+        );
+
+        final enriched = <SpaceNode>[];
+        for (final s in spaces.take(20)) {
           try {
-            final spaces = await _spacesService!.discoverAllSpaces(domain);
-            final enriched = await Future.wait(
-              spaces.take(20).map((s) async {
-                try {
-                  return await _spacesService!.fetchSpaceMetadata(s.domain, s.node, fallbackName: s.name);
-                } catch (_) {
-                  return s;
-                }
-              }),
+            final meta = await _spacesService!.fetchSpaceMetadata(s.domain, s.node, fallbackName: s.name).timeout(
+              const Duration(seconds: 10),
+              onTimeout: () => s,
             );
-            return enriched;
+            if (meta != null) enriched.add(meta);
           } catch (_) {
-            return <SpaceNode>[];
+            enriched.add(s);
           }
-        }),
-      );
+        }
 
-      final flat = results.expand((r) => r).whereType<SpaceNode>().toList();
-      flat.sort((a, b) => (b.numSubscribers ?? 0).compareTo(a.numSubscribers ?? 0));
+        for (final s in enriched) {
+          final key = '${s.domain}|${s.node}';
+          if (!seen.contains(key)) {
+            seen.add(key);
+            allCommunities.add(UnifiedCommunity.fromSpaceNode(s));
+          }
+        }
 
-      final communities = flat.map((s) => UnifiedCommunity.fromSpaceNode(s)).toList();
-
-      if (mounted) {
-        setState(() {
-          _exploreResults.clear();
-          _exploreResults.addAll(communities);
-          _exploreLoading = false;
-        });
+        allCommunities.sort((a, b) => b.memberCount.compareTo(a.memberCount));
+        if (mounted) {
+          setState(() {
+            _exploreResults.clear();
+            _exploreResults.addAll(allCommunities);
+          });
+        }
+      } catch (_) {
+        // Skip failed domains silently
       }
-    } catch (e) {
-      if (mounted) setState(() => _exploreLoading = false);
     }
+
+    if (mounted) setState(() => _exploreLoading = false);
   }
 
   Future<void> _loadRooms() async {
-    if (_spacesService == null) return;
+    if (_spacesService == null) {
+      if (mounted) setState(() => _roomsLoading = false);
+      return;
+    }
     setState(() => _roomsLoading = true);
 
     try {
       final mucSpaces = await _spacesService!.discoverMucRoomsAsSpaces(_selectedMucService);
 
       final rooms = <UnifiedCommunity>[];
-      for (final space in mucSpaces) {
-        final details = await _spacesService!.fetchSpaceDetails(space);
-        rooms.add(UnifiedCommunity.fromSpaceNode(details));
+      for (int i = 0; i < mucSpaces.length; i += 5) {
+        final batch = mucSpaces.skip(i).take(5);
+        final details = await Future.wait(
+          batch.map((s) async {
+            try {
+              return await _spacesService!.fetchSpaceDetails(s);
+            } catch (_) {
+              return s;
+            }
+          }),
+        );
+        rooms.addAll(details.map((s) => UnifiedCommunity.fromSpaceNode(s)));
       }
 
-      rooms.sort((a, b) => (b.memberCount).compareTo(a.memberCount));
+      rooms.sort((a, b) => b.memberCount.compareTo(a.memberCount));
 
       if (mounted) {
         setState(() {

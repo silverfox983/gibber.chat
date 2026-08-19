@@ -1996,22 +1996,16 @@ class SpacesService extends ChangeNotifier {
       if (cached.isNotEmpty) return cached;
     }
 
+    final iq = xmpp.IqStanza('disco_muc_${xmpp.AbstractStanza.getRandomId()}', xmpp.IqStanzaType.GET);
+    iq.toJid = xmpp.Jid.fromFullJid(serviceJid);
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#items'));
+    iq.addChild(query);
+
     try {
-      final id = 'disco_${DateTime.now().millisecondsSinceEpoch}';
-      final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
-      iq.toJid = xmpp.Jid.fromFullJid(serviceJid);
-      final query = xmpp.XmppElement();
-      query.name = 'query';
-      query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#items'));
-      iq.addChild(query);
-
-      connection.writeStanza(iq);
-
-      final res = await connection.inStanzasStream
-          .firstWhere((s) => s is xmpp.IqStanza && s.id == id)
-          .timeout(const Duration(seconds: 15), onTimeout: () => null) as xmpp.IqStanza?;
-
-      if (res == null || res.type == xmpp.IqStanzaType.ERROR) {
+      final res = await _sendIq(iq);
+      if (res.type == xmpp.IqStanzaType.ERROR) {
         debugPrint('SpacesService: MUC discovery failed for $serviceJid');
         return [];
       }
@@ -2020,7 +2014,7 @@ class SpacesService extends ChangeNotifier {
       final queryEl = res.getChild('query');
       if (queryEl != null) {
         for (final child in queryEl.children) {
-          if (child.name == 'item') {
+          if (child.name == 'item' || child.name == 'INVALID') {
             final jid = child.getAttribute('jid')?.value;
             final name = child.getAttribute('name')?.value ?? jid?.split('@').first ?? 'Unknown Room';
             if (jid != null && !jid.startsWith('echo.') && !jid.startsWith('pubsub.')) {
