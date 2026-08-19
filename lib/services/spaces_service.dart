@@ -1988,6 +1988,61 @@ class SpacesService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('draft_$node');
   }
+
+  Future<List<SpaceNode>> discoverMucRoomsAsSpaces(String serviceJid, {bool forceRefresh = false}) async {
+    final cacheKey = 'muc_rooms|$serviceJid';
+    if (!forceRefresh && _discoverCache.containsKey(cacheKey)) {
+      final cached = _discoverCache[cacheKey]!;
+      if (cached.isNotEmpty) return cached;
+    }
+
+    try {
+      final id = 'disco_${DateTime.now().millisecondsSinceEpoch}';
+      final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
+      iq.toJid = xmpp.Jid.fromFullJid(serviceJid);
+      final query = xmpp.XmppElement();
+      query.name = 'query';
+      query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#items'));
+      iq.addChild(query);
+
+      connection.writeStanza(iq);
+
+      final res = await connection.inStanzasStream
+          .firstWhere((s) => s is xmpp.IqStanza && s.id == id)
+          .timeout(const Duration(seconds: 15), onTimeout: () => null) as xmpp.IqStanza?;
+
+      if (res == null || res.type == xmpp.IqStanzaType.ERROR) {
+        debugPrint('SpacesService: MUC discovery failed for $serviceJid');
+        return [];
+      }
+
+      final items = <SpaceNode>[];
+      final queryEl = res.getChild('query');
+      if (queryEl != null) {
+        for (final child in queryEl.children) {
+          if (child.name == 'item') {
+            final jid = child.getAttribute('jid')?.value;
+            final name = child.getAttribute('name')?.value ?? jid?.split('@').first ?? 'Unknown Room';
+            if (jid != null && !jid.startsWith('echo.') && !jid.startsWith('pubsub.')) {
+              items.add(SpaceNode(
+                domain: serviceJid,
+                node: jid.split('@').first,
+                name: name,
+                type: 'muc',
+                description: null,
+              ));
+            }
+          }
+        }
+      }
+
+      _discoverCache[cacheKey] = items;
+      return items;
+    } catch (e) {
+      debugPrint('SpacesService: discoverMucRoomsAsSpaces error: $e');
+      return [];
+    }
+  }
 }
 
 // -- Bounded LRU Cache with TTL ------------------------------------------------

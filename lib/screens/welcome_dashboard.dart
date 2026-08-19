@@ -432,7 +432,9 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
         Provider.of<ChatProvider>(context, listen: false).setSidebarTab(0);
       }),
       _QuickAction(Icons.person_add_rounded, 'Add Buddy', () => context.goNamed('addContact')),
-      _QuickAction(Icons.explore_rounded, 'Discover Rooms', () => context.goNamed('roomDiscovery')),
+      _QuickAction(Icons.explore_rounded, 'Discover Rooms', () {
+        Provider.of<ChatProvider>(context, listen: false).setSidebarTab(3);
+      }),
       _QuickAction(Icons.dynamic_feed_rounded, 'Feed', () {
         Provider.of<ChatProvider>(context, listen: false).setSidebarTab(2);
       }),
@@ -669,7 +671,9 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
       tips.add(_OnboardingTip(Icons.person_add_rounded, 'Add your first buddy', 'Send a friend request to start chatting securely.', () => context.goNamed('addContact')));
     }
     if (!hasChats) {
-      tips.add(_OnboardingTip(Icons.explore_rounded, 'Join a room', 'Discover public group chats and communities.', () => context.goNamed('roomDiscovery')));
+      tips.add(_OnboardingTip(Icons.explore_rounded, 'Join a room', 'Discover public group chats and communities.', () {
+        Provider.of<ChatProvider>(context, listen: false).setSidebarTab(3);
+      }));
     }
     tips.add(_OnboardingTip(Icons.workspace_premium_rounded, 'Upgrade to Pro for more features', 'Get unlimited transcription, AI queries, and protocol bridging with a Pro or Ultimate plan.', () => context.goNamed('tier')));
     tips.add(_OnboardingTip(Icons.edit_rounded, 'Set your status', 'Let contacts know your availability.', null));

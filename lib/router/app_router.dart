@@ -25,11 +25,9 @@ import '../screens/transports_screen.dart';
 import '../screens/gateways_screen.dart';
 import '../screens/bridges_screen.dart';
 import '../screens/create_room_screen.dart';
-import '../screens/room_discovery_screen.dart';
 import '../screens/room_info_screen.dart';
 import '../screens/room_settings_screen.dart';
 import '../screens/room_affiliation_screen.dart';
-import '../screens/nexus_search_screen.dart';
 import '../screens/feed_screen.dart';
 import '../screens/spaces_screen.dart';
 import '../screens/space_settings_screen.dart';
@@ -215,11 +213,6 @@ GoRouter createAppRouter({
                 pageBuilder: (context, state) => _fadePage(state: state, child: const CreateRoomScreen()),
               ),
               GoRoute(
-                path: 'room-discovery',
-                name: 'roomDiscovery',
-                pageBuilder: (context, state) => _fadePage(state: state, child: const RoomDiscoveryScreen()),
-              ),
-              GoRoute(
                 path: 'room-info',
                 name: 'roomInfo',
                 pageBuilder: (context, state) {
@@ -249,11 +242,6 @@ GoRouter createAppRouter({
                     room: args['room'] as Conversation,
                   ));
                 },
-              ),
-              GoRoute(
-                path: 'search',
-                name: 'search',
-                pageBuilder: (context, state) => _fadePage(state: state, child: const NexusSearchScreen()),
               ),
               GoRoute(
                 path: 'new-message',

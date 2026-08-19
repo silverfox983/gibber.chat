@@ -268,110 +268,125 @@ class _FeedScreenState extends State<FeedScreen>
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      child: CustomScrollView(
-        slivers: [
-          // Stats header
-          SliverToBoxAdapter(child: _buildStatsHeader(theme)),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth > 500;
+        final bottomPad = isWide ? 80.0 : 120.0;
+        final horizontalPad = isWide ? 24.0 : 16.0;
 
-          // Live banner
-          if (_newLiveCount > 0)
-            SliverToBoxAdapter(
-              child: GestureDetector(
-                onTap: () => setState(() => _newLiveCount = 0),
-                child: Container(
-                  margin: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(children: [
-                    Icon(Icons.fiber_new_rounded, color: theme.colorScheme.primary, size: 20),
-                    const SizedBox(width: 8),
-                    Text('$_newLiveCount new post${_newLiveCount > 1 ? 's' : ''} — tap to dismiss',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13,
-                            color: theme.colorScheme.onPrimaryContainer)),
-                  ]),
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: CustomScrollView(
+            slivers: [
+              // Stats header
+              SliverToBoxAdapter(
+                child: LayoutBuilder(
+                  builder: (context, headerConstraints) {
+                    final headerIsWide = headerConstraints.maxWidth > 400;
+                    return _buildStatsHeader(theme, isWide: headerIsWide);
+                  },
                 ),
               ),
-            ),
 
-          FutureBuilder<List<SpaceItem>>(
-            future: _feedFuture,
-            initialData: _cachedItems,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting &&
-                  (snapshot.data == null || snapshot.data!.isEmpty)) {
-                return const SliverToBoxAdapter(
-                    child: Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())));
-              }
-              final items = _filteredItems(snapshot.data ?? []);
-              if (items.isEmpty) {
-                final msg = _tabController.index == 3
-                    ? 'No saved posts yet.\nBookmark posts to see them here.'
-                    : _searchQuery.isNotEmpty
-                        ? 'No posts match "$_searchQuery".'
-                        : 'No recent activity.';
-                return SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Icon(Icons.inbox_rounded, size: 56, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
-                        const SizedBox(height: 12),
-                        Text(msg, textAlign: TextAlign.center,
-                            style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
+              // Live banner
+              if (_newLiveCount > 0)
+                SliverToBoxAdapter(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _newLiveCount = 0),
+                    child: Container(
+                      margin: EdgeInsets.fromLTRB(horizontalPad, 4, horizontalPad, 0),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(children: [
+                        Icon(Icons.fiber_new_rounded, color: theme.colorScheme.primary, size: 20),
+                        const SizedBox(width: 8),
+                        Text('$_newLiveCount new post${_newLiveCount > 1 ? 's' : ''} — tap to dismiss',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13,
+                                color: theme.colorScheme.onPrimaryContainer)),
                       ]),
                     ),
                   ),
-                );
-              }
-              return SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final item = items[index];
-                    final group = _getDateGroup(item.publishedDate);
-                    final prevGroup = index > 0 ? _getDateGroup(items[index - 1].publishedDate) : null;
-                    final showHeader = group != prevGroup;
-
-                    final card = _buildSpaceItemCard(theme, item);
-                    if (!showHeader) return card;
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-                          child: Text(group, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1.5).copyWith(color: theme.colorScheme.primary)),
-                        ),
-                        card,
-                      ],
-                    );
-                  },
-                  childCount: items.length,
                 ),
-              );
-            },
+
+              FutureBuilder<List<SpaceItem>>(
+                future: _feedFuture,
+                initialData: _cachedItems,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting &&
+                      (snapshot.data == null || snapshot.data!.isEmpty)) {
+                    return const SliverToBoxAdapter(
+                        child: Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())));
+                  }
+                  final items = _filteredItems(snapshot.data ?? []);
+                  if (items.isEmpty) {
+                    final msg = _tabController.index == 3
+                        ? 'No saved posts yet.\nBookmark posts to see them here.'
+                        : _searchQuery.isNotEmpty
+                            ? 'No posts match "$_searchQuery".'
+                            : 'No recent activity.';
+                    return SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            Icon(Icons.inbox_rounded, size: 56, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
+                            const SizedBox(height: 12),
+                            Text(msg, textAlign: TextAlign.center,
+                                style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
+                          ]),
+                        ),
+                      ),
+                    );
+                  }
+                  return SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final item = items[index];
+                        final group = _getDateGroup(item.publishedDate);
+                        final prevGroup = index > 0 ? _getDateGroup(items[index - 1].publishedDate) : null;
+                        final showHeader = group != prevGroup;
+
+                        final card = _buildSpaceItemCard(theme, item, horizontalPad: horizontalPad);
+                        if (!showHeader) return card;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: EdgeInsets.fromLTRB(horizontalPad + 8, 16, horizontalPad, 8),
+                              child: Text(group, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1.5).copyWith(color: theme.colorScheme.primary)),
+                            ),
+                            card,
+                          ],
+                        );
+                      },
+                      childCount: items.length,
+                    ),
+                  );
+                },
+              ),
+              SliverToBoxAdapter(child: SizedBox(height: bottomPad)),
+            ],
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 120)),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildStatsHeader(ThemeData theme) {
+  Widget _buildStatsHeader(ThemeData theme, {bool isWide = false}) {
     final newCount = _newLiveCount + (_cachedItems?.where((i) => i.type == 'entry').length ?? 0);
     final savedCount = _cachedItems?.where((i) => _bookmarkedItems.contains(i.id) || i.isBookmarked).length ?? 0;
     final mediaCount = _cachedItems?.where((i) => i.mediaAttachments.isNotEmpty || i.imageUrl != null).length ?? 0;
 
     return SizedBox(
-      height: 90,
+      height: isWide ? 80 : 90,
       child: ListView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        padding: EdgeInsets.fromLTRB(isWide ? 24 : 16, 12, isWide ? 24 : 16, 4),
         children: [
           _buildStatChip(theme, Icons.workspaces_rounded, '${_mySpaces.length}', 'Spaces', theme.colorScheme.primary),
           const SizedBox(width: 10),
@@ -405,13 +420,13 @@ class _FeedScreenState extends State<FeedScreen>
   }
 
 
-  Widget _buildSpaceItemCard(ThemeData theme, SpaceItem item) {
+  Widget _buildSpaceItemCard(ThemeData theme, SpaceItem item, {double horizontalPad = 16}) {
     final sourceSpace = item.sourceSpace;
     final spaceName = sourceSpace?.name ?? item.node ?? 'Unknown Space';
 
     if (item.type == 'room') {
       return Card(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        margin: EdgeInsets.fromLTRB(horizontalPad, 0, horizontalPad, 12),
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.5))),
         child: ListTile(
@@ -459,7 +474,7 @@ class _FeedScreenState extends State<FeedScreen>
     return GestureDetector(
       onLongPress: () => _showReactionPicker(context, item),
       child: Card(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        margin: EdgeInsets.fromLTRB(horizontalPad, 0, horizontalPad, 24),
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
@@ -583,7 +598,7 @@ class _FeedScreenState extends State<FeedScreen>
                   height: 220,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: EdgeInsets.symmetric(horizontal: horizontalPad),
                     itemCount: item.mediaAttachments.length,
                     itemBuilder: (context, index) {
                       final media = item.mediaAttachments[index];

@@ -40,7 +40,6 @@ import '../services/xep_0392_service.dart';
 import '../services/backend_config.dart';
 import './contacts_screen.dart';
 import './feed_screen.dart';
-import './nexus_search_screen.dart';
 import './profile_screen.dart';
 import './welcome_dashboard.dart';
 import './spaces_screen.dart';
@@ -804,16 +803,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       ),
                     ),
                     const PopupMenuItem(
-                      value: 'discover',
-                      child: Row(
-                        children: [
-                          Icon(Icons.explore_rounded, size: 18),
-                          SizedBox(width: 8),
-                          Text('Discover Rooms', style: TextStyle(fontSize: 13)),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
                       value: 'invite',
                       child: Row(
                         children: [
@@ -905,18 +894,54 @@ class _MainChatScreenState extends State<MainChatScreen> {
     AuthService authService,
     Conversation? activeChat,
   ) {
+    final selectedTab = chatProvider.selectedSidebarTab;
+    final isFeedOrSpaces = selectedTab == 2 || selectedTab == 3;
+    final showSidebar = !isFeedOrSpaces;
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Row(
         children: [
           _buildNavRail(chatProvider, authService),
-          _buildSidebarLayout(chatProvider, authService, false),
-            Expanded(child: activeChat != null
-                ? ChatView(conversation: activeChat, chatProvider: chatProvider, authService: authService)
-                : _buildSidebarContent(chatProvider, authService)),
+          if (showSidebar)
+            _buildSidebarLayout(chatProvider, authService, false),
+          Expanded(
+            child: _buildDesktopContent(
+              chatProvider: chatProvider,
+              authService: authService,
+              activeChat: activeChat,
+              selectedTab: selectedTab,
+              isFeedOrSpaces: isFeedOrSpaces,
+              showSidebar: showSidebar,
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  Widget _buildDesktopContent({
+    required ChatProvider chatProvider,
+    required AuthService authService,
+    required Conversation? activeChat,
+    required int selectedTab,
+    required bool isFeedOrSpaces,
+    required bool showSidebar,
+  }) {
+    if (isFeedOrSpaces && activeChat == null) {
+      return selectedTab == 2 ? const FeedScreen() : const SpacesScreen();
+    }
+    if (activeChat != null) {
+      return ChatView(
+        conversation: activeChat,
+        chatProvider: chatProvider,
+        authService: authService,
+      );
+    }
+    if (showSidebar) {
+      return _buildSidebarContent(chatProvider, authService);
+    }
+    return const SizedBox.shrink();
   }
 
   Widget _buildChatContent(Conversation? activeChat) {
@@ -3818,7 +3843,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
         const SpacesScreen(),
         const ProfileScreen(isSidebar: true),
         _buildGlobalSearchList(chatProvider),
-        const NexusSearchScreen(),
       ],
     );
   }
@@ -3968,9 +3992,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
     }
     if (val == 'buddy') chatProvider.setSidebarTab(1);
     if (val == 'group') _showJoinRoomDialog(authService);
-    if (val == 'discover') {
-      context.goNamed('roomDiscovery');
-    }
     if (val == 'invite') {
       context.goNamed('invite');
     }

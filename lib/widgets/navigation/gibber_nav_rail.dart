@@ -205,10 +205,5 @@ class GibberNavRail extends StatelessWidget {
           selectedIcon: Icon(Icons.search_rounded),
           label: Text('Search'),
         ),
-        NavigationRailDestination(
-          icon: Icon(Icons.travel_explore_rounded, color: Colors.indigoAccent),
-          selectedIcon: Icon(Icons.travel_explore_rounded, color: Colors.indigo),
-          label: Text('Nexus'),
-        ),
       ];
 }

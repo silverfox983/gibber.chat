@@ -336,7 +336,15 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                 (s.description?.toLowerCase().contains(q) ?? false);
           }).toList();
 
-    return RefreshIndicator(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth > 500;
+        final maxCardExtent = isWide ? 320.0 : 280.0;
+        final coverHeight = isWide ? 140.0 : 100.0;
+        final bottomPad = isWide ? 80.0 : 120.0;
+        final horizontalPad = isWide ? 24.0 : 16.0;
+
+        return RefreshIndicator(
       onRefresh: _refresh,
       child: CustomScrollView(
         slivers: [
@@ -605,13 +613,13 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
           // Active Grid
           if (_tabIndex == 0 && _featuredSpaces.isNotEmpty)
             SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: EdgeInsets.symmetric(horizontal: horizontalPad),
               sliver: SliverGrid(
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 300,
+                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: maxCardExtent,
                   mainAxisSpacing: 16,
                   crossAxisSpacing: 16,
-                  mainAxisExtent: 340,
+                  mainAxisExtent: maxCardExtent + 60,
                 ),
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
@@ -619,22 +627,22 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                     final space = _filteredFeaturedSpaces[index];
                     // O(1) membership check via pre-built Set
                     final isJoined = _joinedJidSet.contains('${space.domain}|${space.node}');
-                    return _buildSpaceGridCard(theme, space, isJoined: isJoined);
+                    return _buildSpaceGridCard(theme, space, isJoined: isJoined, coverHeight: coverHeight);
                   },
                   childCount: _filteredFeaturedSpaces.length,
                 ),
               ),
             ),
-            
+
           if (_tabIndex == 1 && filteredMySpaces.isNotEmpty)
             SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: EdgeInsets.symmetric(horizontal: horizontalPad),
               sliver: SliverGrid(
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 300,
+                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: maxCardExtent,
                   mainAxisSpacing: 16,
                   crossAxisSpacing: 16,
-                  mainAxisExtent: 340,
+                  mainAxisExtent: maxCardExtent + 60,
                 ),
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
@@ -752,10 +760,11 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
 
 
 
-          const SliverToBoxAdapter(child: SizedBox(height: 120)),
+          SliverToBoxAdapter(child: SizedBox(height: bottomPad)),
         ],
       ),
     );
+    });
   }
 
   Widget _buildServerChip(String domain) {
@@ -793,7 +802,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
   // === VERBOSE UI WIDGETS ===
 
   // ── FEATURED SPACE CARD (horizontal scroll) ─────────────────────────────
-  Widget _buildSpaceGridCard(ThemeData theme, SpaceNode space, {bool isJoined = false}) {
+  Widget _buildSpaceGridCard(ThemeData theme, SpaceNode space, {bool isJoined = false, double coverHeight = 100}) {
     final auth = Provider.of<AuthService>(context, listen: false);
     final isOwner = space.ownerJid == auth.activeXmppConnection?.fullJid.userAtDomain;
     // Use cached Set for O(1) affiliation lookup
@@ -825,7 +834,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
               Stack(
                 children: [
                   SizedBox(
-                    height: 100,
+                    height: coverHeight,
                     width: double.infinity,
                     child: space.avatarUrl != null
                         ? Image.network(space.avatarUrl!, fit: BoxFit.cover,
