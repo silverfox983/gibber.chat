@@ -20,5 +20,4 @@ media: {
 nat: {
     stun_server = "stun.l.google.com"
     stun_port = 19302
-    turn_rest_api = "http://localhost:3478"
 }

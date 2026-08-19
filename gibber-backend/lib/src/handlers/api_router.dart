@@ -12,6 +12,7 @@ import 'package:gibber_backend/src/services/rate_limiter.dart';
 import 'package:gibber_backend/src/services/payment_service.dart';
 import 'package:gibber_backend/src/services/input_validator.dart';
 import 'package:gibber_backend/src/services/health_service.dart';
+import 'package:gibber_backend/src/services/janus_client.dart';
 import 'package:gibber_backend/src/services/jwt_service.dart';
 import 'package:gibber_backend/src/services/user_gateway_service.dart';
 import 'package:uuid/uuid.dart';
@@ -52,6 +53,7 @@ class ApiRouter {
   final RateLimiter _sfuLimiter = RateLimiter(maxRequests: 30, window: Duration(minutes: 1));
   final String? janusApiKey;
   final String? janusUrl;
+  late final JanusClient _janusClient;
   final String? giphyApiKey;
 
   String? get _effectiveJanusApiKey =>
@@ -74,7 +76,11 @@ class ApiRouter {
     JwtService? jwtService,
   }) : captchaService = captchaService ?? CaptchaService(),
        jwtService = jwtService,
-       healthService = HealthService(db: db, xmppRegistrar: xmppRegistrar) {
+       healthService = HealthService(db: db, xmppRegistrar: xmppRegistrar),
+       _janusClient = JanusClient(
+         adminSecret: Platform.environment['GIBBER_JANUS_ADMIN_SECRET'] ??
+                       'janus-admin-secret-change-in-production',
+       ) {
     _setupRoutes();
   }
 
@@ -652,27 +658,31 @@ class ApiRouter {
     try {
       final body = await request.readAsString();
       final data = jsonDecode(body) as Map<String, dynamic>;
-      final roomId = data['room_id'] as String? ?? 'room_${DateTime.now().millisecondsSinceEpoch}';
       final description = data['description'] as String? ?? '';
       final maxPublishers = data['max_publishers'] as int? ?? 6;
       final secret = data['secret'] as String? ?? _uuid.v4().substring(0, 16);
       final isPrivate = data['private'] as bool? ?? false;
 
+      await _janusClient.createSession();
+      final janusRoom = await _janusClient.createRoom(
+        roomId: 'room_${DateTime.now().millisecondsSinceEpoch}',
+        description: description,
+        maxPublishers: maxPublishers,
+      );
+
       final roomConfig = <String, dynamic>{
-        'room': roomId,
+        'room': janusRoom['room_str'],
         'description': description,
         'max_publishers': maxPublishers,
         'secret': secret,
         'is_private': isPrivate,
         'created_by': jid,
         'created_at': DateTime.now().toIso8601String(),
+        'janus_url': 'ws://localhost:8188/',
       };
 
       if (_effectiveJanusApiKey != null && _effectiveJanusApiKey!.isNotEmpty) {
         roomConfig['janus_api_key'] = _effectiveJanusApiKey;
-      }
-      if (_effectiveJanusUrl != null && _effectiveJanusUrl!.isNotEmpty) {
-        roomConfig['janus_url'] = _effectiveJanusUrl;
       }
 
       return Response.ok(

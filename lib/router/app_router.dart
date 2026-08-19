@@ -33,6 +33,9 @@ import '../screens/post_detail_screen.dart';
 import '../screens/post_thread_screen.dart';
 import '../screens/article_view_screen.dart';
 import '../screens/group_settings_screen.dart';
+import '../screens/group_members_screen.dart';
+import '../screens/chat_info_screen.dart';
+import '../screens/chat_settings_screen.dart';
 import '../screens/new_message_screen.dart';
 import '../screens/appearance_settings_screen.dart';
 import '../screens/register_screen.dart';
@@ -305,6 +308,36 @@ GoRouter createAppRouter({
                 pageBuilder: (context, state) {
                   final args = state.extra as Map<String, dynamic>;
                   return _fadePage(state: state, child: GroupSettingsScreen(
+                    conversation: args['conversation'] as Conversation,
+                  ));
+                },
+              ),
+              GoRoute(
+                path: 'group-members',
+                name: 'groupMembers',
+                pageBuilder: (context, state) {
+                  final args = state.extra as Map<String, dynamic>;
+                  return _fadePage(state: state, child: GroupMembersScreen(
+                    conversation: args['conversation'] as Conversation,
+                  ));
+                },
+              ),
+              GoRoute(
+                path: 'chat-info',
+                name: 'chatInfo',
+                pageBuilder: (context, state) {
+                  final args = state.extra as Map<String, dynamic>;
+                  return _fadePage(state: state, child: ChatInfoScreen(
+                    conversation: args['conversation'] as Conversation,
+                  ));
+                },
+              ),
+              GoRoute(
+                path: 'chat-settings',
+                name: 'chatSettings',
+                pageBuilder: (context, state) {
+                  final args = state.extra as Map<String, dynamic>;
+                  return _fadePage(state: state, child: ChatSettingsScreen(
                     conversation: args['conversation'] as Conversation,
                   ));
                 },
