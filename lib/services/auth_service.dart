@@ -2071,19 +2071,22 @@ class AuthService with ChangeNotifier {
   Future<void> importSettings(Map<String, dynamic> settings) => _contactService.importSettings(settings);
 
   void _fetchAllVCards(String accountId) {
-    // Collect unique JIDs from the current contacts for this account
     final jids = _currentContacts
         .where((c) => c.protocol == 'XMPP')
-        .map((c) => c.id.split('/').first) // Fetch only for base JID
+        .map((c) => c.id.split('/').first)
         .toSet();
 
+    final now = DateTime.now();
     for (var jid in jids) {
-      // Small randomized delay to avoid server-side rate-limiting during bulk fetch
+      final cacheKey = '$accountId:$jid';
+      final lastFetch = _vCardLastFetch[cacheKey];
+      if (lastFetch != null && now.difference(lastFetch).inMinutes < 5) {
+        debugPrint('AuthService: Skipping vCard fetch for $jid (fetched ${now.difference(lastFetch).inMinutes} min ago)');
+        continue;
+      }
       Future.delayed(
         Duration(milliseconds: 100 + (jids.toList().indexOf(jid) * 50)),
-        () {
-          fetchContactVCard(jid, accountId: accountId);
-        },
+        () => fetchContactVCard(jid, accountId: accountId),
       );
     }
   }
@@ -2104,6 +2107,12 @@ class AuthService with ChangeNotifier {
   /// Updates our own presence status (XEP-0030/RFC 6121)
   Future<void> updatePresence(ContactStatus status, {String? message, String? accountId}) =>
       _contactService.updatePresence(status, message: message, accountId: accountId);
+
+  /// Refreshes all contact vCards and presence
+  void refreshContacts({String? accountId}) {
+    final accId = accountId ?? _activeAccountId ?? '';
+    _fetchAllVCards(accId);
+  }
 
   /// Accepts an incoming friend request (XEP-0163)
   void acceptSubscription(String jid, {String? accountId}) =>

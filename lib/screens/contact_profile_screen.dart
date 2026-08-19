@@ -7,6 +7,7 @@ import '../models/chat_models.dart';
 import '../services/auth_service.dart';
 import '../services/avatar_cache_service.dart';
 import '../providers/chat_provider.dart';
+import '../providers/call_provider.dart';
 import 'dart:ui';
 
 class ContactProfileScreen extends StatelessWidget {
@@ -19,12 +20,12 @@ class ContactProfileScreen extends StatelessWidget {
     final authService = Provider.of<AuthService>(context);
     final chatProvider = Provider.of<ChatProvider>(context);
 
-    // Calculate shared groups
+    // Calculate shared groups - match contact's roster groups against group conversation names
     final sharedGroups = chatProvider.conversations.where((c) {
       if (!c.isGroup) return false;
-      // Real implementation would check MUC participants, but for now we just show if the contact is in our groups locally, or mock it.
-      // Gibber's simple mock logic for now: we'll skip complex MUC roster intersection unless available.
-      return false; 
+      if (contact.groups.isEmpty) return false;
+      final convNameLower = c.name.toLowerCase();
+      return contact.groups.any((g) => convNameLower.contains(g.toLowerCase()) || g.toLowerCase().contains(convNameLower));
     }).toList();
 
     return Scaffold(
@@ -40,22 +41,48 @@ class ContactProfileScreen extends StatelessWidget {
             ),
             child: PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
-              onSelected: (val) {
-                if (val == 'rename') _showRenameDialog(context, chatProvider, authService);
-                if (val == 'share') _showShareQRDialog(context);
-                if (val == 'refresh') {
+              onSelected: (val) async {
+                if (val == 'rename') {
+                  _showRenameDialog(context, chatProvider, authService);
+                } else if (val == 'share') {
+                  _showShareQRDialog(context);
+                } else if (val == 'refresh') {
                   authService.fetchContactVCard(contact.id);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Refreshing profile...'), duration: Duration(seconds: 1)),
                   );
-                }
-                if (val == 'block') {
-                   chatProvider.blockContact(contact.id, authService);
-                   Navigator.pop(context);
-                }
-                if (val == 'remove') {
-                   chatProvider.removeContact(contact.id, authService);
-                   Navigator.pop(context);
+                } else if (val == 'block') {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: Text('Block ${contact.name}?'),
+                      content: Text('Are you sure you want to block ${contact.id}? You will no longer receive messages or calls from this contact.'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
+                        TextButton(onPressed: () => Navigator.pop(ctx, true), style: TextButton.styleFrom(foregroundColor: Colors.redAccent), child: const Text('BLOCK')),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    chatProvider.blockContact(contact.id, authService);
+                    Navigator.pop(context);
+                  }
+                } else if (val == 'remove') {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: Text('Remove ${contact.name}?'),
+                      content: Text('Are you sure you want to remove ${contact.id} from your contacts? This will not block the contact.'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
+                        TextButton(onPressed: () => Navigator.pop(ctx, true), style: TextButton.styleFrom(foregroundColor: Colors.redAccent), child: const Text('REMOVE')),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    chatProvider.removeContact(contact.id, authService);
+                    Navigator.pop(context);
+                  }
                 }
               },
               itemBuilder: (context) => [
@@ -196,7 +223,8 @@ class ContactProfileScreen extends StatelessWidget {
             label: 'Voice',
             color: Colors.green,
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Voice call initialization...')));
+              final callProvider = Provider.of<CallProvider>(context, listen: false);
+              callProvider.startCall(contact.id, isVideo: false, protocol: 'XMPP');
             },
           ),
           _ActionButton(
@@ -204,7 +232,8 @@ class ContactProfileScreen extends StatelessWidget {
             label: 'Video',
             color: Colors.blue,
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Video call initialization...')));
+              final callProvider = Provider.of<CallProvider>(context, listen: false);
+              callProvider.startCall(contact.id, isVideo: true, protocol: 'XMPP');
             },
           ),
         ],

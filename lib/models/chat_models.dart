@@ -69,7 +69,7 @@ class Contact {
     id: json['id'],
     name: json['name'],
     protocol: json['protocol'] ?? 'XMPP',
-    status: ContactStatus.values[json['status'] as int? ?? 5],
+    status: ContactStatus.values[(json['status'] as int?)?.clamp(0, ContactStatus.values.length - 1) ?? ContactStatus.offline.index],
     presenceMessage: json['presenceMessage'] as String?,
     bio: json['bio'] as String?,
     fullName: json['fullName'] as String?,

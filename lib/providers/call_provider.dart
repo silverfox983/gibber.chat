@@ -30,6 +30,18 @@ bool isPhoneNumber(String input) {
 
 enum CallState { idle, incoming, outgoing, active }
 
+bool _isPstnGatewayJid(String jid) {
+  final lower = jid.toLowerCase();
+  if (lower.contains('cheogram')) return true;
+  if (lower.contains('sip2jabber')) return true;
+  if (lower.contains('jit.si')) return true;
+  if (lower.contains('jabber.ccc')) return true;
+  if (lower.contains('pstn')) return true;
+  if (RegExp(r'^\+[^@]+@').hasMatch(jid)) return true;
+  if (RegExp(r'^[\d\-]+@').hasMatch(jid)) return true;
+  return false;
+}
+
 class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   CallState _state = CallState.idle;
   String? _remoteJid;
@@ -50,6 +62,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   bool _isRecording = false;
   String? _lastRecordingPath;
   String? _lastError;
+  String? _displayedError;
   RTCIceConnectionState _iceState =
       RTCIceConnectionState.RTCIceConnectionStateNew;
   bool _isAccepted = false;
@@ -57,8 +70,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   bool _isRinging = false;
 
   WebRTCManager _rtcManager = WebRTCManager();
-  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
-  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  bool _isCleaningUp = false;
   final SoundService _soundService = SoundService();
   SipService? _sipService;
   StreamSubscription? _signalingSub;
@@ -71,7 +85,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   StreamSubscription? _janusRemoteTrackSub;
   Timer? _callTimeoutTimer;
   Timer? _iceDebugTimer;
+  Timer? _disconnectGraceTimer;
   int _candidateSendCount = 0;
+  int _iceRestartAttempts = 0;
   DateTime? _iceCheckingStartTime;
   bool _isSipCall = false;
   bool _remoteAnswerProcessed = false;
@@ -106,7 +122,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   RTCVideoRenderer get localRenderer => _localRenderer;
   RTCVideoRenderer get remoteRenderer => _remoteRenderer;
   String? get permissionError => _permissionError;
-  String? get lastError => _lastError;
+  String? get lastError => _displayedError ?? _lastError;
   RTCIceConnectionState get iceState => _iceState;
   bool get isAccepted => _isAccepted;
   bool get isRinging => _isRinging;
@@ -140,6 +156,16 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   }
 
   Future<void> initRenderers() async {
+    try {
+      _localRenderer.srcObject = null;
+      _localRenderer.dispose();
+    } catch (_) {}
+    try {
+      _remoteRenderer.srcObject = null;
+      _remoteRenderer.dispose();
+    } catch (_) {}
+    _localRenderer = RTCVideoRenderer();
+    _remoteRenderer = RTCVideoRenderer();
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
   }
@@ -712,7 +738,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       final offer = await _rtcManager.createOffer();
       debugPrint('CallProvider: Offer created');
 
-      final isGateway = toJid.toLowerCase().contains('cheogram') || toJid.contains('+');
+      final isGateway = _isPstnGatewayJid(toJid);
       debugPrint('CallProvider: [ROUTING] isGateway=$isGateway for $toJid');
 
       if (isGateway) {
@@ -930,7 +956,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: Already in a call, rejecting new incoming call from $fromJid');
       final signaling = _authService?.getJingleService(accountId ?? '') ?? _authService?.jingleSignaling;
       if (signaling != null) {
-        final isGateway = fromJid.toLowerCase().contains('cheogram') || fromJid.contains('+');
+        final isGateway = _isPstnGatewayJid(fromJid);
         if (isGateway) {
           signaling.sendSessionTerminate(fromJid, sessionId, reason: 'busy');
         } else {
@@ -1141,6 +1167,18 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _lastError = null;
     final activeProtocol = protocol ?? 'XMPP';
 
+    // Prevent starting a new call while cleanup is in progress
+    if (_isCleaningUp) {
+      debugPrint('CallProvider: Cannot start call - cleanup in progress');
+      _lastError = 'Call cleanup in progress, please wait';
+      _displayedError = 'Call cleanup in progress, please wait';
+      notifyListeners();
+      return;
+    }
+
+    _displayedError = null;
+    _lastError = null;
+
     // IRC does not support voice/video calls in this client.
     if (activeProtocol == 'IRC') {
       _lastError = 'Voice and video calling are not supported for IRC chats.';
@@ -1320,8 +1358,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       final offer = await _rtcManager.createOffer();
       debugPrint('CallProvider: Offer created');
 
-      final isGateway = effectiveJid.toLowerCase().contains('cheogram') || effectiveJid.contains('+');
-      
+      final isGateway = _isPstnGatewayJid(effectiveJid);
+
       if (isGateway) {
         debugPrint('CallProvider: === GATEWAY PROTOCOL ENFORCED (Direct Jingle IQ) ===');
         // HARDENING: Give ICE gathering 500ms to find srflx candidates before sending initiate
@@ -1498,7 +1536,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: Sending session accept...');
 
       // Detect if caller is a gateway (phone number via cheogram, etc.)
-      final isGateway = _remoteJid!.toLowerCase().contains('cheogram') || _remoteJid!.contains('+');
+      final isGateway = _isPstnGatewayJid(_remoteJid!);
       if (isGateway) {
         debugPrint(
           'CallProvider: [PSTN] Direct IQ Protocol Forced (Session Accept)',
@@ -1548,9 +1586,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     debugPrint('CallProvider: Setting up RTC listeners for $toJid');
 
     // Detect if target is a gateway
-    final isGateway =
-        toJid.toLowerCase().contains('cheogram') ||
-        toJid.contains('+');
+    final isGateway = _isPstnGatewayJid(toJid);
 
     // Reset counters
     _candidateSendCount = 0;
@@ -1739,10 +1775,18 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     _rtcManager.onConnectionState((state) {
       debugPrint('CallProvider: Connection state changed: $state');
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
-          state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        debugPrint('CallProvider: Connection failed/disconnected, ending call');
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        _disconnectGraceTimer?.cancel();
+        _disconnectGraceTimer = Timer(const Duration(seconds: 5), () {
+          debugPrint('CallProvider: Disconnected grace period expired, ending call');
+          endCall();
+        });
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        debugPrint('CallProvider: Connection failed, ending call');
         endCall();
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        _disconnectGraceTimer?.cancel();
+        _disconnectGraceTimer = null;
       }
     });
 
@@ -1775,9 +1819,18 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         }
       } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         debugPrint('CallProvider: ICE FAILED - Check network/NAT');
-        _lastError = 'ICE connection failed';
-        _iceCheckingStartTime = null;
-        endCall();
+        if (_iceRestartAttempts < 2) {
+          _iceRestartAttempts++;
+          _lastError = 'Reconnecting... ($_iceRestartAttempts/2)';
+          _iceCheckingStartTime = null;
+          notifyListeners();
+          _rtcManager.restartIceGathering();
+        } else {
+          _lastError = 'ICE connection failed';
+          _iceCheckingStartTime = null;
+          _iceRestartAttempts = 0;
+          endCall();
+        }
       } else if (state ==
           RTCIceConnectionState.RTCIceConnectionStateCompleted) {
         debugPrint('CallProvider: ICE COMPLETED - Fully connected!');
@@ -2015,7 +2068,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         }
         _log('Group call ended', isSent: true);
       } else if (targetJid != null) {
-        final isGateway = targetJid.toLowerCase().contains('cheogram') || targetJid.contains('+');
+        final isGateway = _isPstnGatewayJid(targetJid);
         debugPrint('CallProvider: [TEARDOWN] isGateway=$isGateway for $targetJid');
 
         if (wasActive || isGateway) {
@@ -2057,7 +2110,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // 3. Send termination signaling
     if (targetJid != null && sid != null) {
-      final isGateway = targetJid.toLowerCase().contains('cheogram') || targetJid.contains('+');
+      final isGateway = _isPstnGatewayJid(targetJid);
       debugPrint('CallProvider: [DECLINE] isGateway=$isGateway for $targetJid');
 
       if (wasActive || isGateway) {
@@ -2103,6 +2156,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     debugPrint('CallProvider: === CLEANUP STARTING ===');
     debugPrint('CallProvider: Cleanup reason: $reason');
 
+    _isCleaningUp = true;
+
     _releaseSchedulerForCall();
 
     _statsSub?.cancel();
@@ -2118,6 +2173,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _callTimeoutTimer = null;
     _iceDebugTimer?.cancel();
     _iceDebugTimer = null;
+    _disconnectGraceTimer?.cancel();
+    _disconnectGraceTimer = null;
     debugPrint('CallProvider: Stats subscription cancelled');
 
     String durationStr = '';
@@ -2153,12 +2210,20 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       r.srcObject = null;
     }
 
-    _localRenderer.dispose();
-    _remoteRenderer.dispose();
+    try {
+      _localRenderer.srcObject = null;
+      _localRenderer.dispose();
+    } catch (_) {}
+    try {
+      _remoteRenderer.srcObject = null;
+      _remoteRenderer.dispose();
+    } catch (_) {}
     for (var r in _groupRenderers.values) {
-      r.dispose();
+      try {
+        r.srcObject = null;
+        r.dispose();
+      } catch (_) {}
     }
-    _groupRenderers.clear();
     _groupRenderers.clear();
     _groupAudioLevels.clear();
     await _multiPeerManager?.dispose();
@@ -2170,9 +2235,6 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _janusService?.dispose();
     _janusService = null;
 
-    _state = CallState.idle;
-    notifyListeners(); // Immediate UI update to prevent race conditions during async dispose
-
     await _stopAllSounds();
     debugPrint('CallProvider: Sounds stopped');
 
@@ -2183,8 +2245,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     await _soundService.resetAudioContext();
     debugPrint('CallProvider: Audio context reset');
 
-    // Note: reason is not assigned to _lastError - only actual errors should be shown
-    _lastError = null;
+    // Capture last error before clearing so UI can show it
+    _displayedError = _lastError;
+
+    // Reset all state
     _remoteJid = null;
     _sessionId = null;
     _callAccountId = null;
@@ -2204,12 +2268,18 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _remoteVolume = 0.0;
     _remoteAnswerProcessed = false;
     _iceCheckingStartTime = null;
+    _iceRestartAttempts = 0;
+    _disconnectGraceTimer?.cancel();
+    _disconnectGraceTimer = null;
     _qualityStats = null;
 
     // Reset audio effects and stop playback on call end
     _audioEffects.reset();
     _audioPlayback.stop();
 
+    // Now safe to allow new calls and signal idle state
+    _state = CallState.idle;
+    _isCleaningUp = false;
     notifyListeners();
     debugPrint('CallProvider: === CLEANUP COMPLETE ===');
   }

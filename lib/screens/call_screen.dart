@@ -73,7 +73,17 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
         as2.clearMessages();
         _showAssistant = false;
       }
-      Navigator.of(context).maybePop();
+      final error = _callProvider.lastError;
+      if (error != null && error.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), duration: const Duration(seconds: 3)),
+        );
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) Navigator.of(context).maybePop();
+        });
+      } else {
+        Navigator.of(context).maybePop();
+      }
     }
     setState(() {});
   }

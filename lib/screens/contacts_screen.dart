@@ -117,7 +117,7 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                     tooltip: 'Refresh Contacts',
                     onPressed: () {
                       final authService = context.read<AuthService>();
-                      authService.fetchMyVCard();
+                      authService.refreshContacts();
                     },
                   ),
                 ),
@@ -506,7 +506,20 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                 title: Text(jid, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                 subtitle: const Text('Blocked contact', style: TextStyle(fontSize: 12, color: Colors.redAccent)),
                 trailing: TextButton(
-                  onPressed: () => chatProvider.unblockContact(jid, authService),
+                  onPressed: () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Unblock Contact?'),
+                        content: Text('Are you sure you want to unblock $jid? You will be able to receive messages and calls from this contact again.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
+                          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('UNBLOCK')),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) chatProvider.unblockContact(jid, authService);
+                  },
                   child: Text('UNBLOCK', style: TextStyle(color: Colors.redAccent.shade200, fontWeight: FontWeight.bold)),
                 ),
               ),
@@ -586,10 +599,36 @@ class _ContactTile extends StatelessWidget {
         ),
         trailing: PopupMenuButton<String>(
           icon: Icon(Icons.more_vert_rounded, color: Colors.white.withValues(alpha: 0.3)),
-          onSelected: (val) {
-            if (val == 'rename') _showRenameDialog(context, chatProvider, authService);
-            if (val == 'block') chatProvider.blockContact(contact.id, authService);
-            if (val == 'remove') chatProvider.removeContact(contact.id, authService);
+          onSelected: (val) async {
+            if (val == 'rename') {
+              _showRenameDialog(context, chatProvider, authService);
+            } else if (val == 'block') {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: Text('Block ${contact.name}?'),
+                  content: Text('Are you sure you want to block ${contact.id}? You will no longer receive messages or calls from this contact.'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
+                    TextButton(onPressed: () => Navigator.pop(ctx, true), style: TextButton.styleFrom(foregroundColor: Colors.redAccent), child: const Text('BLOCK')),
+                  ],
+                ),
+              );
+              if (confirmed == true) chatProvider.blockContact(contact.id, authService);
+            } else if (val == 'remove') {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: Text('Remove ${contact.name}?'),
+                  content: Text('Are you sure you want to remove ${contact.id} from your contacts? This will not block the contact.'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
+                    TextButton(onPressed: () => Navigator.pop(ctx, true), style: TextButton.styleFrom(foregroundColor: Colors.redAccent), child: const Text('REMOVE')),
+                  ],
+                ),
+              );
+              if (confirmed == true) chatProvider.removeContact(contact.id, authService);
+            }
           },
           itemBuilder: (context) => [
             const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.edit_rounded, size: 18), title: Text('Rename'), dense: true)),

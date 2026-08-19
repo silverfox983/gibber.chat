@@ -320,7 +320,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   bool _canStartVoiceCall(Conversation chat) {
-    return chat.protocol == 'XMPP' && !chat.isGroup;
+    return (chat.protocol == 'XMPP' || chat.protocol == 'SIP') && !chat.isGroup;
   }
 
   bool _canStartVideoCall(Conversation chat) {
