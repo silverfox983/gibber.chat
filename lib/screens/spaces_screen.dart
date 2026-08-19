@@ -2656,6 +2656,24 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
       builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, children: [
         Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2))),
+        if (item.type == 'entry')
+          ListTile(
+            leading: Icon(Icons.edit_rounded, color: Theme.of(ctx).colorScheme.primary),
+            title: Text('Edit Post', style: TextStyle(color: Theme.of(ctx).colorScheme.primary)),
+            onTap: () {
+              Navigator.pop(ctx);
+              showDialog(
+                context: this.context,
+                builder: (ctx) => CreatePostDialog(
+                  spacesService: widget.spacesService,
+                  space: widget.space,
+                  authService: Provider.of<AuthService>(this.context, listen: false),
+                  editItem: item,
+                  onSuccess: _reload,
+                ),
+              );
+            },
+          ),
         ListTile(
           leading: const Icon(Icons.push_pin_rounded),
           title: const Text('Pin Post'),
@@ -2935,12 +2953,14 @@ class CreatePostDialog extends StatefulWidget {
     required this.space,
     required this.onSuccess,
     required this.authService,
+    this.editItem,
   });
 
   final SpacesService spacesService;
   final SpaceNode space;
   final VoidCallback onSuccess;
   final AuthService authService;
+  final SpaceItem? editItem;
 
   @override
   State<CreatePostDialog> createState() => _CreatePostDialogState();
@@ -2961,16 +2981,25 @@ class _CreatePostDialogState extends State<CreatePostDialog>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() => setState(() => _previewMode = _tabController.index == 1));
-    // Restore draft asynchronously
-    widget.spacesService.loadDraft(widget.space.node).then((draft) {
-      if (draft != null && mounted) {
-        setState(() {
-          _titleController.text = draft['title'] ?? '';
-          _contentController.text = draft['content'] ?? '';
-          _tagsController.text = draft['tags'] ?? '';
-        });
-      }
-    });
+
+    if (widget.editItem != null) {
+      _titleController.text = widget.editItem!.name ?? '';
+      _contentController.text = widget.editItem!.rawContent ?? widget.editItem!.description ?? '';
+      final cats = widget.editItem!.categories;
+      _tagsController.text = cats.join(', ');
+      _attachedImageUrl = widget.editItem!.imageUrl;
+    } else {
+      // Restore draft asynchronously (skip when editing existing post)
+      widget.spacesService.loadDraft(widget.space.node).then((draft) {
+        if (draft != null && mounted) {
+          setState(() {
+            _titleController.text = draft['title'] ?? '';
+            _contentController.text = draft['content'] ?? '';
+            _tagsController.text = draft['tags'] ?? '';
+          });
+        }
+      });
+    }
   }
 
   @override
@@ -3051,7 +3080,8 @@ class _CreatePostDialogState extends State<CreatePostDialog>
             icon: const Icon(Icons.close_rounded),
             onPressed: () => Navigator.pop(context),
           ),
-          title: Text('New Post in ${widget.space.name}',
+          title: Text(
+              widget.editItem != null ? 'Edit Post' : 'New Post in ${widget.space.name}',
               style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
               maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: [
@@ -3065,8 +3095,8 @@ class _CreatePostDialogState extends State<CreatePostDialog>
                 padding: const EdgeInsets.only(right: 12),
                 child: FilledButton.icon(
                   onPressed: _handlePublish,
-                  icon: const Icon(Icons.send_rounded, size: 16),
-                  label: const Text('Publish'),
+                  icon: Icon(widget.editItem != null ? Icons.check_rounded : Icons.send_rounded, size: 16),
+                  label: Text(widget.editItem != null ? 'Save' : 'Publish'),
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   ),
@@ -3117,6 +3147,21 @@ class _CreatePostDialogState extends State<CreatePostDialog>
                   onChanged: (_) { setState(() {}); _autosaveDraft(); },
                 ),
                 Divider(color: theme.dividerColor.withValues(alpha: 0.3)),
+                const SizedBox(height: 8),
+                // Markdown formatting toolbar
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: [
+                    _toolbarBtn(Icons.format_bold_rounded, 'Bold', () => _insertMarkdown('**', '**')),
+                    _toolbarBtn(Icons.format_italic_rounded, 'Italic', () => _insertMarkdown('_', '_')),
+                    _toolbarBtn(Icons.code_rounded, 'Code', () => _insertMarkdown('`', '`')),
+                    _toolbarBtn(Icons.format_list_bulleted_rounded, 'List', () => _insertMarkdown('\n- ', '')),
+                    _toolbarBtn(Icons.format_list_numbered_rounded, 'Numbered', () => _insertMarkdown('\n1. ', '')),
+                    _toolbarBtn(Icons.link_rounded, 'Link', () => _insertMarkdown('[', '](url)')),
+                    _toolbarBtn(Icons.format_quote_rounded, 'Quote', () => _insertMarkdown('\n> ', '')),
+                    _toolbarBtn(Icons.title_rounded, 'Heading', () => _insertMarkdown('\n## ', '')),
+                  ]),
+                ),
                 const SizedBox(height: 8),
                 // Body
                 TextField(
@@ -3220,6 +3265,29 @@ class _CreatePostDialogState extends State<CreatePostDialog>
   );
   }
 
+  Widget _toolbarBtn(IconData icon, String label, VoidCallback onTap) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(icon, size: 17, color: theme.colorScheme.onSurfaceVariant),
+              const SizedBox(width: 5),
+              Text(label, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
   void _insertMarkdown(String prefix, String suffix) {
     final ctrl = _contentController;
     final sel = ctrl.selection;
@@ -3273,6 +3341,7 @@ class _CreatePostDialogState extends State<CreatePostDialog>
 
       final tags = _tagsController.text.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
 
+      final isEditing = widget.editItem != null;
       final success = await widget.spacesService.publishMicroblogEntry(
         widget.space.domain,
         widget.space.node,
@@ -3280,18 +3349,22 @@ class _CreatePostDialogState extends State<CreatePostDialog>
         title: _titleController.text.trim(),
         imageUrl: finalImageUrl,
         categories: tags.isNotEmpty ? tags : null,
+        itemId: isEditing ? widget.editItem!.id : null,
       );
 
       if (mounted) {
         setState(() => _isPublishing = false);
         if (success) {
-          // Clear draft on successful publish
-          await widget.spacesService.deleteDraft(widget.space.node);
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post published!')));
+          if (!isEditing) await widget.spacesService.deleteDraft(widget.space.node);
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(isEditing ? 'Post updated!' : 'Post published!')),
+          );
           if (mounted) Navigator.pop(context);
           widget.onSuccess();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to publish. Check permissions.')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(isEditing ? 'Failed to update post.' : 'Failed to publish. Check permissions.')),
+          );
         }
       }
     } catch (e) {
