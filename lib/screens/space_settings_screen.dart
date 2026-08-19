@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-
-import '../models/space_models.dart';
-import '../services/spaces_service.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/space_models.dart';
+import '../services/auth_service.dart';
+import '../services/spaces_service.dart';
 
 class SpaceSettingsScreen extends StatefulWidget {
   final SpaceNode space;
@@ -22,8 +23,10 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
   late TextEditingController _nameController;
   late TextEditingController _descController;
   String _accessModel = 'open';
+  String _publishModel = 'publishers';
   String _notificationPref = 'all'; // 'all', 'mentions', 'off'
   bool _isLoading = false;
+  bool _hasChanges = false;
   List<SpaceMember>? _members;
 
   @override
@@ -32,8 +35,15 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
     _nameController = TextEditingController(text: widget.space.name.isNotEmpty ? widget.space.name : widget.space.node);
     _descController = TextEditingController(text: widget.space.description ?? '');
     _accessModel = widget.space.accessModel ?? 'open';
+    _publishModel = widget.space.publishModel ?? 'publishers';
+    _nameController.addListener(_onFormChanged);
+    _descController.addListener(_onFormChanged);
     _loadMembers();
     _loadNotificationPref();
+  }
+
+  void _onFormChanged() {
+    if (!_hasChanges) setState(() => _hasChanges = true);
   }
 
   Future<void> _loadNotificationPref() async {
@@ -72,6 +82,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
       name: _nameController.text.trim(),
       description: _descController.text.trim(),
       accessModel: _accessModel,
+      publishModel: _publishModel,
     );
     if (mounted) {
       setState(() => _isLoading = false);
@@ -79,7 +90,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Settings saved successfully!')));
-        Navigator.pop(context, true); // true indicates changes were made
+        Navigator.pop(context, true);
       }
     }
   }
@@ -142,8 +153,8 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
             const Padding(padding: EdgeInsets.all(16), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
           else
             TextButton(
-              onPressed: _saveSettings,
-              child: const Text('Save'),
+              onPressed: _hasChanges ? _saveSettings : null,
+              child: Text(_hasChanges ? 'Save' : 'Saved', style: TextStyle(color: _hasChanges ? null : Colors.grey)),
             ),
         ],
       ),
@@ -167,13 +178,26 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
             value: _accessModel,
-            decoration: const InputDecoration(labelText: 'Access Model', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: 'Who Can View', border: OutlineInputBorder()),
             items: const [
-              DropdownMenuItem(value: 'open', child: Text('Public (Open)')),
-              DropdownMenuItem(value: 'authorize', child: Text('Private (Authorize)')),
+              DropdownMenuItem(value: 'open', child: Text('Public — Anyone can view')),
+              DropdownMenuItem(value: 'authorize', child: Text('Private — Requires approval')),
             ],
             onChanged: (val) {
-              if (val != null) setState(() => _accessModel = val);
+              if (val != null) { setState(() { _accessModel = val; _hasChanges = true; }); }
+            },
+          ),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String>(
+            value: _publishModel,
+            decoration: const InputDecoration(labelText: 'Who Can Post', border: OutlineInputBorder()),
+            items: const [
+              DropdownMenuItem(value: 'open', child: Text('Anyone — All members can post')),
+              DropdownMenuItem(value: 'publishers', child: Text('Admins Only — Moderated posting')),
+              DropdownMenuItem(value: 'subscribers', child: Text('Subscribers Only')),
+            ],
+            onChanged: (val) {
+              if (val != null) { setState(() { _publishModel = val; _hasChanges = true; }); }
             },
           ),
           const SizedBox(height: 24),
@@ -217,6 +241,35 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
           const SizedBox(height: 32),
           Text('DANGER ZONE', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red, letterSpacing: 1.2, fontSize: 12)),
           const SizedBox(height: 16),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(foregroundColor: Colors.orange, side: const BorderSide(color: Colors.orange)),
+            icon: const Icon(Icons.exit_to_app),
+            label: const Text('Leave Space'),
+            onPressed: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: const Text('Leave Space?'),
+                  content: Text('You will stop receiving updates from "${widget.space.name}". You can rejoin later if it is public.'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+                    FilledButton(
+                      style: FilledButton.styleFrom(backgroundColor: Colors.orange),
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Leave'),
+                    ),
+                  ],
+                ),
+              );
+              if (confirm == true) {
+                final auth = Provider.of<AuthService>(context, listen: false);
+                await auth.leavePersistedSpace(widget.space.domain, widget.space.node);
+                if (!context.mounted) return;
+                Navigator.pop(context, 'left');
+              }
+            },
+          ),
+          const SizedBox(height: 12),
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
             icon: const Icon(Icons.delete_forever),

@@ -53,6 +53,8 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
   final _exploreSearchController = TextEditingController();
   String _exploreSort = 'Popular'; // Popular / Newest / A-Z
   List<String> _exploreSources = ['movim.eu', 'patchwork.chat', 'yax.im', 'jabber.at', 'movim.in'];
+  final Map<String, bool> _exploreDomainLoading = {};
+  final Map<String, String?> _exploreDomainErrors = {};
 
   // ── My Communities ──
   List<UnifiedCommunity> _myCommunities = [];
@@ -162,6 +164,53 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     }
   }
 
+  Future<void> _loadExploreDomain(String domain) async {
+    if (_spacesService == null) return;
+    setState(() {
+      _exploreDomainLoading[domain] = true;
+      _exploreDomainErrors[domain] = null;
+    });
+    try {
+      final spaces = await _spacesService!.discoverAllSpaces(domain).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => <SpaceNode>[],
+      );
+      final enriched = <SpaceNode>[];
+      for (final s in spaces.take(20)) {
+        try {
+          final meta = await _spacesService!.fetchSpaceMetadata(s.domain, s.node, fallbackName: s.name).timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => s,
+          );
+          if (meta != null) enriched.add(meta);
+        } catch (_) {
+          enriched.add(s);
+        }
+      }
+      for (final s in enriched) {
+        final key = '${s.domain}|${s.node}';
+        if (!_exploreResults.any((c) => c.id == key)) {
+          setState(() {
+            _exploreResults.add(UnifiedCommunity.fromSpaceNode(s));
+          });
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _exploreDomainLoading[domain] = false;
+          _exploreDomainErrors[domain] = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _exploreDomainLoading[domain] = false;
+          _exploreDomainErrors[domain] = 'Failed to load';
+        });
+      }
+    }
+  }
+
   Future<void> _loadExplore() async {
     if (_spacesService == null) {
       if (mounted) setState(() => _exploreLoading = false);
@@ -171,45 +220,63 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
 
     final allCommunities = <UnifiedCommunity>[];
     final seen = <String>{};
+    final loadingMap = <String, bool>{};
 
-    for (final domain in List.of(_exploreSources)) {
-      try {
-        final spaces = await _spacesService!.discoverAllSpaces(domain).timeout(
-          const Duration(seconds: 30),
-          onTimeout: () => <SpaceNode>[],
-        );
+    // Mark all domains as loading
+    for (final d in _exploreSources) loadingMap[d] = true;
+    if (mounted) setState(() { _exploreDomainLoading.clear(); _exploreDomainLoading.addAll(loadingMap); });
 
-        final enriched = <SpaceNode>[];
-        for (final s in spaces.take(20)) {
-          try {
-            final meta = await _spacesService!.fetchSpaceMetadata(s.domain, s.node, fallbackName: s.name).timeout(
-              const Duration(seconds: 10),
-              onTimeout: () => s,
-            );
-            if (meta != null) enriched.add(meta);
-          } catch (_) {
-            enriched.add(s);
+    // Load domains in parallel batches of 3
+    for (var i = 0; i < _exploreSources.length; i += 3) {
+      final batch = _exploreSources.skip(i).take(3).toList();
+      await Future.wait(batch.map((domain) async {
+        try {
+          final spaces = await _spacesService!.discoverAllSpaces(domain).timeout(
+            const Duration(seconds: 30),
+            onTimeout: () => <SpaceNode>[],
+          );
+
+          final enriched = <SpaceNode>[];
+          for (final s in spaces.take(20)) {
+            try {
+              final meta = await _spacesService!.fetchSpaceMetadata(s.domain, s.node, fallbackName: s.name).timeout(
+                const Duration(seconds: 10),
+                onTimeout: () => s,
+              );
+              if (meta != null) enriched.add(meta);
+            } catch (_) {
+              enriched.add(s);
+            }
+          }
+
+          final batchResults = <UnifiedCommunity>[];
+          for (final s in enriched) {
+            final key = '${s.domain}|${s.node}';
+            if (!seen.contains(key)) {
+              seen.add(key);
+              batchResults.add(UnifiedCommunity.fromSpaceNode(s));
+            }
+          }
+
+          if (mounted) {
+            allCommunities.addAll(batchResults);
+            allCommunities.sort((a, b) => b.memberCount.compareTo(a.memberCount));
+            setState(() {
+              _exploreDomainLoading[domain] = false;
+              _exploreDomainErrors[domain] = null;
+              _exploreResults.clear();
+              _exploreResults.addAll(allCommunities);
+            });
+          }
+        } catch (e) {
+          if (mounted) {
+            setState(() {
+              _exploreDomainLoading[domain] = false;
+              _exploreDomainErrors[domain] = 'Failed to load';
+            });
           }
         }
-
-        for (final s in enriched) {
-          final key = '${s.domain}|${s.node}';
-          if (!seen.contains(key)) {
-            seen.add(key);
-            allCommunities.add(UnifiedCommunity.fromSpaceNode(s));
-          }
-        }
-
-        allCommunities.sort((a, b) => b.memberCount.compareTo(a.memberCount));
-        if (mounted) {
-          setState(() {
-            _exploreResults.clear();
-            _exploreResults.addAll(allCommunities);
-          });
-        }
-      } catch (_) {
-        // Skip failed domains silently
-      }
+      }));
     }
 
     if (mounted) setState(() => _exploreLoading = false);
@@ -331,6 +398,11 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
           _exploreSearchController.text = domain;
           setState(() => _exploreQuery = domain);
         },
+        domainLoading: _exploreDomainLoading,
+        domainErrors: _exploreDomainErrors,
+        onRetryDomain: (domain) async {
+          await _loadExploreDomain(domain);
+        },
       );
 
   Widget _buildMyCommunities() {
@@ -399,9 +471,13 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     bool showEmptyAsCenter = false,
     VoidCallback? extraEmptyAction,
     String? extraEmptyActionLabel,
+    Map<String, bool>? domainLoading,
+    Map<String, String?>? domainErrors,
+    Future<void> Function(String)? onRetryDomain,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final theme = Theme.of(context);
         final isWide = constraints.maxWidth > 500;
         final cardW = isWide ? 340.0 : 300.0;
         final coverH = isWide ? 150.0 : 110.0;
@@ -476,6 +552,64 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                           ),
                         );
                       },
+                    ),
+                  ),
+                ),
+
+              // ── Domain error banners (per-domain retry) ──
+              if (domainErrors != null)
+                SliverToBoxAdapter(
+                  child: Column(
+                    children: domainErrors.entries
+                        .where((e) => e.value != null && e.key != selectedDomainChip)
+                        .map((e) => Container(
+                              margin: EdgeInsets.fromLTRB(horiz, 8, horiz, 0),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.errorContainer.withValues(alpha: 0.5),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.error_outline, size: 16, color: theme.colorScheme.error),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      '${e.key}: ${e.value}',
+                                      style: TextStyle(fontSize: 12, color: theme.colorScheme.error),
+                                    ),
+                                  ),
+                                  if (onRetryDomain != null)
+                                    TextButton(
+                                      onPressed: () => onRetryDomain(e.key),
+                                      style: TextButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                                        minimumSize: Size.zero,
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      child: const Text('Retry', style: TextStyle(fontSize: 12)),
+                                    ),
+                                ],
+                              ),
+                            ))
+                        .toList(),
+                  ),
+                ),
+
+              // ── Skeleton loading cards ──
+              if (loading && items.isEmpty)
+                SliverPadding(
+                  padding: EdgeInsets.symmetric(horizontal: horiz, vertical: 12),
+                  sliver: SliverGrid(
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: cardW,
+                      mainAxisSpacing: 16,
+                      crossAxisSpacing: 16,
+                      mainAxisExtent: cardW * 0.72,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => _buildSkeletonCard(theme, cardW * 0.72),
+                      childCount: 6,
                     ),
                   ),
                 ),
@@ -594,6 +728,58 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
               label: Text(extraEmptyActionLabel),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkeletonCard(ThemeData theme, double cardH) {
+    return Container(
+      height: cardH,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 3,
+            child: Container(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    height: 14,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    height: 10,
+                    width: 100,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -2432,63 +2618,156 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
 
   void _showReplyDialog(SpaceItem item) {
     final controller = TextEditingController();
+    bool _isPosting = false;
+    final theme = Theme.of(context);
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Reply to ${item.author ?? 'Post'}'),
-        content: TextField(
-          controller: controller,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            hintText: 'Write your reply...',
-            border: OutlineInputBorder(),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.reply_rounded, color: theme.colorScheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Reply to ${item.author ?? 'post'}',
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Quoted original
+              if (item.name != null)
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    item.name!,
+                    style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              const SizedBox(height: 12),
+              // Reply input
+              TextField(
+                controller: controller,
+                maxLines: 5,
+                minLines: 3,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'Write your reply...\n\nMarkdown: **bold**, _italic_, `code`',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  filled: true,
+                  fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                ),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+              const SizedBox(height: 8),
+              // Formatting toolbar
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Bold',
+                    icon: const Icon(Icons.format_bold_rounded, size: 20),
+                    onPressed: () {
+                      final sel = controller.selection;
+                      final text = controller.text;
+                      final selected = sel.isValid ? text.substring(sel.start, sel.end) : '';
+                      final replacement = '**$selected**';
+                      controller.text = text.replaceRange(sel.start, sel.end, replacement);
+                      controller.selection = TextSelection.collapsed(offset: sel.start + replacement.length);
+                    },
+                  ),
+                  IconButton(
+                    tooltip: 'Italic',
+                    icon: const Icon(Icons.format_italic_rounded, size: 20),
+                    onPressed: () {
+                      final sel = controller.selection;
+                      final text = controller.text;
+                      final selected = sel.isValid ? text.substring(sel.start, sel.end) : '';
+                      final replacement = '_${selected}_';
+                      controller.text = text.replaceRange(sel.start, sel.end, replacement);
+                      controller.selection = TextSelection.collapsed(offset: sel.start + replacement.length);
+                    },
+                  ),
+                  IconButton(
+                    tooltip: 'Code',
+                    icon: const Icon(Icons.code_rounded, size: 20),
+                    onPressed: () {
+                      final sel = controller.selection;
+                      final text = controller.text;
+                      final selected = sel.isValid ? text.substring(sel.start, sel.end) : '';
+                      final replacement = '`$selected`';
+                      controller.text = text.replaceRange(sel.start, sel.end, replacement);
+                      controller.selection = TextSelection.collapsed(offset: sel.start + replacement.length);
+                    },
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${controller.text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length} w',
+                    style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: _isPosting || controller.text.trim().isEmpty
+                  ? null
+                  : () async {
+                      final text = controller.text.trim();
+                      if (text.isEmpty) return;
+                      setDialogState(() => _isPosting = true);
+                      Navigator.pop(dialogContext);
+                      final targetDomain = item.commentService ?? widget.space.domain;
+                      final targetNode = item.commentNode ?? widget.space.node;
+                      final messenger = ScaffoldMessenger.of(context);
+                      final auth = context.read<AuthService>();
+                      final authorName = auth.getResolvedNickname(null);
+                      var success = await widget.spacesService.postReply(
+                        targetDomain,
+                        targetNode,
+                        text,
+                        replyToId: item.id,
+                        authorName: authorName,
+                      );
+                      if (!success && item.commentNode != null) {
+                        success = await widget.spacesService.postReply(
+                          widget.space.domain,
+                          widget.space.node,
+                          text,
+                          replyToId: item.id,
+                          authorName: authorName,
+                          autoCreateNode: false,
+                        );
+                      }
+                      if (mounted) {
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(success ? 'Reply posted!' : 'Failed to post reply: The server may require owner permissions.')),
+                        );
+                        if (success) _reload();
+                      }
+                    },
+              child: _isPosting
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Post Reply'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              final text = controller.text.trim();
-              if (text.isEmpty) return;
-              
-              Navigator.pop(context);
-              
-              // If item has a specific comment node, use it. Otherwise use the source space node.
-              final targetDomain = item.commentService ?? widget.space.domain;
-              final targetNode = item.commentNode ?? widget.space.node;
-              
-              final messenger = ScaffoldMessenger.of(context);
-              final auth = context.read<AuthService>();
-              final authorName = auth.getResolvedNickname(null);
-              var success = await widget.spacesService.postReply(
-                targetDomain,
-                targetNode,
-                text,
-                replyToId: item.id,
-                authorName: authorName,
-              );
-              
-              if (!success && item.commentNode != null) {
-                success = await widget.spacesService.postReply(
-                  widget.space.domain,
-                  widget.space.node,
-                  text,
-                  replyToId: item.id,
-                  authorName: authorName,
-                  autoCreateNode: false,
-                );
-              }
-              
-              if (mounted) {
-                messenger.showSnackBar(
-                  SnackBar(content: Text(success ? 'Reply posted!' : 'Failed to post reply: The server may require owner permissions for this node.'))
-                );
-                if (success) _reload();
-              }
-            },
-            child: const Text('Post Reply'),
-          ),
-        ],
       ),
     );
   }
