@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:html2md/html2md.dart' as html2md;
 
 import 'package:share_plus/share_plus.dart';
+import '../core/design_tokens.dart';
 import '../widgets/glassmorphic_container.dart';
 import '../widgets/media_carousel.dart';
 
@@ -739,7 +740,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
       height: cardH,
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(DesignTokens.radiusCard),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -852,7 +853,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
             color: Colors.green.shade600,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(DesignTokens.radiusCard),
           ),
           child: const Row(
             mainAxisSize: MainAxisSize.min,
@@ -872,7 +873,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.9),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(DesignTokens.radiusCard),
         ),
         child: const Row(
           mainAxisSize: MainAxisSize.min,
@@ -955,7 +956,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: accent,
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(DesignTokens.radiusCard),
                         ),
                         child: Row(children: [
                           Icon(typeIcon, size: 10, color: Colors.white),
@@ -1747,9 +1748,9 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
     return Stack(clipBehavior: Clip.none, children: [
       Material(
         color: Colors.black45,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(DesignTokens.radiusCard),
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(DesignTokens.radiusCard),
           onTap: onTap,
           child: Padding(padding: const EdgeInsets.all(8),
               child: Icon(icon, color: Colors.white, size: 20)),
@@ -2386,7 +2387,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
             color: theme.colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(DesignTokens.radiusCard),
           ),
           child: Text('$count', style: TextStyle(
               fontSize: 11, fontWeight: FontWeight.bold,
@@ -2550,7 +2551,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(DesignTokens.radiusCard)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           CircleAvatar(radius: 20, backgroundColor: base),
@@ -2576,7 +2577,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(DesignTokens.radiusCard)),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2653,7 +2654,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         margin: const EdgeInsets.only(bottom: 16),
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(DesignTokens.radiusCard),
           side: BorderSide(
             color: pinned ? theme.colorScheme.primary.withValues(alpha: 0.4) : theme.dividerColor.withValues(alpha: 0.7),
             width: pinned ? 1.5 : 1,
@@ -2827,7 +2828,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
 
   Widget _emojiReactionBtn(ThemeData theme, String emoji, SpaceItem item, int count, {bool isLiked = false}) {
     return InkWell(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(DesignTokens.radiusCard),
       onTap: () {
         if (emoji == '👍') {
           _handleLike(item);
@@ -2965,7 +2966,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
 
   Widget _reactionBtn(ThemeData theme, IconData icon, String label, Color color, {required VoidCallback onTap}) {
     return InkWell(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(DesignTokens.radiusCard),
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),

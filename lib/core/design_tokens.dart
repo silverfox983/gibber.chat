@@ -26,6 +26,7 @@ class DesignTokens {
   static const double radiusMd = 8.0;
   static const double radiusLg = 12.0;
   static const double radiusXl = 16.0;
+  static const double radiusCard = 20.0;
   static const double radius2xl = 24.0;
   static const double radiusFull = 9999.0;
 
