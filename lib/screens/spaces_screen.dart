@@ -902,167 +902,170 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
       CommunityType.microblog => 'BLOG',
     };
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.4)),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: 0.15),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _openCommunity(c),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Cover with overlay
-              Stack(
-                children: [
-                  SizedBox(
-                    height: coverHeight,
-                    width: double.infinity,
-                    child: c.avatarUrl != null
-                        ? Image.network(c.avatarUrl!, fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _gradientPlaceholder(accent))
-                        : _gradientPlaceholder(accent),
-                  ),
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
+    return Hero(
+      tag: 'space-card-${c.domain}|${c.node}',
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.4)),
+          boxShadow: [
+            BoxShadow(
+              color: accent.withValues(alpha: 0.15),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _openCommunity(c),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Cover with overlay
+                Stack(
+                  children: [
+                    SizedBox(
+                      height: coverHeight,
+                      width: double.infinity,
+                      child: c.avatarUrl != null
+                          ? Image.network(c.avatarUrl!, fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _gradientPlaceholder(accent))
+                          : _gradientPlaceholder(accent),
+                    ),
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  // Type badge (top-left)
-                  Positioned(
-                    top: 10, left: 10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: accent,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(children: [
-                        Icon(typeIcon, size: 10, color: Colors.white),
-                        const SizedBox(width: 4),
-                        Text(typeLabel, style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900)),
-                      ]),
-                    ),
-                  ),
-                  // Subscribe/Joined button (top-right)
-                  Positioned(
-                    top: 8, right: 8,
-                    child: cardSubscribeButton(
-                      community: c,
-                      onChanged: () {
-                        if (isJoined) {
-                          _handleUnfollow(c);
-                        } else {
-                          _handleFollow(c);
-                        }
-                      },
-                    ),
-                  ),
-                  // Member count (bottom-left)
-                  Positioned(
-                    bottom: 8, left: 10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.black38,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(children: [
-                        const Icon(Icons.people_outline_rounded, size: 10, color: Colors.white70),
-                        const SizedBox(width: 4),
-                        Text(
-                          c.memberCount > 0 ? _formatCount(c.memberCount) : '?',
-                          style: const TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.bold),
-                        ),
-                      ]),
-                    ),
-                  ),
-                  // Domain (bottom-center)
-                  Positioned(
-                    bottom: 8,
-                    left: 0,
-                    right: 0,
-                    child: Center(
+                    // Type badge (top-left)
+                    Positioned(
+                      top: 10, left: 10,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: accent,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(children: [
+                          Icon(typeIcon, size: 10, color: Colors.white),
+                          const SizedBox(width: 4),
+                          Text(typeLabel, style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900)),
+                        ]),
+                      ),
+                    ),
+                    // Subscribe/Joined button (top-right)
+                    Positioned(
+                      top: 8, right: 8,
+                      child: cardSubscribeButton(
+                        community: c,
+                        onChanged: () {
+                          if (isJoined) {
+                            _handleUnfollow(c);
+                          } else {
+                            _handleFollow(c);
+                          }
+                        },
+                      ),
+                    ),
+                    // Member count (bottom-left)
+                    Positioned(
+                      bottom: 8, left: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                         decoration: BoxDecoration(
                           color: Colors.black38,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Text(
-                          c.domain.toUpperCase(),
-                          style: const TextStyle(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                        child: Row(children: [
+                          const Icon(Icons.people_outline_rounded, size: 10, color: Colors.white70),
+                          const SizedBox(width: 4),
+                          Text(
+                            c.memberCount > 0 ? _formatCount(c.memberCount) : '?',
+                            style: const TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.bold),
+                          ),
+                        ]),
+                      ),
+                    ),
+                    // Domain (bottom-center)
+                    Positioned(
+                      bottom: 8,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.black38,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            c.domain.toUpperCase(),
+                            style: const TextStyle(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              // Details
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        c.name,
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, height: 1.2),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 5),
-                      if (c.description != null && c.description!.isNotEmpty)
-                        Expanded(
-                          child: Text(
-                            c.description!,
-                            style: TextStyle(fontSize: 11.5, color: theme.colorScheme.onSurfaceVariant, height: 1.4),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        )
-                      else
-                        const Spacer(),
-                      Row(
-                        children: [
-                          Icon(
-                            c.isPublic ? Icons.public_rounded : Icons.lock_outline_rounded,
-                            size: 11,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: 4),
-                          Flexible(
+                  ],
+                ),
+                // Details
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          c.name,
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, height: 1.2),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 5),
+                        if (c.description != null && c.description!.isNotEmpty)
+                          Expanded(
                             child: Text(
-                              c.isPublic ? 'Open Community' : 'Private',
-                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: theme.colorScheme.primary),
-                              maxLines: 1,
+                              c.description!,
+                              style: TextStyle(fontSize: 11.5, color: theme.colorScheme.onSurfaceVariant, height: 1.4),
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          )
+                        else
+                          const Spacer(),
+                        Row(
+                          children: [
+                            Icon(
+                              c.isPublic ? Icons.public_rounded : Icons.lock_outline_rounded,
+                              size: 11,
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                c.isPublic ? 'Open Community' : 'Private',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: theme.colorScheme.primary),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1893,10 +1896,27 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
 
   // ── ACTIVITY TAB ──────────────────────────────────────────
   Widget _buildActivityTab(ThemeData theme) {
-    if (_loadingItems) return const Center(child: CircularProgressIndicator());
+    if (_loadingItems) {
+      return ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: 4,
+        itemBuilder: (context, index) => _buildActivitySkeleton(theme),
+      );
+    }
     final allItems = _items ?? [];
     if (allItems.isEmpty) {
-      return Center(child: Text('No activity yet.', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)));
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.timeline_rounded, size: 64, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
+            const SizedBox(height: 16),
+            Text('No activity yet', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: theme.colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 8),
+            Text('Posts and updates will appear here', style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
+          ],
+        ),
+      );
     }
     
     return ListView.builder(
@@ -2545,6 +2565,32 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         const SizedBox(height: 8),
         Container(width: 150, height: 12, color: base),
       ]),
+    );
+  }
+
+  Widget _buildActivitySkeleton(ThemeData theme) {
+    final base = theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(20)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(width: 36, height: 36, decoration: BoxDecoration(color: base, shape: BoxShape.circle)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(width: double.infinity, height: 12, decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(4))),
+                const SizedBox(height: 8),
+                Container(width: 100, height: 10, decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(4))),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
