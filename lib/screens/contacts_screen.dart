@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'dart:typed_data';
+import 'dart:ui';
+import '../core/app_colors.dart';
 import '../services/auth_service.dart';
 import '../services/avatar_cache_service.dart';
 import '../providers/chat_provider.dart';
 import '../models/chat_models.dart';
-import 'dart:ui';
 
 class ContactsScreen extends StatefulWidget {
   const ContactsScreen({super.key});
@@ -60,16 +61,46 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                           colors: [
-                            Theme.of(context).colorScheme.primary,
-                            Theme.of(context).colorScheme.secondary,
+                            AppColors.eclipsePurple,
+                            AppColors.eclipseMidnight,
                           ],
                         ),
                       ),
                     ),
                     Positioned(
-                      right: -50,
-                      top: -50,
-                      child: Icon(Icons.hub_rounded, size: 200, color: Colors.white.withValues(alpha: 0.1)),
+                      right: -30,
+                      top: -30,
+                      child: Container(
+                        width: 180,
+                        height: 180,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(colors: [
+                            AppColors.arcticBlue.withValues(alpha: 0.3),
+                            AppColors.arcticBlue.withValues(alpha: 0.0),
+                          ]),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: -40,
+                      bottom: -20,
+                      child: Container(
+                        width: 160,
+                        height: 160,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(colors: [
+                            AppColors.accent.withValues(alpha: 0.2),
+                            AppColors.accent.withValues(alpha: 0.0),
+                          ]),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: -20,
+                      top: 20,
+                      child: Icon(Icons.people_rounded, size: 120, color: Colors.white.withValues(alpha: 0.06)),
                     ),
                   ],
                 ),
@@ -108,50 +139,45 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                 preferredSize: const Size.fromHeight(100),
                 child: Column(
                   children: [
-                    // Glassmorphic Search Bar
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                            ),
-                            child: TextField(
-                              controller: _searchController,
-                              style: TextStyle(color: Theme.of(context).colorScheme.onPrimary),
-                              decoration: InputDecoration(
-                                hintText: 'Search connections...',
-                                hintStyle: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7)),
-                                prefixIcon: Icon(Icons.search_rounded, color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7)),
-                                border: InputBorder.none,
-                                contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                                suffixIcon: _searchQuery.isNotEmpty 
-                                  ? IconButton(
-                                      icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7)),
-                                      onPressed: () {
-                                        _searchController.clear();
-                                        setState(() => _searchQuery = '');
-                                      },
-                                    )
-                                  : null,
-                              ),
-                              onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
-                            ),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                        ),
+                        child: TextField(
+                          controller: _searchController,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: 'Search connections...',
+                            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                            prefixIcon: Icon(Icons.search_rounded, color: Colors.white.withValues(alpha: 0.6)),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                            suffixIcon: _searchQuery.isNotEmpty 
+                              ? IconButton(
+                                  icon: Icon(Icons.close, color: Colors.white.withValues(alpha: 0.6)),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() => _searchQuery = '');
+                                  },
+                                )
+                              : null,
                           ),
+                          onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
                         ),
                       ),
                     ),
                     TabBar(
                       controller: _tabController,
-                      labelColor: Theme.of(context).colorScheme.onPrimary,
-                      unselectedLabelColor: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.7),
-                      indicatorColor: Theme.of(context).colorScheme.onPrimary,
-                      indicatorWeight: 4,
+                      labelColor: Colors.white,
+                      unselectedLabelColor: Colors.white.withValues(alpha: 0.6),
+                      indicatorColor: AppColors.accent,
+                      indicatorWeight: 3,
+                      indicatorSize: TabBarIndicatorSize.label,
+                      dividerColor: Colors.transparent,
                       tabs: const [
                         Tab(text: 'CONTACTS'),
                         Tab(text: 'GROUPS'),
@@ -164,13 +190,22 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
             ),
           ];
         },
-        body: TabBarView(
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [AppColors.eclipseSurface, AppColors.eclipseDeep],
+            ),
+          ),
+          child: TabBarView(
           controller: _tabController,
           children: [
             _buildContactList(context, authService),
             _buildGroupsList(context),
             _buildBlockedList(context, authService),
           ],
+        ),
         ),
       ),
     );
@@ -198,7 +233,7 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
             }
 
             return ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 12),
               children: [
                 if (requests.isNotEmpty) _buildRequestsSection(context, authService, requests),
                 if (filtered.isNotEmpty) ..._buildGroupedContactsSection(context, filtered),
@@ -216,7 +251,7 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
-          child: Text('FRIEND REQUESTS', style: TextStyle(fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.primary, fontSize: 12, letterSpacing: 1.2)),
+          child: Text('FRIEND REQUESTS', style: TextStyle(fontWeight: FontWeight.w900, color: AppColors.accent, fontSize: 12, letterSpacing: 1.2)),
         ),
         SizedBox(
           height: 160,
@@ -231,11 +266,14 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                 margin: const EdgeInsets.only(right: 12),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+                  gradient: LinearGradient(colors: [
+                    AppColors.eclipseSurface,
+                    AppColors.eclipseMidnight.withValues(alpha: 0.8),
+                  ]),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
                   boxShadow: [
-                    BoxShadow(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 4)),
+                    BoxShadow(color: AppColors.accent.withValues(alpha: 0.15), blurRadius: 20, offset: const Offset(0, 4)),
                   ],
                 ),
                 child: Column(
@@ -243,30 +281,43 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                   children: [
                     _AvatarView(jid: jid),
                     const SizedBox(height: 8),
-                    Text(jid.split('@').first, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Text(jid.split('@').first, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.white), maxLines: 1, overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        FilledButton.tonal(
-                          onPressed: () {
-                            authService.declineSubscription(jid);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Declined request from ${jid.split('@').first}'), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)),
-                            );
-                          },
-                          style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.errorContainer, foregroundColor: Theme.of(context).colorScheme.onErrorContainer, padding: const EdgeInsets.symmetric(horizontal: 16)),
-                          child: const Text('IGNORE'),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              authService.declineSubscription(jid);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Declined request from ${jid.split('@').first}'), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)),
+                              );
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.redAccent,
+                              side: const BorderSide(color: Colors.redAccent),
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                            ),
+                            child: const Text('IGNORE', style: TextStyle(fontSize: 12)),
+                          ),
                         ),
-                        FilledButton(
-                          onPressed: () {
-                            authService.acceptSubscription(jid);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Accepted request from ${jid.split('@').first}'), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)),
-                            );
-                          },
-                          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16)),
-                          child: const Text('ACCEPT'),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () {
+                              authService.acceptSubscription(jid);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Accepted request from ${jid.split('@').first}'), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)),
+                              );
+                            },
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.accent,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                            ),
+                            child: const Text('ACCEPT', style: TextStyle(fontSize: 12)),
+                          ),
                         ),
                       ],
                     ),
@@ -316,7 +367,7 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
       widgets.add(
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
-          child: Text(key.toUpperCase(), style: TextStyle(fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12, letterSpacing: 1.2)),
+          child: Text(key.toUpperCase(), style: TextStyle(fontWeight: FontWeight.w900, color: AppColors.accent, fontSize: 12, letterSpacing: 1.2)),
         ),
       );
       widgets.addAll(groupContacts.map((c) => _ContactTile(contact: c)));
@@ -350,64 +401,77 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
   Widget _buildGroupTile(ThemeData theme, Conversation conv, ChatProvider cp) {
     final isIrc = conv.protocol == 'IRC';
     final isDiscord = conv.protocol == 'Discord';
+    final isTelegram = conv.protocol == 'Telegram';
+    final isWhatsapp = conv.protocol == 'WhatsApp';
     final themeColor = isDiscord
         ? const Color(0xFF5865F2)
-        : (isIrc ? theme.colorScheme.secondary : theme.colorScheme.primary);
+        : (isIrc ? AppColors.arcticBlue
+            : (isTelegram ? const Color(0xFF0088CC)
+                : (isWhatsapp ? const Color(0xFF25D366) : AppColors.accent)));
 
-    return Card(
+    return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [
+          AppColors.eclipseSurface,
+          AppColors.eclipseMidnight.withValues(alpha: 0.6),
+        ]),
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.8), width: 1.5),
+        border: Border.all(color: themeColor.withValues(alpha: 0.4), width: 1.5),
+        boxShadow: [
+          BoxShadow(color: themeColor.withValues(alpha: 0.1), blurRadius: 16, offset: const Offset(0, 4)),
+        ],
       ),
-      child: InkWell(
-        onTap: () {
-          cp.setActiveConversation(conv.id);
-          Navigator.popUntil(context, (route) => route.isFirst);
-        },
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: themeColor.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: isDiscord
-                    ? Icon(Icons.discord, color: themeColor, size: 28)
-                    : (isIrc ? Icon(Icons.alternate_email, color: themeColor, size: 28)
-                             : Text(conv.name.isNotEmpty ? conv.name[0].toUpperCase() : '?', style: TextStyle(color: themeColor, fontWeight: FontWeight.bold, fontSize: 24))),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(conv.name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-                    const SizedBox(height: 4),
-                    Text('${conv.protocol} Group', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w600)),
-                  ],
-                ),
-              ),
-              if (conv.unreadCount > 0)
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            cp.setActiveConversation(conv.id);
+            Navigator.popUntil(context, (route) => route.isFirst);
+          },
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.error,
-                    borderRadius: BorderRadius.circular(12),
+                    color: themeColor.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
                   ),
-                  child: Text(
-                    conv.unreadCount.toString(),
-                    style: TextStyle(color: theme.colorScheme.onError, fontWeight: FontWeight.bold, fontSize: 12),
+                  child: isDiscord
+                      ? Icon(Icons.discord, color: themeColor, size: 28)
+                      : (isIrc ? Icon(Icons.alternate_email, color: themeColor, size: 28)
+                               : Text(conv.name.isNotEmpty ? conv.name[0].toUpperCase() : '?', style: TextStyle(color: themeColor, fontWeight: FontWeight.bold, fontSize: 24))),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(conv.name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.white)),
+                      const SizedBox(height: 4),
+                      Text('${conv.protocol} Group', style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13, fontWeight: FontWeight.w600)),
+                    ],
                   ),
                 ),
-              const SizedBox(width: 16),
-              Icon(Icons.chevron_right_rounded, color: theme.colorScheme.onSurfaceVariant),
-            ],
+                if (conv.unreadCount > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.accent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      conv.unreadCount.toString(),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                  ),
+                const SizedBox(width: 8),
+                Icon(Icons.chevron_right_rounded, color: Colors.white.withValues(alpha: 0.4)),
+              ],
+            ),
           ),
         ),
       ),
@@ -423,26 +487,27 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
         }
 
         return ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 12),
           itemCount: blocked.length,
           itemBuilder: (context, index) {
             final jid = blocked[index];
             return Container(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
+                gradient: LinearGradient(colors: [
+                  AppColors.eclipseSurface,
+                  AppColors.eclipseMidnight.withValues(alpha: 0.6),
+                ]),
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.03), blurRadius: 10),
-                ],
+                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
               ),
               child: ListTile(
                 leading: _AvatarView(jid: jid),
-                title: Text(jid, style: const TextStyle(fontWeight: FontWeight.bold)),
+                title: Text(jid, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                 subtitle: const Text('Blocked contact', style: TextStyle(fontSize: 12, color: Colors.redAccent)),
                 trailing: TextButton(
                   onPressed: () => chatProvider.unblockContact(jid, authService),
-                  child: Text('UNBLOCK', style: TextStyle(color: Theme.of(context).colorScheme.secondary, fontWeight: FontWeight.bold)),
+                  child: Text('UNBLOCK', style: TextStyle(color: Colors.redAccent.shade200, fontWeight: FontWeight.bold)),
                 ),
               ),
             );
@@ -457,9 +522,9 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 80, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12)),
+          Icon(icon, size: 80, color: Colors.white.withValues(alpha: 0.08)),
           const SizedBox(height: 16),
-          Text(message, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
+          Text(message, style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontWeight: FontWeight.w600)),
         ],
       ),
     );
@@ -480,10 +545,14 @@ class _ContactTile extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        gradient: LinearGradient(colors: [
+          AppColors.eclipseSurface,
+          AppColors.eclipseMidnight.withValues(alpha: 0.6),
+        ]),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         boxShadow: [
-          BoxShadow(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.03), blurRadius: 10, spreadRadius: 1),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 2)),
         ],
       ),
       child: ListTile(
@@ -497,18 +566,18 @@ class _ContactTile extends StatelessWidget {
         ),
         title: Text(
           contact.name, 
-          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.white),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(contact.id, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            Text(contact.id, style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.5))),
             if (contact.presenceMessage != null && contact.presenceMessage!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4.0),
                 child: Text(
                   contact.presenceMessage!, 
-                  style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Theme.of(context).colorScheme.secondary),
+                  style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppColors.accent),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -516,7 +585,7 @@ class _ContactTile extends StatelessWidget {
           ],
         ),
         trailing: PopupMenuButton<String>(
-          icon: Icon(Icons.more_vert_rounded, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12)),
+          icon: Icon(Icons.more_vert_rounded, color: Colors.white.withValues(alpha: 0.3)),
           onSelected: (val) {
             if (val == 'rename') _showRenameDialog(context, chatProvider, authService);
             if (val == 'block') chatProvider.blockContact(contact.id, authService);
@@ -573,12 +642,12 @@ class _AvatarView extends StatelessWidget {
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            color: AppColors.eclipseMidnight,
             shape: BoxShape.circle,
             image: bytes != null ? DecorationImage(image: MemoryImage(bytes), fit: BoxFit.cover) : null,
           ),
           child: bytes == null 
-            ? Icon(Icons.person_rounded, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.5)) 
+            ? Icon(Icons.person_rounded, color: Colors.white.withValues(alpha: 0.4)) 
             : null,
         );
       }
@@ -629,10 +698,10 @@ class _StatusIndicatorState extends State<_StatusIndicator> with SingleTickerPro
   Widget build(BuildContext context) {
     Color color;
     switch (widget.status) {
-      case ContactStatus.online: color = Theme.of(context).colorScheme.secondary; break;
+      case ContactStatus.online: color = AppColors.accent; break;
       case ContactStatus.away: color = Colors.orange; break;
-      case ContactStatus.xa: color = Colors.orange.shade700; break;
-      case ContactStatus.dnd: color = Theme.of(context).colorScheme.primary; break;
+      case ContactStatus.xa: color = Colors.deepOrange; break;
+      case ContactStatus.dnd: color = Colors.redAccent; break;
       case ContactStatus.offline: color = Colors.grey; break;
     }
 
@@ -644,7 +713,7 @@ class _StatusIndicatorState extends State<_StatusIndicator> with SingleTickerPro
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,
-          border: Border.all(color: Theme.of(context).colorScheme.surface, width: 2),
+          border: Border.all(color: AppColors.eclipseMidnight, width: 2),
         ),
       ),
     );

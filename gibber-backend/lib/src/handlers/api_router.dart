@@ -13,6 +13,7 @@ import 'package:gibber_backend/src/services/payment_service.dart';
 import 'package:gibber_backend/src/services/input_validator.dart';
 import 'package:gibber_backend/src/services/health_service.dart';
 import 'package:gibber_backend/src/services/jwt_service.dart';
+import 'package:gibber_backend/src/services/user_gateway_service.dart';
 import 'package:uuid/uuid.dart';
 
 extension _RequestIp on Request {
@@ -38,6 +39,7 @@ class ApiRouter {
   final CaptchaService captchaService;
   final HealthService healthService;
   final JwtService? jwtService;
+  final UserGatewayService userGatewayService;
   final _uuid = const Uuid();
   final RateLimiter _registerLimiter = RateLimiter(maxRequests: 3, window: Duration(hours: 1));
   final RateLimiter _checkLimiter = RateLimiter(maxRequests: 20, window: Duration(minutes: 1));
@@ -63,6 +65,7 @@ class ApiRouter {
     required this.minerPool,
     required this.entitlementService,
     required this.paymentService,
+    required this.userGatewayService,
     this.adminApiKey = 'gibber-admin-key',
     this.janusApiKey,
     this.janusUrl,
@@ -112,6 +115,13 @@ class ApiRouter {
     _router.post('/gateways/configure', _handleConfigureGateway);
     _router.post('/gateways/enable', _handleEnableGateway);
     _router.post('/gateways/disable', _handleDisableGateway);
+    _router.get('/user/<jid>/gateways', _handleListUserGateways);
+    _router.get('/user/<jid>/gateways/<type>', _handleGetUserGateway);
+    _router.put('/user/<jid>/gateways/<type>', _handleConfigureUserGateway);
+    _router.delete('/user/<jid>/gateways/<type>', _handleDeleteUserGateway);
+    _router.post('/user/<jid>/gateways/<type>/enable', _handleEnableUserGateway);
+    _router.post('/user/<jid>/gateways/<type>/disable', _handleDisableUserGateway);
+    _router.post('/gateways/<type>/test', _handleTestGateway);
   }
 
   // XMPP Registration
@@ -1461,6 +1471,254 @@ class ApiRouter {
         }),
         headers: _jsonHeaders,
       );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  // Per-user gateway handlers
+
+  Future<Response> _handleListUserGateways(Request request, String jid) async {
+    final authHeader = request.headers['authorization'];
+    String? authenticatedJid;
+
+    if (jwtService != null && authHeader != null && authHeader.startsWith('Bearer ')) {
+      final token = authHeader.substring(7);
+      final payload = jwtService!.verifyToken(token);
+      if (payload == null) {
+        return Response(401, body: jsonEncode({'error': 'Invalid or expired token'}), headers: _jsonHeaders);
+      }
+      authenticatedJid = payload.jid;
+    } else {
+      return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
+    }
+
+    if (authenticatedJid != jid) {
+      return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final gateways = userGatewayService.getUserGateways(jid);
+      return Response.ok(
+        jsonEncode({'gateways': gateways.map((g) => g.toJson()).toList()}),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleGetUserGateway(Request request, String jid, String type) async {
+    final authHeader = request.headers['authorization'];
+    String? authenticatedJid;
+
+    if (jwtService != null && authHeader != null && authHeader.startsWith('Bearer ')) {
+      final token = authHeader.substring(7);
+      final payload = jwtService!.verifyToken(token);
+      if (payload == null) {
+        return Response(401, body: jsonEncode({'error': 'Invalid or expired token'}), headers: _jsonHeaders);
+      }
+      authenticatedJid = payload.jid;
+    } else {
+      return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
+    }
+
+    if (authenticatedJid != jid) {
+      return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final gateway = userGatewayService.getUserGateway(jid, type);
+      if (gateway == null) {
+        return Response(404, body: jsonEncode({'error': 'Gateway not found'}), headers: _jsonHeaders);
+      }
+      return Response.ok(jsonEncode(gateway.toJson()), headers: _jsonHeaders);
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleConfigureUserGateway(Request request, String jid, String type) async {
+    final authHeader = request.headers['authorization'];
+    String? authenticatedJid;
+
+    if (jwtService != null && authHeader != null && authHeader.startsWith('Bearer ')) {
+      final token = authHeader.substring(7);
+      final payload = jwtService!.verifyToken(token);
+      if (payload == null) {
+        return Response(401, body: jsonEncode({'error': 'Invalid or expired token'}), headers: _jsonHeaders);
+      }
+      authenticatedJid = payload.jid;
+    } else {
+      return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
+    }
+
+    if (authenticatedJid != jid) {
+      return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
+    }
+
+    if (!UserGatewayService.availableGatewayTypes.containsKey(type)) {
+      return Response.badRequest(body: jsonEncode({'error': 'Invalid gateway type'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final config = body['config'] as Map<String, dynamic>? ?? {};
+
+      final gateway = userGatewayService.createOrUpdateGateway(
+        jid: jid,
+        gatewayType: type,
+        config: config,
+      );
+
+      return Response.ok(jsonEncode(gateway.toJson()), headers: _jsonHeaders);
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleDeleteUserGateway(Request request, String jid, String type) async {
+    final authHeader = request.headers['authorization'];
+    String? authenticatedJid;
+
+    if (jwtService != null && authHeader != null && authHeader.startsWith('Bearer ')) {
+      final token = authHeader.substring(7);
+      final payload = jwtService!.verifyToken(token);
+      if (payload == null) {
+        return Response(401, body: jsonEncode({'error': 'Invalid or expired token'}), headers: _jsonHeaders);
+      }
+      authenticatedJid = payload.jid;
+    } else {
+      return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
+    }
+
+    if (authenticatedJid != jid) {
+      return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final removed = await userGatewayService.removeGateway(jid, type);
+      if (!removed) {
+        return Response(404, body: jsonEncode({'error': 'Gateway not found'}), headers: _jsonHeaders);
+      }
+      return Response.ok(jsonEncode({'success': true}), headers: _jsonHeaders);
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleEnableUserGateway(Request request, String jid, String type) async {
+    final authHeader = request.headers['authorization'];
+    String? authenticatedJid;
+
+    if (jwtService != null && authHeader != null && authHeader.startsWith('Bearer ')) {
+      final token = authHeader.substring(7);
+      final payload = jwtService!.verifyToken(token);
+      if (payload == null) {
+        return Response(401, body: jsonEncode({'error': 'Invalid or expired token'}), headers: _jsonHeaders);
+      }
+      authenticatedJid = payload.jid;
+    } else {
+      return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
+    }
+
+    if (authenticatedJid != jid) {
+      return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
+    }
+
+    if (!UserGatewayService.availableGatewayTypes.containsKey(type)) {
+      return Response.badRequest(body: jsonEncode({'error': 'Invalid gateway type'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final gateway = await userGatewayService.enableGateway(jid, type);
+      if (gateway == null) {
+        return Response(404, body: jsonEncode({'error': 'Gateway not found. Configure it first.'}), headers: _jsonHeaders);
+      }
+      return Response.ok(jsonEncode(gateway.toJson()), headers: _jsonHeaders);
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleDisableUserGateway(Request request, String jid, String type) async {
+    final authHeader = request.headers['authorization'];
+    String? authenticatedJid;
+
+    if (jwtService != null && authHeader != null && authHeader.startsWith('Bearer ')) {
+      final token = authHeader.substring(7);
+      final payload = jwtService!.verifyToken(token);
+      if (payload == null) {
+        return Response(401, body: jsonEncode({'error': 'Invalid or expired token'}), headers: _jsonHeaders);
+      }
+      authenticatedJid = payload.jid;
+    } else {
+      return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
+    }
+
+    if (authenticatedJid != jid) {
+      return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final gateway = await userGatewayService.disableGateway(jid, type);
+      if (gateway == null) {
+        return Response(404, body: jsonEncode({'error': 'Gateway not found'}), headers: _jsonHeaders);
+      }
+      return Response.ok(jsonEncode(gateway.toJson()), headers: _jsonHeaders);
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
+    }
+  }
+
+  Future<Response> _handleTestGateway(Request request, String type) async {
+    final authHeader = request.headers['authorization'];
+
+    if (jwtService == null || authHeader == null || !authHeader.startsWith('Bearer ')) {
+      return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
+    }
+
+    final token = authHeader.substring(7);
+    final payload = jwtService!.verifyToken(token);
+    if (payload == null) {
+      return Response(401, body: jsonEncode({'error': 'Invalid or expired token'}), headers: _jsonHeaders);
+    }
+
+    if (!UserGatewayService.availableGatewayTypes.containsKey(type)) {
+      return Response.badRequest(body: jsonEncode({'error': 'Invalid gateway type'}), headers: _jsonHeaders);
+    }
+
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final config = body['config'] as Map<String, dynamic>? ?? {};
+
+      final result = userGatewayService.testGatewayConfig(type, config);
+      if (result == null) {
+        return Response.badRequest(body: jsonEncode({'error': 'Unknown error'}), headers: _jsonHeaders);
+      }
+
+      return Response.ok(jsonEncode(result), headers: _jsonHeaders);
     } catch (e) {
       return Response.internalServerError(
         body: jsonEncode({'error': e.toString()}),

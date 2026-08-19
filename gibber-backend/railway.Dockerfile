@@ -20,6 +20,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     socat \
     git \
     cron \
+    python3 \
+    python3-pip \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/acmesh-official/acme.sh.git /opt/acme.sh \

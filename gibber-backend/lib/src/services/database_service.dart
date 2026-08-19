@@ -3,7 +3,7 @@ import 'package:sqlite3/sqlite3.dart';
 class DatabaseService {
   final String dbPath;
   Database? _db;
-  static const int _currentVersion = 2;
+  static const int _currentVersion = 3;
 
   DatabaseService(this.dbPath);
 
@@ -181,6 +181,29 @@ class DatabaseService {
       print('Running migration v2: add stale session cleanup');
       db.execute('CREATE INDEX IF NOT EXISTS idx_miner_sessions_active ON miner_sessions(active, last_heartbeat)');
       _setSchemaVersion(2);
+    }
+
+    if (currentVersion < 3) {
+      print('Running migration v3: add user_gateways table');
+      db.execute('''
+        CREATE TABLE IF NOT EXISTS user_gateways (
+          id TEXT PRIMARY KEY,
+          jid TEXT NOT NULL,
+          gateway_type TEXT NOT NULL,
+          config TEXT NOT NULL DEFAULT '{}',
+          enabled INTEGER DEFAULT 0,
+          status TEXT DEFAULT 'disabled',
+          component_jid TEXT,
+          container_id TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(jid, gateway_type),
+          FOREIGN KEY (jid) REFERENCES users(jid)
+        )
+      ''');
+      db.execute('CREATE INDEX IF NOT EXISTS idx_user_gateways_jid ON user_gateways(jid)');
+      db.execute('CREATE INDEX IF NOT EXISTS idx_user_gateways_jid_type ON user_gateways(jid, gateway_type)');
+      _setSchemaVersion(3);
     }
   }
 

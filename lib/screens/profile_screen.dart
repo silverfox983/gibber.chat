@@ -509,6 +509,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const Divider(height: 1),
                         ListTile(
+                          leading: Icon(Icons.hub_rounded, color: Theme.of(context).colorScheme.primary),
+                          title: const Text('Connected Platforms', style: TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: const Text('Manage your platform bridges'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            context.goNamed('bridges');
+                          },
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
                           leading: Icon(Icons.security_rounded, color: Theme.of(context).colorScheme.primary),
                           title: const Text('Security & Privacy', style: TextStyle(fontWeight: FontWeight.bold)),
                           subtitle: const Text('Encryption keys, blocking, and history'),

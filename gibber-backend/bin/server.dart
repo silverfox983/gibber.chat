@@ -16,6 +16,9 @@ import 'package:gibber_backend/src/services/entitlement_service.dart';
 import 'package:gibber_backend/src/services/captcha_service.dart';
 import 'package:gibber_backend/src/services/payment_service.dart';
 import 'package:gibber_backend/src/services/jwt_service.dart';
+import 'package:gibber_backend/src/services/user_gateway_service.dart';
+import 'package:gibber_backend/src/services/slidge_process_manager.dart';
+import 'package:gibber_backend/src/services/prosody_component_manager.dart';
 
 Future<shelf.Response> _proxyToProsody(shelf.Request request, String prosodyUrl, String domain) async {
   final client = HttpClient();
@@ -386,6 +389,12 @@ void main(List<String> args) async {
     btcpayStoreId: btcpayStoreId,
   );
 
+  final slidgeProcessManager = SlidgeProcessManager();
+  final prosodyComponentManager = ProsodyComponentManager();
+  await prosodyComponentManager.initialize();
+  final userGatewaySvc = UserGatewayService(db, slidgeProcessManager, prosodyComponentManager);
+  await userGatewaySvc.startAllEnabledGateways();
+
   JwtService? jwtService;
   if (jwtSecret.isNotEmpty) {
     jwtService = JwtService(secret: jwtSecret);
@@ -400,6 +409,7 @@ void main(List<String> args) async {
     minerPool: minerPool,
     entitlementService: entitlementSvc,
     paymentService: paymentSvc,
+    userGatewayService: userGatewaySvc,
     adminApiKey: adminKey,
     captchaService: captchaSvc,
     jwtService: jwtService,

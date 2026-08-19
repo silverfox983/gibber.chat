@@ -139,6 +139,8 @@ cat > /etc/prosody/slidge-providers.conf << EOF
 ${SLIDGE_COMPONENTS}
 EOF
 
+touch /etc/prosody/slidge-user-components.conf
+
 if [ -n "$SLIDGE_COMPONENTS" ]; then
     echo "Slidge gateways enabled:"
     echo "$SLIDGE_COMPONENTS" | grep "^Component" | sed 's/^/  - /'

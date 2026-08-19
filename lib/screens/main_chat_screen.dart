@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import '../core/app_colors.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:record/record.dart';
@@ -43,6 +44,10 @@ import './nexus_search_screen.dart';
 import './profile_screen.dart';
 import './welcome_dashboard.dart';
 import './spaces_screen.dart';
+import '../widgets/navigation/gibber_nav_rail.dart';
+import '../widgets/chat/chat_view.dart';
+import '../widgets/navigation/gibber_sidebar_header.dart';
+import '../widgets/navigation/gibber_conversation_list.dart';
 
 class HighlightedText extends StatelessWidget {
   final String text;
@@ -754,10 +759,82 @@ class _MainChatScreenState extends State<MainChatScreen> {
                       ),
                     ),
                   ),
-                  onPressed: () => _showStatusPicker(authService),
+                  onPressed: () => _showStatusPickerInline(authService),
                   tooltip: 'Set Status',
                 ),
-                _buildAddAction(chatProvider, authService),
+                PopupMenuButton<String>(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.add_rounded, color: Colors.white, size: 20),
+                  ),
+                  onSelected: (val) => _onAddActionSelected(val, authService),
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'newMessage',
+                      child: Row(
+                        children: [
+                          Icon(Icons.chat_bubble_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('New Message', style: TextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'buddy',
+                      child: Row(
+                        children: [
+                          Icon(Icons.person_add_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Add Buddy', style: TextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'group',
+                      child: Row(
+                        children: [
+                          Icon(Icons.group_add_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Create/Join Group', style: TextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'discover',
+                      child: Row(
+                        children: [
+                          Icon(Icons.explore_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Discover Rooms', style: TextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'invite',
+                      child: Row(
+                        children: [
+                          Icon(Icons.person_add_alt_1_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Invite Friends', style: TextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'gateways',
+                      child: Row(
+                        children: [
+                          Icon(Icons.dns_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Manage Server Gateways', style: TextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(width: 8),
               ],
             ),
@@ -781,7 +858,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
             ),
           Expanded(
             child: activeChat != null
-                ? _buildChatContent(activeChat)
+                ? ChatView(conversation: activeChat, chatProvider: chatProvider, authService: authService)
                 : _buildSidebarContent(chatProvider, authService),
           ),
         ],
@@ -834,7 +911,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
         children: [
           _buildNavRail(chatProvider, authService),
           _buildSidebarLayout(chatProvider, authService, false),
-          Expanded(child: _buildChatContent(activeChat)),
+            Expanded(child: activeChat != null
+                ? ChatView(conversation: activeChat, chatProvider: chatProvider, authService: authService)
+                : _buildSidebarContent(chatProvider, authService)),
         ],
       ),
     );
@@ -3690,19 +3769,22 @@ class _MainChatScreenState extends State<MainChatScreen> {
     AuthService authService,
     bool isMobile,
   ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final content = DecoratedBox(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         border: Border(
           right: BorderSide(
-            color: Theme.of(context).colorScheme.outlineVariant,
+            color: isDark
+                ? AppColors.borderDark
+                : AppColors.borderLight,
             width: 1,
           ),
         ),
       ),
       child: Column(
         children: [
-          _buildSidebarHeader(chatProvider, authService),
+          GibberSidebarHeader(chatProvider: chatProvider, authService: authService),
           Expanded(child: _buildSidebarContent(chatProvider, authService)),
         ],
       ),
@@ -3714,462 +3796,12 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   Widget _buildNavRail(ChatProvider chatProvider, AuthService authService) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: IntrinsicHeight(
-              child: NavigationRail(
-                selectedIndex: chatProvider.selectedSidebarTab,
-                onDestinationSelected: (idx) {
-                  debugPrint('ISOLATE: Selected Tab $idx');
-                  chatProvider.setSidebarTab(idx);
-                },
-                indicatorColor: Theme.of(
-                  context,
-                ).colorScheme.secondary.withValues(alpha: 0.2),
-                selectedIconTheme: IconThemeData(
-                  color: Theme.of(context).colorScheme.secondary,
-                ),
-                unselectedIconTheme: IconThemeData(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
-                ),
-                selectedLabelTextStyle: TextStyle(
-                  color: Theme.of(context).colorScheme.secondary,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                ),
-                unselectedLabelTextStyle: TextStyle(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                ),
-                labelType: constraints.maxHeight > 600
-                    ? NavigationRailLabelType.all
-                    : NavigationRailLabelType.selected,
-                leading: ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 400),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 16),
-                        Image.asset(
-                          'assets/logo.png',
-                          width: 32,
-                          height: 32,
-                        ),
-                        const SizedBox(height: 24),
-                        ...authService.savedAccounts.map((acc) {
-                          final status = authService.getAccountStatus(
-                            acc.fullJid,
-                          );
-                          final bool isSelected =
-                              authService.activeAccountId == acc.fullJid;
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Tooltip(
-                              message: '${acc.fullJid} (${status.name})',
-                              child: Stack(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 18,
-                                    backgroundColor: isSelected
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Colors.black12,
-                                    child: Icon(
-                                      acc.protocol == 'Discord'
-                                          ? Icons.discord
-                                          : (acc.protocol == 'IRC'
-                                                ? Icons.tag
-                                                : Icons.chat_bubble_outline),
-                                      color: isSelected
-                                          ? Colors.white
-                                          : Colors.black54,
-                                      size: 16,
-                                    ),
-                                  ),
-                                  Positioned(
-                                    right: 0,
-                                    bottom: 0,
-                                    child: Container(
-                                      width: 10,
-                                      height: 10,
-                                      decoration: BoxDecoration(
-                                        color: status == ConnectionStatus.online
-                                            ? Colors.green
-                                            : (status ==
-                                                      ConnectionStatus
-                                                          .connecting
-                                                  ? Colors.orange
-                                                  : Colors.grey),
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: Colors.white,
-                                          width: 2,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }),
-                        const SizedBox(height: 20),
-                        const Divider(indent: 16, endIndent: 16),
-                      ],
-                    ),
-                  ),
-                ),
-                destinations: [
-                  NavigationRailDestination(
-                    icon: Icon(Icons.chat_outlined),
-                    selectedIcon: Icon(Icons.chat),
-                    label: Text('Chats'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.people_outline),
-                    selectedIcon: Icon(Icons.people),
-                    label: Text('Buddies'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.dynamic_feed_rounded),
-                    selectedIcon: Icon(Icons.dynamic_feed),
-                    label: Text('Feed'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.workspaces_outline),
-                    selectedIcon: Icon(Icons.workspaces_filled),
-                    label: Text('Spaces'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.person_outline_rounded),
-                    selectedIcon: Icon(Icons.person_rounded),
-                    label: Text('Profile'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.manage_search_rounded),
-                    selectedIcon: Icon(Icons.search_rounded),
-                    label: Text('Search'),
-                  ),
-                  NavigationRailDestination(
-                    icon: const Icon(
-                      Icons.travel_explore_rounded,
-                      color: Colors.indigoAccent,
-                    ),
-                    selectedIcon: const Icon(
-                      Icons.travel_explore_rounded,
-                      color: Colors.indigo,
-                    ),
-                    label: const Text('Nexus'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
+    return GibberNavRail(
+      selectedIndex: chatProvider.selectedSidebarTab,
+      onDestinationSelected: (idx) {
+        debugPrint('ISOLATE: Selected Tab $idx');
+        chatProvider.setSidebarTab(idx);
       },
-    );
-  }
-
-  Widget _buildSidebarHeader(
-    ChatProvider chatProvider,
-    AuthService authService,
-  ) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 48, 20, 24),
-      decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text(
-                'Gibber',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white,
-                ),
-              ),
-              const Spacer(),
-              Consumer<ThemeProvider>(
-                builder: (context, tp, _) => IconButton(
-                  icon: Icon(
-                    tp.isDarkMode
-                        ? Icons.light_mode_rounded
-                        : Icons.dark_mode_rounded,
-                    color: Colors.white70,
-                    size: 20,
-                  ),
-                  onPressed: () => tp.toggleTheme(),
-                  tooltip: 'Toggle Theme',
-                ),
-              ),
-              IconButton(
-                icon: const Icon(
-                  Icons.travel_explore_rounded,
-                  color: Colors.white70,
-                  size: 20,
-                ),
-                onPressed: () => context.goNamed('search'),
-                tooltip: 'Nexus Global Search',
-              ),
-              _buildAddAction(chatProvider, authService),
-            ],
-          ),
-          const SizedBox(height: 24),
-          TextField(
-            controller: _searchController,
-            onChanged: (val) => chatProvider.setSearchQuery(val),
-            decoration: InputDecoration(
-              hintText: 'Search...',
-              prefixIcon: const Icon(Icons.search_rounded, size: 20),
-              filled: true,
-              fillColor: const Color(0xFFF5F7FB),
-              contentPadding: const EdgeInsets.symmetric(vertical: 0),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          _buildStatusRow(authService),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAddAction(ChatProvider chatProvider, AuthService authService) {
-    return PopupMenuButton<String>(
-      icon: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primary,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: const Icon(Icons.add_rounded, color: Colors.white, size: 20),
-      ),
-      onSelected: (val) => _onAddActionSelected(val, authService),
-      itemBuilder: (context) => [
-        const PopupMenuItem(
-          value: 'newMessage',
-          child: Row(
-            children: [
-              Icon(Icons.chat_bubble_rounded, size: 18),
-              SizedBox(width: 8),
-              Text('New Message', style: TextStyle(fontSize: 13)),
-            ],
-          ),
-        ),
-        const PopupMenuItem(
-          value: 'buddy',
-          child: Row(
-            children: [
-              Icon(Icons.person_add_rounded, size: 18),
-              SizedBox(width: 8),
-              Text('Add Buddy', style: TextStyle(fontSize: 13)),
-            ],
-          ),
-        ),
-        const PopupMenuItem(
-          value: 'group',
-          child: Row(
-            children: [
-              Icon(Icons.group_add_rounded, size: 18),
-              SizedBox(width: 8),
-              Text('Create/Join Group', style: TextStyle(fontSize: 13)),
-            ],
-          ),
-        ),
-        const PopupMenuItem(
-          value: 'discover',
-          child: Row(
-            children: [
-              Icon(Icons.explore_rounded, size: 18),
-              SizedBox(width: 8),
-              Text('Discover Rooms', style: TextStyle(fontSize: 13)),
-            ],
-          ),
-        ),
-        const PopupMenuItem(
-          value: 'invite',
-          child: Row(
-            children: [
-              Icon(Icons.person_add_alt_1_rounded, size: 18),
-              SizedBox(width: 8),
-              Text('Invite Friends', style: TextStyle(fontSize: 13)),
-            ],
-          ),
-        ),
-        const PopupMenuItem(
-          value: 'transports',
-          child: Row(
-            children: [
-              Icon(Icons.hub_rounded, size: 18),
-              SizedBox(width: 8),
-              Text('Discover Transports', style: TextStyle(fontSize: 13)),
-            ],
-          ),
-        ),
-        const PopupMenuItem(
-          value: 'gateways',
-          child: Row(
-            children: [
-              Icon(Icons.dns_rounded, size: 18),
-              SizedBox(width: 8),
-              Text('Manage Server Gateways', style: TextStyle(fontSize: 13)),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _onAddActionSelected(String val, AuthService authService) {
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    if (val == 'newMessage') {
-      context.goNamed('newMessage');
-      return;
-    }
-    if (val == 'buddy') chatProvider.setSidebarTab(1);
-    if (val == 'group') _showJoinRoomDialog(authService);
-    if (val == 'discover') {
-      context.goNamed('roomDiscovery');
-    }
-    if (val == 'invite') {
-      context.goNamed('invite');
-    }
-    if (val == 'transports') {
-      context.goNamed('transports');
-    }
-    if (val == 'gateways') {
-      context.goNamed('gateways');
-    }
-  }
-
-  Widget _buildStatusRow(AuthService authService) {
-    return GestureDetector(
-      onTap: () => _showStatusPicker(authService),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: _getStatusColor(authService.myStatus),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                authService.myStatusMessage ??
-                    authService.myStatus.name.toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.black54,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const Icon(
-              Icons.mode_edit_outline_outlined,
-              color: Colors.black26,
-              size: 16,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showStatusPicker(AuthService authService) {
-    final statusCtrl = TextEditingController(text: authService.myStatusMessage);
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-          top: 24,
-          left: 24,
-          right: 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Set Presence Status',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: statusCtrl,
-              decoration: InputDecoration(
-                hintText: "What's on your mind?",
-                filled: true,
-                fillColor: Colors.black.withValues(alpha: 0.05),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            ...ContactStatus.values.map((status) {
-              if (status == ContactStatus.offline) {
-                return const SizedBox.shrink(); // Use logout for offline
-              }
-              return ListTile(
-                leading: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(status),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                title: Text(
-                  status.name.toUpperCase(),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-                onTap: () {
-                  authService.updatePresence(
-                    status,
-                    message: statusCtrl.text.trim(),
-                  );
-                  Navigator.pop(context);
-                },
-              );
-            }),
-            const SizedBox(height: 24),
-          ],
-        ),
-      ),
     );
   }
 
@@ -4177,18 +3809,16 @@ class _MainChatScreenState extends State<MainChatScreen> {
     ChatProvider chatProvider,
     AuthService authService,
   ) {
-    // We use IndexedStack to keep the state of each screen alive while switching tabs.
-    // This is critical for performance in the Feed and Spaces screens.
     return IndexedStack(
       index: chatProvider.selectedSidebarTab,
       children: [
-        _buildConversationList(chatProvider), // Index 0
-        const ContactsScreen(), // Index 1
-        const FeedScreen(), // Index 2
-        const SpacesScreen(), // Index 3
-        const ProfileScreen(isSidebar: true), // Index 4
-        _buildGlobalSearchList(chatProvider), // Index 5
-        const NexusSearchScreen(), // Index 6
+        GibberConversationList(searchQuery: _searchQuery, authService: authService),
+        const ContactsScreen(),
+        const FeedScreen(),
+        const SpacesScreen(),
+        const ProfileScreen(isSidebar: true),
+        _buildGlobalSearchList(chatProvider),
+        const NexusSearchScreen(),
       ],
     );
   }
@@ -4259,212 +3889,94 @@ class _MainChatScreenState extends State<MainChatScreen> {
     );
   }
 
-  Widget _buildConversationList(ChatProvider chatProvider) {
-    final filtered = chatProvider.conversations
-        .where((c) => c.name.toLowerCase().contains(_searchQuery))
-        .toList();
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: ListView.builder(
-        itemCount: filtered.length,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        itemBuilder: (context, index) {
-          final conv = filtered[index];
-          final isActive = chatProvider.activeConversation?.id == conv.id;
-          return Container(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-            decoration: BoxDecoration(
-              color: isActive
-                  ? Theme.of(
-                      context,
-                    ).colorScheme.primaryContainer.withValues(alpha: 0.3)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 4,
+  void _showStatusPickerInline(AuthService authService) {
+    final statusCtrl = TextEditingController(text: authService.myStatusMessage);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          top: 24,
+          left: 24,
+          right: 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Set Presence Status',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isDark ? AppColors.textDarkPrimary : AppColors.textLightPrimary,
               ),
-              leading: CircleAvatar(
-                backgroundColor: isActive
-                    ? Theme.of(context).colorScheme.primary
-                    : conv.protocol == 'Discord'
-                    ? const Color(0xFF5865F2).withValues(alpha: 0.1)
-                    : conv.protocol == 'IRC'
-                    ? Theme.of(
-                        context,
-                      ).colorScheme.secondary.withValues(alpha: 0.15)
-                    : Colors.grey[100],
-                backgroundImage: conv.avatarBytes != null
-                    ? MemoryImage(conv.avatarBytes!)
-                    : null,
-                child: Stack(
-                  children: [
-                    if (conv.avatarBytes == null)
-                      Center(
-                        child: conv.protocol == 'Discord'
-                            ? Icon(
-                                Icons.discord,
-                                color: isActive
-                                    ? Colors.white
-                                    : const Color(0xFF5865F2),
-                                size: 18,
-                              )
-                            : conv.protocol == 'IRC'
-                            ? Icon(
-                                Icons.alternate_email,
-                                color: isActive
-                                    ? Colors.white
-                                    : Theme.of(context).colorScheme.secondary,
-                                size: 18,
-                              )
-                            : Text(
-                                conv.name.isNotEmpty ? conv.name[0] : '?',
-                                style: TextStyle(
-                                  color: isActive
-                                      ? Colors.white
-                                      : Colors.black54,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                      ),
-                    if (!conv.isGroup)
-                      Align(
-                        alignment: Alignment.bottomRight,
-                        child: Container(
-                          width: 12,
-                          height: 12,
-                          decoration: BoxDecoration(
-                            color: _getStatusColor(conv.status),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                          ),
-                        ),
-                      ),
-                  ],
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: statusCtrl,
+              decoration: InputDecoration(
+                hintText: "What's on your mind?",
+                filled: true,
+                fillColor: isDark ? AppColors.darkSurfaceRaised : AppColors.lightSurfaceRaised,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
                 ),
               ),
-              title: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      conv.name,
-                      style: TextStyle(
-                        fontWeight: isActive
-                            ? FontWeight.w800
-                            : FontWeight.w600,
-                        color: isActive
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.onSurface,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
-                  ),
-                  if (!conv.isGroup && _authService.isOmemoEnabled(conv.id))
-                    Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: Icon(
-                        Icons.lock_rounded,
-                        size: 12,
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.primary.withValues(alpha: 0.7),
-                      ),
-                    ),
-                ],
-              ),
-              subtitle: conv.isTyping
-                  ? Text(
-                      'Typing...',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green[600],
-                      ),
-                    )
-                  : Text(
-                      conv.lastMessage?.text ?? 'No messages',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isActive
-                            ? const Color(0xFFE91E63).withValues(alpha: 0.6)
-                            : Theme.of(
-                                context,
-                              ).colorScheme.onSurface.withValues(alpha: 0.5),
-                      ),
-                    ),
-              selected: isActive,
-              trailing: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    conv.lastMessage != null
-                        ? DateFormat(
-                            'HH:mm',
-                          ).format(conv.lastMessage!.timestamp)
-                        : '',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.35),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (conv.unreadCount > 0) ...[
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withValues(alpha: 0.3),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        conv.unreadCount > 99
-                            ? '99+'
-                            : conv.unreadCount.toString(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              onTap: () {
-                debugPrint('ISOLATE: Tapped Conversation ${conv.id}');
-                chatProvider.setActiveConversation(conv.id);
-              },
             ),
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'newMessage',
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        onPressed: () => context.goNamed('newMessage'),
-        child: const Icon(Icons.message_rounded, color: Colors.white),
+            const SizedBox(height: 24),
+            ...ContactStatus.values.map((status) {
+              if (status == ContactStatus.offline) return const SizedBox.shrink();
+              return ListTile(
+                leading: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(status),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                title: Text(
+                  status.name.toUpperCase(),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                onTap: () {
+                  authService.updatePresence(status, message: statusCtrl.text.trim());
+                  Navigator.pop(ctx);
+                },
+              );
+            }),
+            const SizedBox(height: 24),
+          ],
+        ),
       ),
     );
+  }
+
+  void _onAddActionSelected(String val, AuthService authService) {
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    if (val == 'newMessage') {
+      context.goNamed('newMessage');
+      return;
+    }
+    if (val == 'buddy') chatProvider.setSidebarTab(1);
+    if (val == 'group') _showJoinRoomDialog(authService);
+    if (val == 'discover') {
+      context.goNamed('roomDiscovery');
+    }
+    if (val == 'invite') {
+      context.goNamed('invite');
+    }
+    if (val == 'gateways') {
+      context.goNamed('gateways');
+    }
   }
 
   Color _getStatusColor(ContactStatus status) {

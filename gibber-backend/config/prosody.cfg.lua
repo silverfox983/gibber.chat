@@ -123,6 +123,9 @@ muc_room_default_anonymous = false
 -- Component secrets are loaded from environment variables or slidge-providers.conf
 include "slidge-providers.conf"
 
+-- Per-user dynamically-provisioned Slidge gateways
+include "slidge-user-components.conf"
+
 -- Logging
 log = {
     info = "*console";
