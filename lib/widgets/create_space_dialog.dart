@@ -22,7 +22,6 @@ class CreateSpaceDialog extends StatefulWidget {
 
 class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
   final _nameController = TextEditingController();
-  final _nodeController = TextEditingController();
   final _descController = TextEditingController();
   late final TextEditingController _domainController;
   bool _isLoading = false;
@@ -31,8 +30,6 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
   void initState() {
     super.initState();
     final d = widget.domain;
-    // Default to pubsub.domain.com — the standard PubSub service location.
-    // If the server uses the domain itself as pubsub host, the user can change it.
     _domainController = TextEditingController(
       text: d.contains('.') ? 'pubsub.$d' : d,
     );
@@ -41,7 +38,6 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
   @override
   void dispose() {
     _nameController.dispose();
-    _nodeController.dispose();
     _descController.dispose();
     _domainController.dispose();
     super.dispose();
@@ -51,22 +47,19 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
 
   Future<void> _createSpace() async {
     final name = _nameController.text.trim();
-    final node = _nodeController.text.trim().isNotEmpty
-        ? _nodeController.text.trim()
-        : 'space_${DateTime.now().millisecondsSinceEpoch}';
-    final targetDomain = _domainController.text.trim();
-
     if (name.isEmpty) {
       setState(() => _showNameError = true);
       return;
     }
+    final targetDomain = _domainController.text.trim();
     if (targetDomain.isEmpty) return;
 
+    final nodeId = 'space_${DateTime.now().millisecondsSinceEpoch}';
     setState(() { _isLoading = true; _showNameError = false; });
 
     final errorMessage = await widget.spacesService.createSpace(
       targetDomain,
-      node,
+      nodeId,
       name,
       description: _descController.text.trim(),
     );
@@ -75,8 +68,19 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
 
     if (errorMessage == null) {
       if (mounted) {
-        Provider.of<AuthService>(context, listen: false).joinPersistedSpace(targetDomain, node, name);
+        Provider.of<AuthService>(context, listen: false).joinPersistedSpace(
+          targetDomain,
+          nodeId,
+          name,
+        );
         Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Space "$name" created!'),
+            backgroundColor: Colors.green.shade700,
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
       widget.onSuccess();
     } else {
@@ -84,7 +88,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(errorMessage),
-            duration: const Duration(seconds: 5),
+            duration: const Duration(seconds: 6),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
@@ -143,7 +147,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Spaces allow you to group multiple rooms and communities together.',
+                    'A space groups rooms and communities under a shared topic.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,
@@ -172,16 +176,9 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                     label: 'PubSub Domain',
                     icon: Icons.dns_rounded,
                     theme: theme,
-                    helperText: 'Usually pubsub.yourdomain.com — check with your server admin',
+                    helperText: 'Usually pubsub.yourdomain.com',
                   ),
-                  const SizedBox(height: 16),
-                  _buildTextField(
-                    controller: _nodeController,
-                    label: 'Node ID (Optional)',
-                    icon: Icons.code_rounded,
-                    theme: theme,
-                  ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 24),
                   if (_isLoading)
                     const Center(child: CircularProgressIndicator())
                   else
@@ -219,7 +216,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                               elevation: 0,
                             ),
                             child: const Text(
-                              'Create',
+                              'Create Space',
                               style: TextStyle(
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: 0.5,

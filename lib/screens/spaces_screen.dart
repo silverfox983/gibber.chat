@@ -52,7 +52,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
   String _exploreQuery = '';
   final _exploreSearchController = TextEditingController();
   String _exploreSort = 'Popular'; // Popular / Newest / A-Z
-  final _exploreSources = ['movim.eu', 'patchwork.chat', 'yax.im', 'jabber.at'];
+  List<String> _exploreSources = ['movim.eu', 'patchwork.chat', 'yax.im', 'jabber.at', 'movim.in'];
 
   // ── My Communities ──
   List<UnifiedCommunity> _myCommunities = [];
@@ -96,8 +96,21 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
 
   Future<void> _init() async {
     await _loadMyCommunities();
+    _addOwnServerToExploreSources();
     _loadExplore();
     _loadRooms();
+  }
+
+  void _addOwnServerToExploreSources() {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final conn = auth.activeXmppConnection;
+    if (conn != null) {
+      final userDomain = conn.fullJid.domain;
+      final pubsubDomain = 'pubsub.$userDomain';
+      if (!_exploreSources.contains(pubsubDomain) && !_exploreSources.contains(userDomain)) {
+        _exploreSources.insert(0, pubsubDomain);
+      }
+    }
   }
 
   Future<void> _loadMyCommunities() async {
@@ -872,7 +885,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
           ? SpaceDetailView(
               space: _selectedSpace!,
               spacesService: _spacesService!,
-              onCreated: (_) {},
+              onCreated: _refresh,
               onBack: () {
                 setState(() {
                   if (_spaceHistory.isNotEmpty) {
@@ -994,7 +1007,7 @@ class SpaceDetailView extends StatefulWidget {
   final SpaceNode space;
   final SpacesService spacesService;
   final VoidCallback onBack;
-  final Function(VoidCallback refresh)? onCreated;
+  final VoidCallback? onCreated;
 
   const SpaceDetailView({
     super.key,
@@ -1034,7 +1047,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
     super.initState();
     _tabController = TabController(length: 5, vsync: this);
     if (widget.onCreated != null) {
-      widget.onCreated!(() => _reload());
+      widget.onCreated!();
     }
     _load();
     _membersFuture = widget.spacesService.fetchMembers(widget.space.domain, widget.space.node);
@@ -1232,6 +1245,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             if (conn == null) return;
             await widget.spacesService.unsubscribeFromSpace(space.domain, space.node, conn.fullJid.userAtDomain, spaceType: space.type);
             await auth.leavePersistedSpace(space.domain, space.node);
+            widget.onCreated?.call();
             if (mounted) setState(() {});
           },
           icon: const Icon(Icons.check_rounded, size: 16, color: Colors.white70),
@@ -1252,6 +1266,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             await auth.joinPersistedSpace(space.domain, space.node, space.name);
             final enriched = space.copyWith(isSubscribed: true, syncedAt: DateTime.now());
             await auth.updatePersistedSpace(enriched);
+            widget.onCreated?.call();
             if (mounted) {
               setState(() {});
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Subscribed! Posts will appear in your Feed.')));
@@ -1463,10 +1478,11 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                     ],
                   ),
                 );
-                if (confirm == true) {
+                  if (confirm == true) {
                   final ok = await widget.spacesService.deleteSpace(space.domain, space.node);
                   if (mounted && ok) {
                     Provider.of<AuthService>(context, listen: false).leavePersistedSpace(space.domain, space.node);
+                    widget.onCreated?.call();
                     Navigator.pop(context); // close detail view
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Space deleted')));
                   }
@@ -1569,6 +1585,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 await widget.spacesService.unsubscribeFromSpace(
                     space.domain, space.node, conn.fullJid.userAtDomain, spaceType: space.type);
                 await auth.leavePersistedSpace(space.domain, space.node);
+                widget.onCreated?.call();
                 setState(() {});
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -1596,6 +1613,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               await auth.joinPersistedSpace(space.domain, space.node, space.name);
               final enriched = space.copyWith(isSubscribed: true, syncedAt: DateTime.now());
               await auth.updatePersistedSpace(enriched);
+              widget.onCreated?.call();
               setState(() {});
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
