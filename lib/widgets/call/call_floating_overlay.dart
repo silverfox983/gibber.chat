@@ -173,6 +173,10 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
                       isActive: true,
                       activeColor: Colors.redAccent,
                       onTap: () {
+                        final currentRoute = ModalRoute.of(context)?.settings.name;
+                        if (currentRoute == '/call_screen') {
+                          Navigator.of(context).maybePop();
+                        }
                         if (isIncoming) {
                           call.declineCall();
                         } else {

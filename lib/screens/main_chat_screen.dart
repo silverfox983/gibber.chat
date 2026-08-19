@@ -395,7 +395,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
   void _onCallStateChanged() {
     if (!mounted) return;
     if (_callProvider.state != CallState.idle) {
-      // Prevent multiple navigations if already on the screen
       final currentRoute = ModalRoute.of(context)?.settings.name;
       if (currentRoute != '/call_screen') {
         Navigator.of(context).push(
@@ -404,6 +403,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
             builder: (context) => const CallScreen(),
           ),
         );
+      }
+    } else {
+      final currentRoute = ModalRoute.of(context)?.settings.name;
+      if (currentRoute == '/call_screen') {
+        Navigator.of(context).maybePop();
       }
     }
   }

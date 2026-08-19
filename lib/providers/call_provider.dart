@@ -45,6 +45,7 @@ bool _isPstnGatewayJid(String jid) {
 class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   CallState _state = CallState.idle;
   String? _remoteJid;
+  String? _lastDisplayName;
   String? _sessionId;
   String? _incomingOfferSdp;
   String? _permissionError;
@@ -125,6 +126,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   RTCVideoRenderer get remoteRenderer => _remoteRenderer;
   String? get permissionError => _permissionError;
   String? get lastError => _displayedError ?? _lastError;
+  String? get lastDisplayName => _lastDisplayName;
   RTCIceConnectionState get iceState => _iceState;
   bool get isAccepted => _isAccepted;
   bool get isRinging => _isRinging;
@@ -273,6 +275,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
             _state = CallState.incoming;
             _isSipCall = true;
             _remoteJid = _sipService!.remoteNumber ?? 'Unknown';
+            _lastDisplayName = _remoteJid;
             _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
             _log('Incoming SIP call from $_remoteJid', isSent: false);
             _playRingtone();
@@ -335,6 +338,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     _state = CallState.outgoing;
     _remoteJid = roomJid;
+    _lastDisplayName = roomJid;
     _isVideo = isVideo;
     _callAccountId = accountId;
     _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -559,6 +563,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     _state = CallState.outgoing;
     _remoteJid = roomJid;
+    _lastDisplayName = roomJid;
     _isVideo = isVideo;
     _callAccountId = accountId;
     _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -717,6 +722,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     _state = CallState.outgoing;
     _remoteJid = toJid;
+    _lastDisplayName = toJid;
     _isVideo = isVideo;
     _callAccountId = accountId;
     _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -1010,6 +1016,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     _state = CallState.incoming;
     _remoteJid = fromJid;
+    _lastDisplayName = fromJid;
     _sessionId = sessionId;
     _incomingOfferSdp = offerSdp;
     _callAccountId = accountId;
@@ -1228,6 +1235,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         _isSipCall = true;
         _state = CallState.outgoing;
         _remoteJid = toJid;
+        _lastDisplayName = toJid;
         _callAccountId = accountId;
         _isVideo = isVideo;
         await _soundService.setCallAudioContext(isVideo: isVideo);
@@ -1320,6 +1328,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     _state = CallState.outgoing;
     _remoteJid = effectiveJid;
+    _lastDisplayName = effectiveJid;
     _isVideo = isVideo;
     _callAccountId = accountId;
     _sessionId = DateTime.now().millisecondsSinceEpoch.toString();

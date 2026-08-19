@@ -558,13 +558,18 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     if (call.state == CallState.active) {
       statusText = _formatDuration(_callDuration);
     }
+    if (call.state == CallState.idle) {
+      statusText = 'Call Ended';
+    }
 
     final showOutgoingCountdown = call.state == CallState.outgoing && !call.isRinging;
     final countdown = showOutgoingCountdown ? call.outgoingCallSeconds : 0;
 
     final displayName = call.isGroupCall
         ? (call.groupCallSession?.roomJid.split('@').first ?? 'Group Call')
-        : (call.remoteJid?.split('@').first ?? 'Private Caller');
+        : (call.remoteJid?.split('@').first
+            ?? call.lastDisplayName?.split('@').first
+            ?? 'Private Caller');
     final participantCount = call.isGroupCall && call.groupCallSession != null
         ? call.groupCallSession!.participantCount + 1
         : null;
