@@ -23,6 +23,7 @@ class UnifiedCommunity {
   final bool passwordProtected;
   final int? occupantCount;
   final String? rawJid;
+  final DateTime? lastActivity;
 
   const UnifiedCommunity({
     required this.id,
@@ -43,6 +44,7 @@ class UnifiedCommunity {
     this.passwordProtected = false,
     this.occupantCount,
     this.rawJid,
+    this.lastActivity,
   });
 
   String get displayId => jid ?? (node != null ? '$node@$domain' : '$domain');
@@ -70,6 +72,7 @@ class UnifiedCommunity {
     bool? passwordProtected,
     int? occupantCount,
     String? rawJid,
+    DateTime? lastActivity,
   }) {
     return UnifiedCommunity(
       id: id ?? this.id,
@@ -90,6 +93,7 @@ class UnifiedCommunity {
       passwordProtected: passwordProtected ?? this.passwordProtected,
       occupantCount: occupantCount ?? this.occupantCount,
       rawJid: rawJid ?? this.rawJid,
+      lastActivity: lastActivity ?? this.lastActivity,
     );
   }
 
@@ -113,6 +117,7 @@ class UnifiedCommunity {
       'passwordProtected': passwordProtected,
       'occupantCount': occupantCount,
       'rawJid': rawJid,
+      'lastActivity': lastActivity?.toIso8601String(),
     };
   }
 
@@ -139,6 +144,9 @@ class UnifiedCommunity {
       passwordProtected: map['passwordProtected'] as bool? ?? false,
       occupantCount: map['occupantCount'] as int?,
       rawJid: map['rawJid'] as String?,
+      lastActivity: map['lastActivity'] != null
+          ? DateTime.tryParse(map['lastActivity'] as String)
+          : null,
     );
   }
 
@@ -168,6 +176,7 @@ class UnifiedCommunity {
       passwordProtected: false,
       occupantCount: null,
       rawJid: null,
+      lastActivity: space.lastActivity,
     );
   }
 

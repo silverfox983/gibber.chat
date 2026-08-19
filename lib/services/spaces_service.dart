@@ -718,7 +718,7 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
-  Future<String?> createSpace(String domain, String node, String name, {String? description}) async {
+  Future<String?> createSpace(String domain, String node, String name, {String? description, String accessModel = 'open', String publishModel = 'publishers'}) async {
     final iq = xmpp.IqStanza('create_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
     iq.toJid = xmpp.Jid.fromFullJid(domain);
 
@@ -756,8 +756,8 @@ class SpacesService extends ChangeNotifier {
     addField('pubsub#title', name);
     if (description != null) addField('pubsub#description', description);
     addField('pubsub#node_type', 'leaf');
-    addField('pubsub#access_model', 'open');
-    addField('pubsub#publish_model', 'publishers');
+    addField('pubsub#access_model', accessModel);
+    addField('pubsub#publish_model', publishModel);
     addField('pubsub#type', 'urn:xmpp:spaces:0');
     addField('pubsub#notify_retract', 'true');
     addField('pubsub#persist_items', 'true');

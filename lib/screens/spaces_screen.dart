@@ -120,8 +120,22 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
 
     final communities = <UnifiedCommunity>[];
 
+    // Refresh subscribed spaces metadata from server
     for (final space in persisted) {
-      communities.add(UnifiedCommunity.fromSpaceNode(space));
+      if (_spacesService != null) {
+        try {
+          final enriched = await _spacesService!.fetchSpaceMetadata(
+            space.domain,
+            space.node,
+            fallbackName: space.name,
+          ).timeout(const Duration(seconds: 10), onTimeout: () => space);
+          communities.add(UnifiedCommunity.fromSpaceNode(enriched ?? space, isJoined: true));
+        } catch (_) {
+          communities.add(UnifiedCommunity.fromSpaceNode(space, isJoined: true));
+        }
+      } else {
+        communities.add(UnifiedCommunity.fromSpaceNode(space, isJoined: true));
+      }
     }
     for (final room in mucRooms) {
       final jid = room.id;
@@ -262,21 +276,48 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
           if (_spacesService == null) return;
           setState(() => _exploreLoading = true);
           try {
-            final results = await _spacesService!.discoverAllSpaces(v.trim());
-            final enriched = await Future.wait(
-              results.take(30).map((s) async {
+            final query = v.trim();
+            final isDomain = query.contains('.');
+
+            if (isDomain) {
+              // Treat as a domain to discover spaces from
+              final results = await _spacesService!.discoverAllSpaces(query);
+              final enriched = await Future.wait(
+                results.take(30).map((s) async {
+                  try {
+                    return await _spacesService!.fetchSpaceDetails(s);
+                  } catch (_) { return s; }
+                }),
+              );
+              final communities = enriched.map((s) => UnifiedCommunity.fromSpaceNode(s)).toList();
+              if (mounted) {
+                setState(() {
+                  _exploreResults.clear();
+                  _exploreResults.addAll(communities);
+                  _exploreLoading = false;
+                });
+              }
+            } else {
+              // Keyword search across known spaces using searchPosts
+              final searchResults = <UnifiedCommunity>[];
+              final searchTargets = _exploreSources.where((d) => d.contains('.')).toList();
+              for (final domain in searchTargets.take(5)) {
                 try {
-                  return await _spacesService!.fetchSpaceDetails(s);
-                } catch (_) { return s; }
-              }),
-            );
-            final communities = enriched.map((s) => UnifiedCommunity.fromSpaceNode(s)).toList();
-            if (mounted) {
-              setState(() {
-                _exploreResults.clear();
-                _exploreResults.addAll(communities);
-                _exploreLoading = false;
-              });
+                  final items = await _spacesService!.searchPosts(domain, '', query);
+                  for (final item in items) {
+                    if (item.sourceSpace != null) {
+                      searchResults.add(UnifiedCommunity.fromSpaceNode(item.sourceSpace!));
+                    }
+                  }
+                } catch (_) {}
+              }
+              if (mounted) {
+                setState(() {
+                  _exploreResults.clear();
+                  _exploreResults.addAll(searchResults);
+                  _exploreLoading = false;
+                });
+              }
             }
           } catch (_) {
             if (mounted) setState(() => _exploreLoading = false);
@@ -771,6 +812,12 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     }
     if (_exploreSort == 'Popular') {
       items.sort((a, b) => b.memberCount.compareTo(a.memberCount));
+    } else if (_exploreSort == 'Newest') {
+      items.sort((a, b) {
+        final aTime = a.lastActivity ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bTime = b.lastActivity ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bTime.compareTo(aTime);
+      });
     } else if (_exploreSort == 'A-Z') {
       items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     }
@@ -2232,7 +2279,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
               child: Row(children: [
-                _emojiReactionBtn(theme, '👍', item, item.reactions['👍'] ?? 0),
+                _emojiReactionBtn(theme, '👍', item, item.reactions['👍'] ?? 0, isLiked: SpacesScreenManager.likedItems.contains(item.id)),
                 _emojiReactionBtn(theme, '❤️', item, item.reactions['❤️'] ?? 0),
                 _emojiReactionBtn(theme, '😂', item, item.reactions['😂'] ?? 0),
                 _reactionBtn(theme, Icons.chat_bubble_outline_rounded, 'Reply', theme.colorScheme.onSurfaceVariant, onTap: () => _showReplyDialog(item)),
@@ -2249,17 +2296,23 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
     );
   }
 
-  Widget _emojiReactionBtn(ThemeData theme, String emoji, SpaceItem item, int count) {
+  Widget _emojiReactionBtn(ThemeData theme, String emoji, SpaceItem item, int count, {bool isLiked = false}) {
     return InkWell(
       borderRadius: BorderRadius.circular(20),
-      onTap: () => _handleEmojiReaction(item, emoji),
+      onTap: () {
+        if (emoji == '👍') {
+          _handleLike(item);
+        } else {
+          _handleEmojiReaction(item, emoji);
+        }
+      },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Text(emoji, style: const TextStyle(fontSize: 17)),
+          Text(emoji, style: TextStyle(fontSize: 17, color: isLiked ? Colors.blue : null)),
           if (count > 0) ...[
             const SizedBox(width: 4),
-            Text('$count', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurfaceVariant)),
+            Text('$count', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isLiked ? Colors.blue : theme.colorScheme.onSurfaceVariant)),
           ],
         ]),
       ),
@@ -2276,6 +2329,32 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
     final auth = Provider.of<AuthService>(context, listen: false);
     final userJid = auth.activeXmppConnection?.fullJid.userAtDomain ?? 'unknown';
     await widget.spacesService.publishReaction(widget.space.domain, widget.space.node, item.id, emoji, userJid);
+  }
+
+  void _handleLike(SpaceItem item) async {
+    final reactions = Map<String, int>.from(_itemReactions[item.id] ?? item.reactions);
+    final wasLiked = SpacesScreenManager.likedItems.contains(item.id);
+    setState(() {
+      if (wasLiked) {
+        SpacesScreenManager.likedItems.remove(item.id);
+        reactions['👍'] = ((reactions['👍'] ?? 1) - 1).clamp(0, 9999);
+      } else {
+        SpacesScreenManager.likedItems.add(item.id);
+        reactions['👍'] = (reactions['👍'] ?? 0) + 1;
+      }
+      _itemReactions[item.id] = reactions;
+    });
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final userJid = auth.activeXmppConnection?.fullJid.userAtDomain ?? 'unknown';
+    if (wasLiked) {
+      await widget.spacesService.retractItem(
+        widget.space.domain,
+        '${widget.space.node}/${item.id}/reactions',
+        userJid.replaceAll('@', '_'),
+      );
+    } else {
+      await widget.spacesService.publishReaction(widget.space.domain, widget.space.node, item.id, '👍', userJid);
+    }
   }
 
   void _showPostContextMenu(SpaceItem item) {
@@ -2344,26 +2423,6 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         ]),
       ),
     );
-  }
-
-  void _handleLike(SpaceItem item) async {
-    // Track liked state per-item in widget state (SpaceItem is immutable)
-    final reactions = Map<String, int>.from(_itemReactions[item.id] ?? item.reactions);
-    final wasLiked = SpacesScreenManager.likedItems.contains(item.id);
-    setState(() {
-      if (wasLiked) {
-        SpacesScreenManager.likedItems.remove(item.id);
-        reactions['👍'] = ((reactions['👍'] ?? 1) - 1).clamp(0, 9999);
-      } else {
-        SpacesScreenManager.likedItems.add(item.id);
-        reactions['👍'] = (reactions['👍'] ?? 0) + 1;
-      }
-      _itemReactions[item.id] = reactions;
-    });
-    if (wasLiked) return; // optimistic: only send on like, not unlike
-    final auth = Provider.of<AuthService>(context, listen: false);
-    final userJid = auth.activeXmppConnection?.fullJid.userAtDomain ?? 'unknown';
-    await widget.spacesService.publishReaction(widget.space.domain, widget.space.node, item.id, '👍', userJid);
   }
 
   void _handleShare(SpaceItem item) {
@@ -2461,10 +2520,16 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               final name = controller.text.trim();
               if (name.isEmpty) return;
               Navigator.pop(dialogContext);
-              // Provide a generic fallback domain for MUC if not explicitly known.
-              // We'll use conference.domain as a standard default guess.
+              // Only use alphanumeric, dash, underscore for the local part per XMPP XEP-0045
+              final cleanLocal = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\-_]'), '').replaceAll(RegExp(r'-+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
+              if (cleanLocal.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Channel name must contain letters or numbers')),
+                );
+                return;
+              }
               final conferenceDomain = 'conference.${widget.space.domain}';
-              final channelJid = '${name.toLowerCase().replaceAll(' ', '_')}_${DateTime.now().millisecondsSinceEpoch}@$conferenceDomain';
+              final channelJid = '$cleanLocal@$conferenceDomain';
               final success = await widget.spacesService.createSpaceChannel(widget.space.domain, widget.space.node, name, channelJid);
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success ? 'Channel created!' : 'Failed to create channel. Check permissions.')));
