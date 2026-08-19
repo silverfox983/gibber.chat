@@ -519,9 +519,9 @@ class JingleSignalingService {
       'timestamp': DateTime.now(),
     };
 
-    // Set fallback timer (30 seconds to receive proceed)
+    // Set fallback timer (15 seconds to receive proceed)
     _proceedTimers[sessionId]?.cancel();
-    _proceedTimers[sessionId] = Timer(const Duration(seconds: 30), () {
+    _proceedTimers[sessionId] = Timer(const Duration(seconds: 15), () {
       debugPrint('Jingle: [XEP-0353] Proceed timeout for session $sessionId, falling back to direct IQ');
       _pendingProposeSessions.remove(sessionId);
       _proceedTimers.remove(sessionId);

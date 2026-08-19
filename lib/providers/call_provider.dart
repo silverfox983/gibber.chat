@@ -94,6 +94,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   double _localVolume = 0.0;
   double _remoteVolume = 0.0;
   bool _isTalkingWhileMuted = false;
+  int _outgoingCallSeconds = 0;
+  Timer? _outgoingCountdownTimer;
   
   bool _isGroupCall = false;
   final Map<String, RTCVideoRenderer> _groupRenderers = {};
@@ -129,6 +131,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   double get localVolume => _localVolume;
   double get remoteVolume => _remoteVolume;
   bool get isTalkingWhileMuted => _isTalkingWhileMuted;
+  int get outgoingCallSeconds => _outgoingCallSeconds;
   bool get isSipCall => _isSipCall;
   bool get isSipRegistered => _sipService?.isRegistered ?? false;
   SipService? get sipService => _sipService;
@@ -142,6 +145,20 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   AudioEffectsService get audioEffects => _audioEffects;
   CallAudioPlaybackService get audioPlayback => _audioPlayback;
   bool get isAudioEffectsAvailable => _audioEffectsInitialized && (kIsWeb || Platform.isAndroid);
+
+  void _startOutgoingCountdown() {
+    _outgoingCallSeconds = 0;
+    _outgoingCountdownTimer?.cancel();
+    _outgoingCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _outgoingCallSeconds++;
+      notifyListeners();
+    });
+  }
+
+  void _stopOutgoingCountdown() {
+    _outgoingCountdownTimer?.cancel();
+    _outgoingCountdownTimer = null;
+  }
 
   void _applyDefaultSpeakerRoute({required bool isVideo, String? source}) {
     // Voice calls should default to speakerphone so users can immediately hear audio.
@@ -323,6 +340,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
     _isGroupCall = true;
     _log('Outgoing group ${_isVideo ? "video" : "voice"} call started (SFU)', isSent: true);
+    _startOutgoingCountdown();
     notifyListeners();
 
     Map<Permission, PermissionStatus> statuses = await [
@@ -547,6 +565,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _isGroupCall = true;
     _log('Outgoing group ${_isVideo ? "video" : "voice"} call started (Full-Mesh)', isSent: true);
     _playRingback();
+    _startOutgoingCountdown();
     notifyListeners();
 
     // Clean up existing renderers
@@ -703,6 +722,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
     _log('Outgoing ${_isVideo ? "video" : "voice"} call started', isSent: true);
     _playRingback();
+    _startOutgoingCountdown();
     notifyListeners();
 
     try {
@@ -840,6 +860,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       case JingleAction.proceed:
         if (_state == CallState.outgoing) {
           _isRinging = false;
+          _stopOutgoingCountdown();
           _log('Remote accepted proposal, connecting...', isSent: false);
           notifyListeners();
         }
@@ -865,6 +886,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
             'CallProvider: Session accept received from ${event.fromJid}, SDP length: ${event.sdp!.length}',
           );
           _isRinging = false;
+          _stopOutgoingCountdown();
           if (_isGroupCall && _multiPeerManager != null) {
             _multiPeerManager!.setRemoteDescription(
               event.fromJid,
@@ -1218,6 +1240,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           isSent: true,
         );
         _playRingback();
+        _startOutgoingCountdown();
         notifyListeners();
         final success = await _sipService!.call(toJid, video: isVideo);
         if (!success) {
@@ -1395,6 +1418,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: Session initiate dispatched via ${isGateway ? "IQ" : "MESSAGE"}');
 
       _state = CallState.outgoing;
+      _startOutgoingCountdown();
       _startCallTimeoutTimer();
       notifyListeners();
       debugPrint('CallProvider: === CALL INITIATED ===');
@@ -2200,6 +2224,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _callTimeoutTimer = null;
     _iceDebugTimer?.cancel();
     _iceDebugTimer = null;
+    _outgoingCountdownTimer?.cancel();
+    _outgoingCountdownTimer = null;
+    _outgoingCallSeconds = 0;
     _disconnectGraceTimer?.cancel();
     _disconnectGraceTimer = null;
     debugPrint('CallProvider: Stats subscription cancelled');

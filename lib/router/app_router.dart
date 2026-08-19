@@ -40,6 +40,7 @@ import '../screens/new_message_screen.dart';
 import '../screens/appearance_settings_screen.dart';
 import '../screens/register_screen.dart';
 import '../screens/nexus_search_screen.dart';
+import '../widgets/call/call_floating_overlay.dart';
 
 CustomTransitionPage<void> _fadePage({
   required GoRouterState state,
@@ -117,8 +118,11 @@ GoRouter createAppRouter({
               return Stack(
                 children: [
                   child,
-                  if (callProvider.state != CallState.idle)
+                  if (callProvider.state == CallState.incoming)
                     const CallScreen(),
+                  if (callProvider.state == CallState.active ||
+                      callProvider.state == CallState.outgoing)
+                    const CallFloatingOverlay(),
                 ],
               );
             },

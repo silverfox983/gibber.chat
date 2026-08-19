@@ -559,6 +559,9 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
       statusText = _formatDuration(_callDuration);
     }
 
+    final showOutgoingCountdown = call.state == CallState.outgoing && !call.isRinging;
+    final countdown = showOutgoingCountdown ? call.outgoingCallSeconds : 0;
+
     final displayName = call.isGroupCall
         ? (call.groupCallSession?.roomJid.split('@').first ?? 'Group Call')
         : (call.remoteJid?.split('@').first ?? 'Private Caller');
@@ -636,6 +639,27 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                 letterSpacing: 1.0,
               ),
             ),
+            if (showOutgoingCountdown) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.error.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.error.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Text(
+                  '${countdown}s',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
             if (call.state == CallState.active && !call.isGroupCall) ...[
               const SizedBox(width: 8),
               IconButton(
