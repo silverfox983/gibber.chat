@@ -67,7 +67,6 @@ class _LandingScreenState extends State<LandingScreen>
                 SliverToBoxAdapter(child: _buildFeatures(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildHowItWorks(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildTiers(isDark, isMobile)),
-                SliverToBoxAdapter(child: _buildMining(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildSecurity(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildFooter(isDark)),
               ],
@@ -265,7 +264,7 @@ class _LandingScreenState extends State<LandingScreen>
           ),
           const SizedBox(height: 20),
           Text(
-            'Browser-native secure messaging with on-device AI transcription,\n'
+            'Browser-native secure messaging with voice call transcription,\n'
             'encrypted voice/video calls, and protocol bridging\n'
             'for Slack, Discord, and more.',
             textAlign: TextAlign.center,
@@ -364,24 +363,6 @@ class _LandingScreenState extends State<LandingScreen>
                       _mockBubble('Yes, joining in 5 min', isLeft: false, isDark: isDark),
                       const SizedBox(height: 8),
                       _mockBubble('Great! I\'ll share the notes securely 🔒', isLeft: true, isDark: isDark),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: primary.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.auto_awesome, size: 12, color: primary),
-                            const SizedBox(width: 6),
-                            Text(
-                              'AI: Meeting at 3pm, Room 4B',
-                              style: TextStyle(fontSize: 11, color: primary, fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -412,8 +393,7 @@ class _LandingScreenState extends State<LandingScreen>
     final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
     final features = [
       _FeatureData(Icons.lock_outline_rounded, 'End-to-End Encryption', 'Military-grade encryption protects every message and call. Your data never leaves your device.', primary),
-      _FeatureData(Icons.mic_rounded, 'Live AI Transcription', 'On-device Whisper WASM transcribes voice calls in real time. No cloud, no data leaks.', primary),
-      _FeatureData(Icons.smart_toy_rounded, 'On-Device AI Assistant', 'Local LLM via WebGPU summarizes calls, extracts action items, and drafts follow-ups — all privately.', primary),
+      _FeatureData(Icons.mic_rounded, 'Live Transcription', 'On-device Whisper WASM transcribes voice calls in real time. No cloud, no data leaks.', primary),
       _FeatureData(Icons.compare_arrows_rounded, 'Protocol Gateway', 'Gibber, Slack, Discord, IRC, Teams, Matrix, Telegram, SMS — one inbox, every network.', primary),
       _FeatureData(Icons.videocam_rounded, 'Encrypted Voice & Video', 'WebRTC calls with live captions, call recording, and identity verification — no Zoom.', primary),
       _FeatureData(Icons.cloud_off_rounded, 'Zero-Knowledge Architecture', 'All processing happens on your device. No cloud servers ever see your messages or calls.', primary),
@@ -484,7 +464,7 @@ class _LandingScreenState extends State<LandingScreen>
     final steps = [
       _StepData('1', 'Create Account', 'Sign up for free — no credit card needed. Start messaging securely right away.', Icons.person_add_rounded, primary),
       _StepData('2', 'Connect & Communicate', 'Message, call, and transcribe — all encrypted and processed on your device.', Icons.chat_rounded, secondary),
-      _StepData('3', 'Upgrade When Ready', 'Go Pro or Ultimate for protocol bridging, unlimited AI, and more. Pay monthly or with crypto.', Icons.verified_rounded, primary),
+      _StepData('3', 'Upgrade When Ready', 'Go Pro or Ultimate for protocol bridging, unlimited features, and more. Pay monthly.', Icons.verified_rounded, primary),
     ];
 
     return _sectionWrapper(
@@ -554,17 +534,17 @@ class _LandingScreenState extends State<LandingScreen>
         '\$0',
         'Forever free',
         const Color(0xFF6B7280),
-        ['Gibber messaging & calls', '1:1 encrypted chat', '30 min transcription/mo', '10 AI queries/mo', '4-person group calls', '30-day history'],
+        ['Gibber messaging & calls', '1:1 encrypted chat', 'Unlimited transcription', 'Unlimited AI queries', '4-person group calls', '30-day history'],
         [],
-        ['Slack, Discord, IRC', 'Teams, Matrix, Telegram, SMS', 'Unlimited transcription', 'Unlimited AI queries', '10+ person group calls', 'Unlimited history'],
+        ['Slack, Discord, IRC', 'Teams, Matrix, Telegram, SMS', '10+ person group calls', '365-day history'],
       ),
       _TierData(
         'Pro',
         '\$9.99/mo',
         'Cancel anytime',
         primary,
-        ['Gibber messaging & calls', '1:1 encrypted chat', '300 min transcription/mo', '100 AI queries/mo', '10-person group calls', '365-day history', 'Slack, Discord, IRC'],
-        ['Teams, Matrix, Telegram, SMS', 'Unlimited transcription', 'Unlimited AI queries'],
+        ['Gibber messaging & calls', '1:1 encrypted chat', 'Unlimited transcription', 'Unlimited AI queries', '10-person group calls', '365-day history', 'Slack, Discord, IRC'],
+        ['Teams, Matrix, Telegram, SMS'],
         [],
       ),
       _TierData(
@@ -572,7 +552,7 @@ class _LandingScreenState extends State<LandingScreen>
         '\$19.99/mo',
         'Cancel anytime',
         const Color(0xFF8B5CF6),
-        ['Everything in Pro, plus:', 'Teams, Matrix, Telegram, SMS', 'Unlimited transcription', 'Unlimited AI queries', 'Unlimited group calls', 'Unlimited history', 'Priority support'],
+        ['Everything in Pro, plus:', 'Teams, Matrix, Telegram, SMS', 'Unlimited group calls', 'Unlimited history', 'Priority support'],
         [],
         [],
       ),
@@ -697,60 +677,11 @@ class _LandingScreenState extends State<LandingScreen>
     );
   }
 
-  Widget _buildMining(bool isDark, bool isMobile) {
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
-    final surface = isDark ? GibberTheme.eclipseSurface : Colors.white;
-
-    final content = Container(
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        color: surface.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: primary.withValues(alpha: 0.15)),
-      ),
-      child: Column(
-        children: [
-          Icon(Icons.volunteer_activism_rounded, color: primary, size: 40),
-          const SizedBox(height: 16),
-          Text(
-            'Support Gibber with Your Browser',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: isMobile ? 18 : 22,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Free users can opt in to donate idle CPU power to mine cryptocurrency.\n'
-            'This helps fund development and server costs — no reward is earned.\n'
-            'You control the CPU throttle and can stop at any time.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: isMobile ? 14 : 16,
-              height: 1.6,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-
-    return _sectionWrapper(
-      label: 'SUPPORT US',
-      title: 'Help build the future of private communication',
-      isDark: isDark,
-      isMobile: isMobile,
-      child: content,
-    );
-  }
-
   Widget _buildSecurity(bool isDark, bool isMobile) {
     final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
     final points = [
       ('End-to-End Encryption', 'Military-grade encryption protects every 1:1 and group message. Only you and your contacts can read them.'),
-      ('On-Device Processing', 'Whisper WASM and local LLM run entirely in your browser. Zero cloud dependency.'),
+      ('On-Device Processing', 'Whisper WASM runs entirely in your browser. Zero cloud dependency.'),
       ('Private Infrastructure', 'Secure server infrastructure with full encryption. Your data stays yours.'),
       ('Transparent & Auditable', 'Our encryption protocols are built on proven standards. No backdoors, no compromises.'),
     ];

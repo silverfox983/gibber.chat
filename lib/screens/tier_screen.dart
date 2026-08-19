@@ -145,6 +145,18 @@ class _TierScreenState extends State<TierScreen> {
                 entitlement.currentTier.aiQueriesPerMonth == -1 ? null : entitlement.currentTier.aiQueriesPerMonth,
                 ''),
           ],
+          if (entitlement.currentTier == UserTier.free) ...[
+            const SizedBox(height: 12),
+            _buildUsageRow(theme, Icons.subtitles_outlined, 'Transcription',
+                entitlement.transcriptionSecondsUsed ~/ 60,
+                null,
+                'min'),
+            const SizedBox(height: 4),
+            _buildUsageRow(theme, Icons.auto_awesome_rounded, 'AI Queries',
+                entitlement.aiQueriesUsed,
+                null,
+                ''),
+          ],
         ],
       ),
     );
