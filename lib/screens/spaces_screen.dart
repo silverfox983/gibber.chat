@@ -785,7 +785,105 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     );
   }
 
+  // ─── Inline card subscribe button ──────────────────────────────────────
+
+  Future<void> _handleFollow(UnifiedCommunity c) async {
+    if (_spacesService == null) return;
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final conn = auth.activeXmppConnection;
+    if (conn == null) return;
+
+    final success = await _spacesService!.subscribeToSpace(
+      c.domain, c.node ?? c.id.split('|').last,
+      conn.fullJid.userAtDomain,
+      spaceType: c.type.name,
+    );
+    if (!success) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to follow. Please try again.')),
+      );
+      return;
+    }
+    await auth.joinPersistedSpace(c.domain, c.node ?? c.id.split('|').last, c.name);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Following "${c.name}"!')),
+      );
+      await _loadMyCommunities();
+    }
+  }
+
+  Future<void> _handleUnfollow(UnifiedCommunity c) async {
+    if (_spacesService == null) return;
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final conn = auth.activeXmppConnection;
+    if (conn == null) return;
+
+    await _spacesService!.unsubscribeFromSpace(
+      c.domain, c.node ?? c.id.split('|').last,
+      conn.fullJid.userAtDomain,
+      spaceType: c.type.name,
+    );
+    await auth.leavePersistedSpace(c.domain, c.node ?? c.id.split('|').last);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unfollowed "${c.name}"')),
+      );
+      await _loadMyCommunities();
+    }
+  }
+
   // ─── Unified card ───────────────────────────────────────────────────────
+
+  Widget cardSubscribeButton({
+    required UnifiedCommunity community,
+    required VoidCallback onChanged,
+  }) {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final isJoined = auth.joinedSpaces.any(
+      (s) => s.domain == community.domain && (s.node == community.node || s.node == community.id.split('|').last),
+    );
+
+    if (isJoined) {
+      return GestureDetector(
+        onTap: onChanged,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: Colors.green.shade600,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.check_circle_rounded, size: 12, color: Colors.white),
+              SizedBox(width: 4),
+              Text('Following', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: onChanged,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.add_rounded, size: 12, color: Colors.black87),
+            SizedBox(width: 4),
+            Text('Follow', style: TextStyle(color: Colors.black87, fontSize: 10, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildUnifiedCommunityCard(UnifiedCommunity c, {double coverHeight = 130, bool isJoined = false}) {
     final theme = Theme.of(context);
@@ -825,7 +923,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Cover
+              // Cover with overlay
               Stack(
                 children: [
                   SizedBox(
@@ -842,12 +940,12 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
-                          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.65)],
+                          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
                         ),
                       ),
                     ),
                   ),
-                  // Type badge
+                  // Type badge (top-left)
                   Positioned(
                     top: 10, left: 10,
                     child: Container(
@@ -863,34 +961,23 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                       ]),
                     ),
                   ),
-                  // Joined badge
-                  if (isJoined)
-                    Positioned(
-                      top: 10, right: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade600,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Row(children: [
-                          Icon(Icons.check_circle_rounded, size: 10, color: Colors.white),
-                          SizedBox(width: 4),
-                          Text('JOINED', style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900)),
-                        ]),
-                      ),
-                    ),
-                  // Domain
+                  // Subscribe/Joined button (top-right)
                   Positioned(
-                    bottom: 8, left: 10,
-                    child: Text(
-                      c.domain.toUpperCase(),
-                      style: const TextStyle(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                    top: 8, right: 8,
+                    child: cardSubscribeButton(
+                      community: c,
+                      onChanged: () {
+                        if (isJoined) {
+                          _handleUnfollow(c);
+                        } else {
+                          _handleFollow(c);
+                        }
+                      },
                     ),
                   ),
-                  // Member count
+                  // Member count (bottom-left)
                   Positioned(
-                    bottom: 8, right: 10,
+                    bottom: 8, left: 10,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
@@ -905,6 +992,25 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                           style: const TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.bold),
                         ),
                       ]),
+                    ),
+                  ),
+                  // Domain (bottom-center)
+                  Positioned(
+                    bottom: 8,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black38,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          c.domain.toUpperCase(),
+                          style: const TextStyle(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                        ),
+                      ),
                     ),
                   ),
                 ],
