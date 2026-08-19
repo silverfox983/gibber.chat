@@ -306,6 +306,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     String? accountId,
     bool isVideo = true,
   }) async {
+    if (_isCleaningUp) return;
     debugPrint('CallProvider: === STARTING GROUP CALL (SFU) ===');
 
     final sfuUrl = _backendConfig?.derivedSfuUrl;
@@ -415,8 +416,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
 
     _callStartTime = DateTime.now();
-    _state = CallState.active;
-    _acquireSchedulerForCall();
+        _state = CallState.active;
+          _displayedError = null;
+          _acquireSchedulerForCall();
     _stopAllSounds();
     notifyListeners();
   }
@@ -671,6 +673,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     String? accountId,
     bool isVideo = true,
   }) async {
+    if (_isCleaningUp) return;
     debugPrint('CallProvider: === STARTING INTERNAL XMPP CALL ===');
 
     await _rtcManager.dispose();
@@ -944,6 +947,14 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     String? offerSdp, {
     String? accountId,
   }) async {
+    if (_isCleaningUp) {
+      debugPrint('CallProvider: Ignoring incoming call - cleanup in progress');
+      return;
+    }
+
+    _displayedError = null;
+    _lastError = null;
+
     // HARDENING: Ignore calls from ourselves
     final myJid = _authService?.activeAccountId;
     if (myJid != null && fromJid.contains(myJid)) {
@@ -1396,6 +1407,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   }
 
   Future<void> acceptCall() async {
+    if (_isCleaningUp) {
+      debugPrint('CallProvider: acceptCall ignored - cleanup in progress');
+      return;
+    }
+
     debugPrint('CallProvider: === ACCEPTING INCOMING CALL ===');
 
     // Handle SIP incoming calls
@@ -1805,6 +1821,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
               RTCIceConnectionState.RTCIceConnectionStateConnected ||
           state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
         _iceCheckingStartTime = null;
+        _iceRestartAttempts = 0;
         debugPrint('CallProvider: ICE CONNECTED - Data path established!');
         if (_state != CallState.active) {
           _state = CallState.active;
@@ -2032,6 +2049,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   }
 
   Future<void> endCall() async {
+    if (_isCleaningUp) {
+      debugPrint('CallProvider: endCall ignored - cleanup in progress');
+      return;
+    }
+
     if (_isSipCall) {
       _sipService?.hangup();
       _isSipCall = false;
@@ -2049,9 +2071,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     final sid = _sessionId;
     final wasActive = _state == CallState.active;
     final wasIncoming = _state == CallState.incoming;
+    final wasGroupCall = _isGroupCall;
 
     // Capture mesh peer IDs before cleanup (cleanup disposes _multiPeerManager)
-    final meshPeerIds = _isGroupCall && _multiPeerManager != null
+    final meshPeerIds = wasGroupCall && _multiPeerManager != null
         ? _multiPeerManager!.getActivePeerIds().toList()
         : <String>[];
 
@@ -2060,7 +2083,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // 2. Send termination signaling
     if (sid != null) {
-      if (_isGroupCall && meshPeerIds.isNotEmpty) {
+      if (wasGroupCall && meshPeerIds.isNotEmpty) {
         // Mesh group call: send terminate to each peer
         for (var peerId in meshPeerIds) {
           debugPrint('CallProvider: [MESH TEARDOWN] Sending terminate to $peerId');
@@ -2169,6 +2192,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _janusSpeakingSub = null;
     _janusRemoteTrackSub?.cancel();
     _janusRemoteTrackSub = null;
+    _sipCallStateSub?.cancel();
+    _sipCallStateSub = null;
+    _proximitySub?.cancel();
+    _proximitySub = null;
     _callTimeoutTimer?.cancel();
     _callTimeoutTimer = null;
     _iceDebugTimer?.cancel();

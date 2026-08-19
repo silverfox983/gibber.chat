@@ -28,7 +28,8 @@ class _DialerWidgetState extends State<DialerWidget> {
       if (clean.startsWith('+1+1')) {
         clean = clean.replaceFirst('+1+1', '+1');
       }
-      return '$clean@cheogram.com';
+      final domain = widget.authService.activeXmppDomain ?? 'cheogram.com';
+      return '$clean@$domain';
     }
     return clean;
   }

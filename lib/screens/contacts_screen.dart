@@ -289,7 +289,8 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                         Expanded(
                           child: OutlinedButton(
                             onPressed: () {
-                              authService.declineSubscription(jid);
+                              final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+                              chatProvider.respondToSubscription(jid, false, authService);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('Declined request from ${jid.split('@').first}'), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)),
                               );
@@ -306,7 +307,8 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                         Expanded(
                           child: FilledButton(
                             onPressed: () {
-                              authService.acceptSubscription(jid);
+                              final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+                              chatProvider.respondToSubscription(jid, true, authService);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('Accepted request from ${jid.split('@').first}'), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)),
                               );

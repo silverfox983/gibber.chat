@@ -224,7 +224,7 @@ class ContactProfileScreen extends StatelessWidget {
             color: Colors.green,
             onTap: () {
               final callProvider = Provider.of<CallProvider>(context, listen: false);
-              callProvider.startCall(contact.id, isVideo: false, protocol: 'XMPP');
+              callProvider.startCall(contact.id, isVideo: false, protocol: contact.protocol);
             },
           ),
           _ActionButton(
@@ -233,7 +233,7 @@ class ContactProfileScreen extends StatelessWidget {
             color: Colors.blue,
             onTap: () {
               final callProvider = Provider.of<CallProvider>(context, listen: false);
-              callProvider.startCall(contact.id, isVideo: true, protocol: 'XMPP');
+              callProvider.startCall(contact.id, isVideo: true, protocol: contact.protocol);
             },
           ),
         ],

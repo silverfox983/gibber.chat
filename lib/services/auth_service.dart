@@ -313,6 +313,10 @@ class AuthService with ChangeNotifier {
 
   String? _activeAccountId;
   String? get activeAccountId => _activeAccountId;
+  String? get activeXmppDomain {
+    if (_activeAccountId == null) return null;
+    return _xmppJids[_activeAccountId]?.split('@').last.split('/').first;
+  }
 
   Future<String?> getActiveAccountPassword() async {
     if (_activeAccountId == null) return null;
@@ -690,6 +694,9 @@ class AuthService with ChangeNotifier {
             );
           });
 
+          // Load cached vCard data from SQLite before roster/process starts
+          _loadCachedVCards(id);
+
           // Setup Roster
           final rosterManager = xmpp.RosterManager.getInstance(conn);
           rosterManager.getRoster();
@@ -740,10 +747,16 @@ class AuthService with ChangeNotifier {
                 (c) => c.id.toLowerCase().split('/').first == barePid,
               );
               if (index != -1) {
-                _currentContacts[index].status = _mapPresenceToShow(
-                  presence.showElement,
-                );
-                _currentContacts[index].presenceMessage = presence.status;
+                if (presence.showElement == xmpp.PresenceShowElement.AWAY &&
+                    presence.status == 'Unavailable') {
+                  _currentContacts[index].status = ContactStatus.offline;
+                  _currentContacts[index].presenceMessage = null;
+                } else {
+                  _currentContacts[index].status = _mapPresenceToShow(
+                    presence.showElement,
+                  );
+                  _currentContacts[index].presenceMessage = presence.status;
+                }
                 _contactStreamController.add(List.from(_currentContacts));
               }
             }
@@ -769,9 +782,7 @@ class AuthService with ChangeNotifier {
                 final roomJid = '${fromJid?.local}@${fromJid?.domain}';
                 final nick = fromJid?.resource;
                 if (nick != null) {
-                  final isUnavailable = stanza.type.toString().contains(
-                    'unavailable',
-                  );
+                  final isUnavailable = stanza.type == xmpp.PresenceType.UNAVAILABLE;
 
                   final item = mucUser.getChild('item');
                   final affiliation = item?.getAttribute('affiliation')?.value;
@@ -795,12 +806,9 @@ class AuthService with ChangeNotifier {
             }
 
             if (stanza is xmpp.PresenceStanza) {
-              final typeStr = stanza.type.toString();
               final fromJid = stanza.fromJid?.fullJid?.split('/').first.toLowerCase();
 
-              if (typeStr.contains('subscribe') &&
-                  !typeStr.contains('unsubscribe')) {
-                // Incoming friend request
+              if (stanza.type == xmpp.PresenceType.SUBSCRIBE) {
                 if (fromJid != null) {
                   final req = {
                     'jid': fromJid,
@@ -813,7 +821,7 @@ class AuthService with ChangeNotifier {
                     _saveSubscriptionRequests();
                   }
                 }
-              } else if (typeStr.contains('unsubscribed')) {
+              } else if (stanza.type == xmpp.PresenceType.UNSUBSCRIBED) {
                 debugPrint('SOCIAL: User $fromJid unsubscribed from us.');
               }
 
@@ -922,9 +930,18 @@ class AuthService with ChangeNotifier {
                   for (var item in query.children.where((e) => e.name == 'item')) {
                     final itemJid = item.getAttribute('jid')?.value;
                     if (itemJid != null) {
+                      final subscription = item.getAttribute('subscription')?.value;
                       final bareJid = itemJid.toLowerCase().split('/').first;
                       final name = item.getAttribute('name')?.value;
-                      
+
+                      if (subscription == 'remove') {
+                        _currentContacts.removeWhere(
+                          (c) => c.id.toLowerCase().split('/').first == bareJid,
+                        );
+                        rosterUpdated = true;
+                        continue;
+                      }
+
                       // Extract <group> tags
                       final groups = item.children
                           .where((e) => e.name == 'group')
@@ -941,9 +958,8 @@ class AuthService with ChangeNotifier {
                         }
                         rosterUpdated = true;
                       } else {
-                        // If not found, add it optimistically; RosterManager will also process it but we have group data now.
                         _currentContacts.add(Contact(
-                          id: itemJid,
+                          id: bareJid,
                           name: name ?? bareJid,
                           protocol: 'XMPP',
                           groups: groups,
@@ -1363,6 +1379,43 @@ class AuthService with ChangeNotifier {
                 debugPrint(
                   'SOCIAL: Updated blocklist for $id: $_currentBlockedContacts',
                 );
+                return;
+              }
+
+              // Handle individual block push (XEP-0191)
+              final blockPush = stanza.getChild('block');
+              if (blockPush != null &&
+                  blockPush.getAttribute('xmlns')?.value == 'urn:xmpp:blocking') {
+                for (var item in blockPush.children) {
+                  if (item.name == 'item') {
+                    final jid = item.getAttribute('jid')?.value?.split('/').first.toLowerCase();
+                    if (jid != null && !_currentBlockedContacts.contains(jid)) {
+                      _currentBlockedContacts.add(jid);
+                    }
+                  }
+                }
+                _blockedContactsController.add(List.from(_currentBlockedContacts));
+                debugPrint('SOCIAL: Block push processed: $_currentBlockedContacts');
+                return;
+              }
+
+              // Handle individual unblock push (XEP-0191)
+              final unblockPush = stanza.getChild('unblock');
+              if (unblockPush != null &&
+                  unblockPush.getAttribute('xmlns')?.value == 'urn:xmpp:blocking') {
+                for (var item in unblockPush.children) {
+                  if (item.name == 'item') {
+                    final jid = item.getAttribute('jid')?.value?.split('/').first.toLowerCase();
+                    if (jid != null) {
+                      _currentBlockedContacts.remove(jid);
+                    }
+                  }
+                }
+                if (unblockPush.children.isEmpty) {
+                  _currentBlockedContacts.clear();
+                }
+                _blockedContactsController.add(List.from(_currentBlockedContacts));
+                debugPrint('SOCIAL: Unblock push processed: $_currentBlockedContacts');
                 return;
               }
 
@@ -2089,6 +2142,32 @@ class AuthService with ChangeNotifier {
         () => fetchContactVCard(jid, accountId: accountId),
       );
     }
+  }
+
+  Future<void> _loadCachedVCards(String accountId) async {
+    final db = DatabaseService();
+    final database = await db.database;
+    final results = await database.query('contact_vcards');
+    for (final cached in results) {
+      final jid = cached['jid'] as String?;
+      if (jid == null) continue;
+      final contactIndex = _currentContacts.indexWhere(
+        (c) => c.id.toLowerCase().split('/').first == jid.toLowerCase(),
+      );
+      if (contactIndex != -1) {
+        final contact = _currentContacts[contactIndex];
+        if (cached['full_name'] != null && (contact as dynamic).name == jid) {
+          _currentContacts[contactIndex].name = cached['full_name'] as String;
+        }
+        if (cached['avatar_data'] != null) {
+          try {
+            final avatarBytes = base64Decode(cached['avatar_data'] as String);
+            AvatarCacheService().saveAvatar(jid, avatarBytes);
+          } catch (_) {}
+        }
+      }
+    }
+    debugPrint('AuthService: Loaded ${results.length} cached vCards for $accountId');
   }
 
   // --- SOCIAL INTELLIGENCE: CONTACT MANAGEMENT ---
