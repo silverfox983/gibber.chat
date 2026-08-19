@@ -1570,6 +1570,11 @@ class ApiRouter {
       return Response.badRequest(body: jsonEncode({'error': 'Invalid gateway type'}), headers: _jsonHeaders);
     }
 
+    final authorized = await entitlementService.isProtocolAuthorized(jid, type);
+    if (!authorized) {
+      return Response(403, body: jsonEncode({'error': 'Protocol not available for your tier. Upgrade to unlock ${type}.'}), headers: _jsonHeaders);
+    }
+
     try {
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
       final config = body['config'] as Map<String, dynamic>? ?? {};
@@ -1643,6 +1648,11 @@ class ApiRouter {
 
     if (!UserGatewayService.availableGatewayTypes.containsKey(type)) {
       return Response.badRequest(body: jsonEncode({'error': 'Invalid gateway type'}), headers: _jsonHeaders);
+    }
+
+    final authorized = await entitlementService.isProtocolAuthorized(jid, type);
+    if (!authorized) {
+      return Response(403, body: jsonEncode({'error': 'Protocol not available for your tier. Upgrade to unlock ${type}.'}), headers: _jsonHeaders);
     }
 
     try {

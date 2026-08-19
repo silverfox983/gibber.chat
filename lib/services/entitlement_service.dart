@@ -36,7 +36,7 @@ extension UserTierExtension on UserTier {
   int get transcriptionMinutesPerMonth {
     switch (this) {
       case UserTier.free:
-        return 30;
+        return 0;
       case UserTier.pro:
         return 300;
       case UserTier.ultimate:
@@ -47,7 +47,7 @@ extension UserTierExtension on UserTier {
   int get aiQueriesPerMonth {
     switch (this) {
       case UserTier.free:
-        return 10;
+        return 0;
       case UserTier.pro:
         return 100;
       case UserTier.ultimate:
@@ -238,46 +238,50 @@ class EntitlementService extends ChangeNotifier {
   }
 
   bool get canTranscribe {
+    if (currentTier == UserTier.free) return false;
     final limit = currentTier.transcriptionMinutesPerMonth;
     if (limit == -1) return true;
     return _transcriptionSecondsUsed < limit * 60;
   }
 
   bool get canUseAI {
+    if (currentTier == UserTier.free) return false;
     final limit = currentTier.aiQueriesPerMonth;
     if (limit == -1) return true;
     return _aiQueriesUsed < limit;
   }
 
   String? transcriptionLimitMessage() {
+    if (currentTier == UserTier.free) {
+      return 'Transcription is a Pro feature. Upgrade to unlock.';
+    }
     if (currentTier == UserTier.ultimate) return null;
     if (!canTranscribe) {
-      if (currentTier == UserTier.free) {
-        return 'Free tier transcription limit (30 min/month) reached. Upgrade to Pro for 300 min.';
-      }
       return 'Pro tier transcription limit (300 min/month) reached. Upgrade to Ultimate for unlimited.';
     }
     return null;
   }
 
   String? aiLimitMessage() {
+    if (currentTier == UserTier.free) {
+      return 'AI queries are a Pro feature. Upgrade to unlock.';
+    }
     if (currentTier == UserTier.ultimate) return null;
     if (!canUseAI) {
-      if (currentTier == UserTier.free) {
-        return 'Free tier AI query limit (10/month) reached. Upgrade to Pro for 100 queries.';
-      }
       return 'Pro tier AI query limit (100/month) reached. Upgrade to Ultimate for unlimited.';
     }
     return null;
   }
 
   void recordTranscriptionSeconds(int seconds) {
+    if (currentTier == UserTier.free) return;
     _transcriptionSecondsUsed += seconds;
     _cacheUsage();
     notifyListeners();
   }
 
   void recordAIQuery() {
+    if (currentTier == UserTier.free) return;
     _aiQueriesUsed += 1;
     _cacheUsage();
     notifyListeners();

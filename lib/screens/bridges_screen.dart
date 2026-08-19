@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../core/breakpoints.dart';
 import '../core/design_tokens.dart';
@@ -7,6 +8,7 @@ import '../core/app_colors.dart';
 import '../models/user_gateway.dart';
 import '../services/auth_service.dart';
 import '../services/bridge_config_service.dart';
+import '../services/entitlement_service.dart';
 import '../services/jwt_token_service.dart';
 
 class BridgesScreen extends StatefulWidget {
@@ -181,6 +183,7 @@ class _BridgesScreenState extends State<BridgesScreen> with SingleTickerProvider
   }
 
   Widget _buildPlatformGrid(ThemeData theme, bool isDark, ScreenSize size) {
+    final entitlement = Provider.of<EntitlementService>(context, listen: false);
     final platforms = ['telegram', 'discord', 'irc', 'matrix', 'whatsapp'];
     final crossAxisCount = switch (size) {
       ScreenSize.compact => 1,
@@ -196,6 +199,7 @@ class _BridgesScreenState extends State<BridgesScreen> with SingleTickerProvider
             platform: p,
             gateway: _gatewayForType(p),
             bridgeService: _bridgeService,
+            isLocked: !entitlement.isProtocolAllowed(p),
             onConfigure: () => _showConfigDialog(context, p),
             onEnable: () => _enableGateway(context, p),
             onDisable: () => _disableGateway(context, p),
@@ -220,6 +224,7 @@ class _BridgesScreenState extends State<BridgesScreen> with SingleTickerProvider
             platform: p,
             gateway: _gatewayForType(p),
             bridgeService: _bridgeService,
+            isLocked: !entitlement.isProtocolAllowed(p),
             onConfigure: () => _showConfigDialog(context, p),
             onEnable: () => _enableGateway(context, p),
             onDisable: () => _disableGateway(context, p),
@@ -288,6 +293,12 @@ class _BridgesScreenState extends State<BridgesScreen> with SingleTickerProvider
   }
 
   Future<void> _showConfigDialog(BuildContext context, String type) async {
+    final entitlement = Provider.of<EntitlementService>(context, listen: false);
+    if (!entitlement.isProtocolAllowed(type)) {
+      _showUpgradeDialog(context, type);
+      return;
+    }
+
     final info = GatewayTypeInfo.available[type]!;
     final result = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
@@ -335,6 +346,12 @@ class _BridgesScreenState extends State<BridgesScreen> with SingleTickerProvider
   }
 
   Future<void> _enableGateway(BuildContext context, String type) async {
+    final entitlement = Provider.of<EntitlementService>(context, listen: false);
+    if (!entitlement.isProtocolAllowed(type)) {
+      _showUpgradeDialog(context, type);
+      return;
+    }
+
     final auth = Provider.of<AuthService>(context, listen: false);
     final userId = auth.activeAccountId;
     if (userId == null) return;
@@ -428,6 +445,33 @@ class _BridgesScreenState extends State<BridgesScreen> with SingleTickerProvider
       }
     }
   }
+
+  void _showUpgradeDialog(BuildContext context, String type) {
+    final info = GatewayTypeInfo.available[type]!;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(children: [
+          Icon(Icons.lock_rounded, color: Colors.orange.shade700),
+          const SizedBox(width: 10),
+          Text('${info.name} requires Pro'),
+        ]),
+        content: Text(
+          '${info.name} bridges are available for Pro and Ultimate subscribers. Upgrade your plan to connect your ${info.name} account.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.goNamed('tier');
+            },
+            child: const Text('Upgrade'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _LoadingState extends StatelessWidget {
@@ -475,6 +519,7 @@ class _PlatformCard extends StatelessWidget {
   final String platform;
   final UserGateway? gateway;
   final BridgeConfigService bridgeService;
+  final bool isLocked;
   final VoidCallback onConfigure;
   final VoidCallback onEnable;
   final VoidCallback onDisable;
@@ -484,6 +529,7 @@ class _PlatformCard extends StatelessWidget {
     required this.platform,
     required this.gateway,
     required this.bridgeService,
+    required this.isLocked,
     required this.onConfigure,
     required this.onEnable,
     required this.onDisable,
@@ -495,8 +541,8 @@ class _PlatformCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final info = GatewayTypeInfo.available[platform]!;
-    final isConnected = gateway?.enabled == true && gateway?.status == 'running';
-    final isConfigured = gateway != null;
+    final isConnected = !isLocked && gateway?.enabled == true && gateway?.status == 'running';
+    final isConfigured = !isLocked && gateway != null;
     final isStarting = gateway?.status == 'starting' || gateway?.status == 'configuring';
     final platformColor = _platformColor(platform);
 
@@ -511,14 +557,25 @@ class _PlatformCard extends StatelessWidget {
                   platformColor.withValues(alpha: 0.05),
                 ],
               )
-            : null,
+            : isLocked
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.orange.withValues(alpha: 0.05),
+                      Colors.orange.withValues(alpha: 0.02),
+                    ],
+                  )
+                : null,
         color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
         borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
         border: Border.all(
           color: isConnected
               ? platformColor.withValues(alpha: 0.5)
-              : (isDark ? AppColors.borderDark : AppColors.borderLight),
-          width: isConnected ? 2 : 1,
+              : isLocked
+                  ? Colors.orange.withValues(alpha: 0.4)
+                  : (isDark ? AppColors.borderDark : AppColors.borderLight),
+          width: isConnected || isLocked ? 2 : 1,
         ),
         boxShadow: isConnected
             ? [
@@ -528,7 +585,15 @@ class _PlatformCard extends StatelessWidget {
                   spreadRadius: 0,
                 ),
               ]
-            : null,
+            : isLocked
+                ? [
+                    BoxShadow(
+                      color: Colors.orange.withValues(alpha: 0.08),
+                      blurRadius: 12,
+                      spreadRadius: 0,
+                    ),
+                  ]
+                : null,
       ),
       child: Material(
         color: Colors.transparent,
@@ -543,7 +608,7 @@ class _PlatformCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    _PlatformIcon(platform: platform, color: platformColor, isConnected: isConnected),
+                    _PlatformIcon(platform: platform, color: platformColor, isConnected: isConnected, isLocked: isLocked),
                     const SizedBox(width: DesignTokens.space12),
                     Expanded(
                       child: Column(
@@ -562,6 +627,7 @@ class _PlatformCard extends StatelessWidget {
                             isConnected: isConnected,
                             isConfigured: isConfigured,
                             isStarting: isStarting,
+                            isLocked: isLocked,
                             platformColor: platformColor,
                           ),
                         ],
@@ -624,6 +690,16 @@ class _PlatformCard extends StatelessWidget {
                           filled: false,
                         ),
                       ),
+                    ] else if (isLocked) ...[
+                      Expanded(
+                        child: _ActionButton(
+                          label: 'Pro Required',
+                          icon: Icons.lock_rounded,
+                          onPressed: onConfigure,
+                          color: Colors.orange.shade700,
+                          filled: true,
+                        ),
+                      ),
                     ] else ...[
                       Expanded(
                         child: _ActionButton(
@@ -673,24 +749,43 @@ class _PlatformIcon extends StatelessWidget {
   final String platform;
   final Color color;
   final bool isConnected;
+  final bool isLocked;
 
-  const _PlatformIcon({required this.platform, required this.color, required this.isConnected});
+  const _PlatformIcon({required this.platform, required this.color, required this.isConnected, this.isLocked = false});
 
   @override
   Widget build(BuildContext context) {
     final icon = _iconForPlatform(platform);
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: isConnected ? 0.2 : 0.1),
-        borderRadius: BorderRadius.circular(DesignTokens.radiusMd),
-        border: Border.all(
-          color: color.withValues(alpha: isConnected ? 0.5 : 0.2),
-          width: 1,
+    return Stack(
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: isConnected ? 0.2 : 0.1),
+            borderRadius: BorderRadius.circular(DesignTokens.radiusMd),
+            border: Border.all(
+              color: color.withValues(alpha: isConnected ? 0.5 : 0.2),
+              width: 1,
+            ),
+          ),
+          child: Icon(icon, color: isLocked ? Colors.grey : color, size: 24),
         ),
-      ),
-      child: Icon(icon, color: color, size: 24),
+        if (isLocked)
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade700,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+              child: const Icon(Icons.lock_rounded, size: 10, color: Colors.white),
+            ),
+          ),
+      ],
     );
   }
 
@@ -710,12 +805,14 @@ class _StatusBadge extends StatelessWidget {
   final bool isConnected;
   final bool isConfigured;
   final bool isStarting;
+  final bool isLocked;
   final Color platformColor;
 
   const _StatusBadge({
     required this.isConnected,
     required this.isConfigured,
     required this.isStarting,
+    required this.isLocked,
     required this.platformColor,
   });
 
@@ -723,7 +820,10 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     late final String label;
     late final Color color;
-    if (isStarting) {
+    if (isLocked) {
+      label = 'Pro required';
+      color = Colors.orange.shade700;
+    } else if (isStarting) {
       label = 'Connecting…';
       color = Colors.orange;
     } else if (isConnected) {
