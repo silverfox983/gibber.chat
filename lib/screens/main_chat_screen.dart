@@ -21,6 +21,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:giphy_get/giphy_get.dart';
 import '../widgets/link_preview.dart';
+import '../widgets/common/empty_state.dart';
 import '../widgets/audio_waveform.dart';
 import '../widgets/typing_indicator.dart';
 import '../models/chat_models.dart';
@@ -3898,11 +3899,10 @@ class _MainChatScreenState extends State<MainChatScreen> {
         ),
         Expanded(
           child: chatProvider.globalSearchResults.isEmpty
-              ? Center(
-                  child: Text(
-                    'No results',
-                    style: TextStyle(color: Theme.of(context).disabledColor),
-                  ),
+              ? EmptyState(
+                  icon: Icons.search_off_rounded,
+                  title: 'No results',
+                  subtitle: 'Try a different search term',
                 )
               : ListView.builder(
                   itemCount: chatProvider.globalSearchResults.length,

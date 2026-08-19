@@ -23,6 +23,7 @@ import '../models/unified_community.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/create_space_dialog.dart';
 import '../widgets/space_invite_dialog.dart';
+import '../widgets/common/empty_state.dart';
 
 // Provides global state for liked items across the session
 class SpacesScreenManager {
@@ -2527,15 +2528,17 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         if (orderedPosts.isEmpty && channels.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
-            child: Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.article_outlined, size: 56,
-                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
-                const SizedBox(height: 12),
-                Text(_searchQuery.isNotEmpty ? 'No posts match "$_searchQuery"' : 'No posts yet',
-                    style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
-              ]),
-            ),
+            child: _searchQuery.isNotEmpty
+                ? EmptyState(
+                    icon: Icons.search_off_rounded,
+                    title: 'No posts match "$_searchQuery"',
+                    subtitle: 'Try a different search term',
+                  )
+                : EmptyState(
+                    icon: Icons.article_outlined,
+                    title: 'No posts yet',
+                    subtitle: 'Be the first to post in this space',
+                  ),
           ),
         const SliverToBoxAdapter(child: SizedBox(height: 100)),
       ]),
@@ -3158,7 +3161,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                   if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
                   if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
                   final items = snap.data ?? [];
-                  if (items.isEmpty) return const Center(child: Text('No posts found with this tag'));
+                  if (items.isEmpty) return EmptyState(icon: Icons.tag_rounded, title: 'No posts found with this tag');
                   return ListView.builder(
                     controller: controller,
                     padding: const EdgeInsets.all(16),
