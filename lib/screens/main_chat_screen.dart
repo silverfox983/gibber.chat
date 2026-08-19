@@ -3828,22 +3828,20 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
     if (isMobile) return content;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
       curve: Curves.easeInOut,
-      width: _isSidebarCollapsed ? 0 : 320,
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 150),
-        opacity: _isSidebarCollapsed ? 0 : 1.0,
-        child: ClipRect(
-          child: OverflowBox(
-            alignment: Alignment.centerLeft,
-            maxWidth: 320,
-            minWidth: 320,
-            child: SizedBox(width: 320, child: content),
-          ),
-        ),
-      ),
+      alignment: Alignment.centerLeft,
+      child: _isSidebarCollapsed
+          ? const SizedBox(width: 0)
+          : SizedBox(
+              width: 320,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 180),
+                opacity: 1.0,
+                child: ClipRect(child: content),
+              ),
+            ),
     );
   }
 
@@ -3854,7 +3852,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
         debugPrint('ISOLATE: Selected Tab $idx');
         chatProvider.setSidebarTab(idx);
       },
-      onExpandSidebar: _isSidebarCollapsed ? () => setState(() => _isSidebarCollapsed = false) : null,
+      onToggleSidebar: () => setState(() => _isSidebarCollapsed = !_isSidebarCollapsed),
+      sidebarCollapsed: _isSidebarCollapsed,
     );
   }
 
