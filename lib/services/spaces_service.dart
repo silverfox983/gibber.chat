@@ -755,7 +755,7 @@ class SpacesService extends ChangeNotifier {
     addField('FORM_TYPE', 'http://jabber.org/protocol/pubsub#node_config', type: 'hidden');
     addField('pubsub#title', name);
     if (description != null) addField('pubsub#description', description);
-    if (topic != null && topic.isNotEmpty) addField('pubsub#title', topic);
+    if (topic != null && topic.isNotEmpty) addField('pubsub#subject', topic);
     if (avatarUrl != null && avatarUrl.isNotEmpty) addField('pubsub#node_avatar_url', avatarUrl);
     if (bannerUrl != null && bannerUrl.isNotEmpty) addField('pubsub#node_banner_url', bannerUrl);
     addField('pubsub#node_type', 'leaf');
@@ -789,17 +789,31 @@ class SpacesService extends ChangeNotifier {
       }
 
       // SUCCESS — now create MUC room and auto-subscribe
+      final mucJid = '$node@conference.$domain';
+      final myJid = _connection.account.fullJid.userAtDomain;
+
+      // Create MUC room with timeout (lazy — joining creates it on Prosody)
       try {
-        final mucJid = '$node@conference.$domain';
-        final myJid = _connection.account.fullJid.userAtDomain;
-
-        // Create MUC room (lazy — joining creates it)
-        await _joinMucRoom(mucJid, myJid);
-
-        // Auto-subscribe to the PubSub node so creator sees posts
-        await subscribeToSpace(domain, node, myJid, spaceType: 'leaf');
+        await _joinMucRoom(mucJid, myJid).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            debugPrint('SpacesService: MUC join timed out after 5s for $mucJid');
+            return false;
+          },
+        );
+        debugPrint('SpacesService: MUC room joined/created at $mucJid');
       } catch (e) {
-        debugPrint('SpacesService: MUC creation or subscribe failed (non-fatal): $e');
+        debugPrint('SpacesService: MUC room creation failed: $e');
+      }
+
+      // Auto-subscribe to the PubSub node so creator sees posts
+      try {
+        await subscribeToSpace(domain, node, myJid, spaceType: 'leaf').timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => false,
+        );
+      } catch (e) {
+        debugPrint('SpacesService: PubSub subscribe failed: $e');
       }
 
       return null;

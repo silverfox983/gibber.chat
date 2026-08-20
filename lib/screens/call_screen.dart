@@ -24,11 +24,11 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
   late CallProvider _callProvider;
   Timer? _durationTimer;
   Duration _callDuration = Duration.zero;
+  bool _dismissed = false;
   bool _showDtmfPad = false;
   bool _showCaptions = false;
-  bool _showAssistant = false;
+  bool _captionsEnabled = false;
   bool _showParticipants = false;
-  final TextEditingController _assistantController = TextEditingController();
   bool get isCallActive => _callProvider.state == CallState.active;
 
   @override
@@ -59,6 +59,20 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     if (!mounted) return;
     if (_callProvider.state == CallState.active) {
       _startTimer();
+      if (_captionsEnabled && !_showCaptions) {
+        final ts = Provider.of<TranscriptionService>(context, listen: false);
+        if (ts.status == TranscriptionStatus.idle) {
+          ts.initialize().then((_) {
+            if (mounted && _captionsEnabled) {
+              ts.startTranscription(_callProvider.localRenderer.srcObject, _callProvider.remoteRenderer.srcObject);
+              setState(() => _showCaptions = true);
+            }
+          });
+        } else if (ts.status == TranscriptionStatus.ready) {
+          ts.startTranscription(_callProvider.localRenderer.srcObject, _callProvider.remoteRenderer.srcObject);
+          setState(() => _showCaptions = true);
+        }
+      }
     } else if (_callProvider.state == CallState.idle) {
       _stopTimer();
       if (_showCaptions) {
@@ -68,22 +82,18 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
         }
         _showCaptions = false;
       }
-      if (_showAssistant) {
-        final as2 = Provider.of<AssistantService>(context, listen: false);
-        as2.clearMessages();
-        _showAssistant = false;
-      }
       final error = _callProvider.lastError;
+      _dismissed = true;
       if (error != null && error.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(error), duration: const Duration(seconds: 3)),
         );
-        Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) Navigator.of(context).maybePop();
-        });
-      } else {
-        Navigator.of(context).maybePop();
       }
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) {
+          Navigator.of(context).maybePop();
+        }
+      });
     }
     setState(() {});
   }
@@ -111,7 +121,6 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     _stopTimer();
     _pulseController.dispose();
     _waveController.dispose();
-    _assistantController.dispose();
     super.dispose();
   }
 
@@ -191,10 +200,6 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                               isExpanded: false,
                               onToggleExpand: () => setState(() => _showCaptions = true),
                             ),
-                          ),
-                        if (_showAssistant)
-                          Consumer<AssistantService>(
-                            builder: (context, as, _) => _buildAssistantPanel(as),
                           ),
                         const Spacer(),
                         _buildControls(call),
@@ -1090,7 +1095,10 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                   activeColor: Colors.cyan,
                   onPressed: () {
                     HapticFeedback.lightImpact();
-                    setState(() => _showCaptions = !_showCaptions);
+                    setState(() {
+                      _showCaptions = !_showCaptions;
+                      if (_showCaptions) _captionsEnabled = true;
+                    });
                     final ts = Provider.of<TranscriptionService>(context, listen: false);
                     if (_showCaptions) {
                       if (ts.status == TranscriptionStatus.idle) {
@@ -1103,23 +1111,6 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                     } else {
                       if (ts.status == TranscriptionStatus.listening) {
                         ts.stopTranscription();
-                      }
-                    }
-                  },
-                ),
-                if (call.state == CallState.active)
-                _enhancedCircleButton(
-                  icon: Icons.auto_awesome_rounded,
-                  label: 'AI',
-                  isActive: _showAssistant,
-                  activeColor: Colors.purpleAccent,
-                  onPressed: () {
-                    HapticFeedback.lightImpact();
-                    setState(() => _showAssistant = !_showAssistant);
-                    if (_showAssistant) {
-                      final as2 = Provider.of<AssistantService>(context, listen: false);
-                      if (as2.status == AssistantStatus.idle) {
-                        as2.initialize();
                       }
                     }
                   },
@@ -1437,97 +1428,6 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
         ),
       ),
     );
-  }
-
-  Widget _buildAssistantPanel(AssistantService assistant) {
-    final theme = Theme.of(context);
-    final isLoading = assistant.status == AssistantStatus.loading;
-    final loadProgress = assistant.modelLoadProgress;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.purpleAccent.withValues(alpha: 0.5), width: 1),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            Icon(Icons.auto_awesome_rounded, size: 16, color: Colors.purpleAccent),
-            const SizedBox(width: 6),
-            Text('Gibber AI', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
-            if (isLoading) ...[
-              const SizedBox(width: 8),
-              Text('(${assistant.modelLoadStatus})', style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurfaceVariant)),
-            ],
-            const Spacer(),
-            IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => setState(() => _showAssistant = false), padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),
-          ]),
-          if (isLoading && loadProgress > 0) ...[
-            const SizedBox(height: 6),
-            LinearProgressIndicator(
-              value: loadProgress,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.purpleAccent),
-              minHeight: 3,
-            ),
-          ],
-          if (!isLoading) ...[
-            const SizedBox(height: 8),
-            Wrap(spacing: 8, runSpacing: 4, children: [
-              ActionChip(avatar: Icon(Icons.summarize_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Summarize', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('Summarize the call', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
-              ActionChip(avatar: Icon(Icons.checklist_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Actions', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('List action items', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
-              ActionChip(avatar: Icon(Icons.email_rounded, size: 14, color: Colors.purpleAccent), label: const Text('Follow Up', style: TextStyle(fontSize: 11)), onPressed: () => _askAssistant('Draft a follow-up', assistant), backgroundColor: theme.colorScheme.surface, side: BorderSide(color: Colors.purpleAccent.withValues(alpha: 0.3))),
-            ]),
-            const SizedBox(height: 8),
-            Row(children: [
-              Expanded(child: TextField(controller: _assistantController, style: const TextStyle(fontSize: 13), decoration: InputDecoration(hintText: 'Ask about the call...', hintStyle: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant), filled: true, fillColor: theme.colorScheme.surface, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none), isDense: true), onSubmitted: (v) => _askAssistant(v, assistant))),
-              const SizedBox(width: 8),
-              IconButton(icon: Icon(Icons.send_rounded, color: Colors.purpleAccent, size: 20), onPressed: () => _askAssistant(_assistantController.text, assistant), padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 32, minHeight: 32)),
-            ]),
-            if (assistant.partialResponse.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.purpleAccent.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.auto_awesome_rounded, size: 12, color: Colors.purpleAccent),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        assistant.partialResponse,
-                        style: TextStyle(fontSize: 12, color: Colors.purpleAccent.shade100, fontStyle: FontStyle.italic),
-                      ),
-                    ),
-                    const SizedBox(width: 8, height: 8, child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.purpleAccent)),
-                  ],
-                ),
-              ),
-            ],
-            if (assistant.messages.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Container(constraints: const BoxConstraints(maxHeight: 100), child: ListView.builder(shrinkWrap: true, itemCount: assistant.messages.length, itemBuilder: (ctx, i) { final m = assistant.messages[i]; return Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('${m.isUser ? "You" : "AI"}: ${m.text}', style: TextStyle(fontSize: 12, color: m.isUser ? Colors.purpleAccent.shade100 : Colors.cyan.shade100))); })),
-            ],
-            if (assistant.status == AssistantStatus.generating && assistant.partialResponse.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.purpleAccent)))),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Future<void> _askAssistant(String query, AssistantService assistant) async {
-    if (query.trim().isEmpty) return;
-    _assistantController.clear();
-    await assistant.ask(query);
   }
 }
 

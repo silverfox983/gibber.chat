@@ -2086,6 +2086,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: endCall ignored - cleanup in progress');
       return;
     }
+    _isCleaningUp = true;
 
     if (_isSipCall) {
       _sipService?.hangup();
@@ -2145,6 +2146,12 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   }
 
   Future<void> declineCall() async {
+    if (_isCleaningUp) {
+      debugPrint('CallProvider: declineCall ignored - cleanup in progress');
+      return;
+    }
+    _isCleaningUp = true;
+
     final signaling =
         _authService?.getJingleService(_callAccountId ?? '') ??
         _authService?.jingleSignaling;
