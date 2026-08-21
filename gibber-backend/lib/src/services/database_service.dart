@@ -1,4 +1,5 @@
 import 'package:sqlite3/sqlite3.dart';
+import 'package:uuid/uuid.dart';
 
 class DatabaseService {
   final String dbPath;
@@ -141,6 +142,18 @@ class DatabaseService {
         applied_at TEXT DEFAULT (datetime('now'))
       )
     ''');
+
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id TEXT PRIMARY KEY,
+        jid TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        p256dh TEXT,
+        auth TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(jid)
+      )
+    ''');
   }
 
   void _createIndexes() {
@@ -205,6 +218,54 @@ class DatabaseService {
       db.execute('CREATE INDEX IF NOT EXISTS idx_user_gateways_jid_type ON user_gateways(jid, gateway_type)');
       _setSchemaVersion(3);
     }
+
+    if (currentVersion < 4) {
+      print('Running migration v4: add push_subscriptions table');
+      db.execute('''
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+          id TEXT PRIMARY KEY,
+          jid TEXT NOT NULL,
+          endpoint TEXT NOT NULL,
+          p256dh TEXT,
+          auth TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(jid)
+        )
+      ''');
+      _setSchemaVersion(4);
+    }
+  }
+
+  void upsertPushSubscription(String jid, String endpoint, String? p256dh, String? auth) {
+    db.execute('''
+      INSERT INTO push_subscriptions (id, jid, endpoint, p256dh, auth)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(jid) DO UPDATE SET
+        endpoint = excluded.endpoint,
+        p256dh = excluded.p256dh,
+        auth = excluded.auth
+    ''', [const Uuid().v4(), jid, endpoint, p256dh, auth]);
+  }
+
+  Map<String, dynamic>? getPushSubscription(String jid) {
+    final results = db.select(
+      'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE jid = ?',
+      [jid],
+    );
+    if (results.isEmpty) return null;
+    return {
+      'endpoint': results.first['endpoint'],
+      'p256dh': results.first['p256dh'],
+      'auth': results.first['auth'],
+    };
+  }
+
+  void deletePushSubscription(String jid) {
+    db.execute('DELETE FROM push_subscriptions WHERE jid = ?', [jid]);
+  }
+
+  List<Map<String, dynamic>> getAllPushSubscriptions() {
+    return db.select('SELECT jid, endpoint, p256dh, auth FROM push_subscriptions').toList();
   }
 
   void dispose() {

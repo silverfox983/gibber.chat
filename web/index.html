@@ -82,6 +82,11 @@
         loader.classList.add('fade-out');
         setTimeout(function() { loader.remove(); }, 300);
       }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('push_sw.js').catch(function(err) {
+          console.warn('SW registration failed:', err);
+        });
+      }
     });
   </script>
   <script src="flutter_bootstrap.js" async></script>

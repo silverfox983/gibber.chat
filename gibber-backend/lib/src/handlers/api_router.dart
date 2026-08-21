@@ -128,6 +128,8 @@ class ApiRouter {
     _router.post('/user/<jid>/gateways/<type>/enable', _handleEnableUserGateway);
     _router.post('/user/<jid>/gateways/<type>/disable', _handleDisableUserGateway);
     _router.post('/gateways/<type>/test', _handleTestGateway);
+    _router.post('/push/subscribe', _handlePushSubscribe);
+    _router.delete('/push/subscribe/<jid>', _handlePushUnsubscribe);
   }
 
   // XMPP Registration
@@ -1744,6 +1746,43 @@ class ApiRouter {
         body: jsonEncode({'error': e.toString()}),
         headers: _jsonHeaders,
       );
+    }
+  }
+
+  Future<Response> _handlePushSubscribe(Request request) async {
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final jid = body['jid'] as String?;
+      final subscription = body['subscription'] as Map<String, dynamic>?;
+      if (jid == null || subscription == null) {
+        return Response.badRequest(body: jsonEncode({'error': 'jid and subscription required'}), headers: _jsonHeaders);
+      }
+      final jidError = InputValidator.validateJid(jid);
+      if (jidError != null) {
+        return Response.badRequest(body: jsonEncode({'error': jidError}), headers: _jsonHeaders);
+      }
+      db.upsertPushSubscription(
+        jid,
+        subscription['endpoint'] as String,
+        subscription['p256dh'] as String?,
+        subscription['auth'] as String?,
+      );
+      return Response.ok(jsonEncode({'success': true}), headers: _jsonHeaders);
+    } catch (e) {
+      return Response.internalServerError(body: jsonEncode({'error': e.toString()}), headers: _jsonHeaders);
+    }
+  }
+
+  Future<Response> _handlePushUnsubscribe(Request request, String jid) async {
+    try {
+      final jidError = InputValidator.validateJid(jid);
+      if (jidError != null) {
+        return Response.badRequest(body: jsonEncode({'error': jidError}), headers: _jsonHeaders);
+      }
+      db.deletePushSubscription(jid);
+      return Response.ok(jsonEncode({'success': true}), headers: _jsonHeaders);
+    } catch (e) {
+      return Response.internalServerError(body: jsonEncode({'error': e.toString()}), headers: _jsonHeaders);
     }
   }
 }
