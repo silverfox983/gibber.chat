@@ -16,14 +16,18 @@ external _PushManager? get pushManager;
 
 @JS()
 @staticInterop
-class _PushManager {
+class _PushManager {}
+
+extension _PushManagerExt on _PushManager {
   external JSPromise<JSObject?> getSubscription();
   external JSPromise<JSObject> subscribe(JSObject options);
 }
 
 @JS()
 @staticInterop
-class _PushSubscription {
+class _PushSubscription {}
+
+extension _PushSubscriptionExt on _PushSubscription {
   external JSString get endpoint;
   external JSObject? getKey(JSString name);
   external JSPromise<JSBoolean> unsubscribe();
