@@ -396,6 +396,12 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     final sfuApiKey = _backendConfig?.sfuApiKey;
     try {
       await _janusService!.connect(sfuUrl, apiSecret: sfuApiKey);
+      if (_isCleaningUp) {
+        debugPrint('CallProvider: Cleanup started during Janus connect, aborting group call');
+        _janusService?.dispose();
+        _janusService = null;
+        return;
+      }
       debugPrint('CallProvider: Connected to Janus SFU at $sfuUrl');
     } catch (e) {
       debugPrint('CallProvider: Failed to connect to Janus: $e');
@@ -518,8 +524,18 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     };
 
     _janusService?.onDisconnected = (reason) {
-      debugPrint('CallProvider: Janus disconnected: $reason, ending call');
-      endCall();
+      debugPrint('CallProvider: Janus disconnected: $reason, starting 5s grace timer');
+      _disconnectGraceTimer?.cancel();
+      _disconnectGraceTimer = Timer(const Duration(seconds: 5), () {
+        debugPrint('CallProvider: Janus disconnect grace period expired, ending call');
+        endCall();
+      });
+    };
+
+    _janusService?.onConnected = () {
+      debugPrint('CallProvider: Janus reconnected, cancelling disconnect grace timer');
+      _disconnectGraceTimer?.cancel();
+      _disconnectGraceTimer = null;
     };
 
     _janusService?.onError = (error) {
@@ -590,6 +606,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       await renderer.initialize();
       renderer.srcObject = stream;
       _groupRenderers[peerId] = renderer;
+      // Route first peer's stream to _remoteRenderer for transcription
+      if (_groupRenderers.length == 1 && _remoteRenderer.srcObject == null) {
+        _remoteRenderer.srcObject = stream;
+        debugPrint('CallProvider: Set _remoteRenderer.srcObject for transcription from peer $peerId');
+      }
       // Transition to active on first remote stream (mesh call)
       if (_state != CallState.active) {
         _state = CallState.active;
@@ -2347,10 +2368,12 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _audioEffects.reset();
     _audioPlayback.stop();
 
-    // Now safe to allow new calls and signal idle state
+    // Signal idle state BEFORE resetting cleanup flag so listeners see consistent state
     _state = CallState.idle;
-    _isCleaningUp = false;
     notifyListeners();
+
+    // Now safe to allow new calls — reset cleanup flag last
+    _isCleaningUp = false;
     debugPrint('CallProvider: === CLEANUP COMPLETE ===');
   }
 
