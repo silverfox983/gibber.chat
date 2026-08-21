@@ -718,7 +718,7 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
-  Future<String?> createSpace(String domain, String node, String name, {String? description, String? topic, String? avatarUrl, String? bannerUrl, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true}) async {
+  Future<String?> createSpace(String domain, String node, String name, {String? description, String? topic, String? avatarUrl, String? bannerUrl, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true, bool audioRoom = false}) async {
     final iq = xmpp.IqStanza('create_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
     iq.toJid = xmpp.Jid.fromFullJid(domain);
 
@@ -762,6 +762,7 @@ class SpacesService extends ChangeNotifier {
     addField('pubsub#access_model', accessModel);
     addField('pubsub#publish_model', publishModel);
     addField('pubsub#type', 'urn:xmpp:spaces:0');
+    if (audioRoom) addField('SpacesService#room_type', 'audio');
     addField('pubsub#notify_retract', 'true');
     addField('pubsub#persist_items', 'true');
     addField('pubsub#purge_offline', 'false');

@@ -32,6 +32,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
   bool _domainChecked = false;
   bool _domainValid = false;
   bool _createChatRoom = true;
+  bool _audioRoom = false;
 
   @override
   void initState() {
@@ -121,6 +122,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
       accessModel: 'authorize',
       publishModel: 'publishers',
       createChatRoom: _createChatRoom,
+      audioRoom: _audioRoom,
     );
 
     setState(() => _isLoading = false);
@@ -390,6 +392,56 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                           onChanged: (v) => setState(() => _createChatRoom = v),
                           activeTrackColor: theme.colorScheme.primary.withValues(alpha: 0.5),
                           activeThumbColor: theme.colorScheme.primary,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: theme.colorScheme.outline.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.mic_rounded,
+                          color: _audioRoom ? Colors.red : theme.colorScheme.primary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Voice room',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurface,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Audio-only room for live conversations',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _audioRoom,
+                          onChanged: (v) => setState(() => _audioRoom = v),
+                          activeTrackColor: Colors.red.withValues(alpha: 0.5),
+                          activeThumbColor: Colors.red,
                         ),
                       ],
                     ),

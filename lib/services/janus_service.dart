@@ -147,6 +147,44 @@ class JanusService {
     return null;
   }
 
+  // Audio-only room join — joins as publisher with video disabled
+  Future<String?> joinAudioRoom(String roomId, String displayName, {String? token}) async {
+    if (!_isConnected || _sessionId == null) return null;
+
+    final handleId = await attachToVideoRoom();
+    if (handleId == null) return null;
+
+    final response = await _sendRequest({
+      'janus': 'message',
+      'session_id': int.parse(_sessionId!),
+      'handle_id': int.parse(handleId),
+      'body': {
+        'request': 'join',
+        'room': int.tryParse(roomId) ?? roomId.hashCode,
+        'ptype': 'publisher',
+        'display': displayName,
+        if (token != null) 'token': token,
+      },
+    });
+
+    if (response != null && response['janus'] == 'event') {
+      final plugindata = response['plugindata'] as Map<String, dynamic>?;
+      final data = plugindata?['data'] as Map<String, dynamic>?;
+      final error = data?['error'];
+      if (error != null) {
+        debugPrint('JANUS: Failed to join audio room $roomId: $error');
+        onError?.call('Failed to join audio room: $error');
+        return null;
+      }
+      // Disable video — audio-only room
+      await configurePublisher(handleId, audio: true, video: false);
+      debugPrint('JANUS: Joined audio room $roomId, handle=$handleId');
+      return handleId;
+    }
+    debugPrint('JANUS: joinAudioRoom timed out or failed for room $roomId');
+    return null;
+  }
+
   Future<bool> publishStream(String handleId, String sdpOffer) async {
     if (!_isConnected) return false;
 

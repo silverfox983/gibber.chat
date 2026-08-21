@@ -669,6 +669,64 @@ class XmppRoomService with ChangeNotifier {
     }
   }
 
+  // XEP-0503: MUC Subscriptions — subscribe to a room without joining
+  Future<String?> subscribeToRoom(String roomJid, String nickname, {String? accountId}) async {
+    final id = accountId ?? _activeAccountId;
+    final conn = _connections[id];
+    if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
+      return 'XMPP not connected';
+    }
+    try {
+      final iq = xmpp.IqStanza(
+        'muc_sub_${DateTime.now().microsecondsSinceEpoch}',
+        xmpp.IqStanzaType.SET,
+      );
+      iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+
+      final subscribe = xmpp.XmppElement();
+      subscribe.name = 'subscribe';
+      subscribe.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:muc-subscribe:0'));
+      subscribe.addAttribute(xmpp.XmppAttribute('nick', nickname));
+      subscribe.addAttribute(xmpp.XmppAttribute('room', roomJid));
+
+      iq.addChild(subscribe);
+      conn.writeStanza(iq);
+
+      return null;
+    } catch (e) {
+      debugPrint('Failed to subscribe to room: $e');
+      return e.toString();
+    }
+  }
+
+  Future<String?> unsubscribeFromRoom(String roomJid, {String? accountId}) async {
+    final id = accountId ?? _activeAccountId;
+    final conn = _connections[id];
+    if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
+      return 'XMPP not connected';
+    }
+    try {
+      final iq = xmpp.IqStanza(
+        'muc_unsub_${DateTime.now().microsecondsSinceEpoch}',
+        xmpp.IqStanzaType.SET,
+      );
+      iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+
+      final unsubscribe = xmpp.XmppElement();
+      unsubscribe.name = 'unsubscribe';
+      unsubscribe.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:muc-subscribe:0'));
+      unsubscribe.addAttribute(xmpp.XmppAttribute('room', roomJid));
+
+      iq.addChild(unsubscribe);
+      conn.writeStanza(iq);
+
+      return null;
+    } catch (e) {
+      debugPrint('Failed to unsubscribe from room: $e');
+      return e.toString();
+    }
+  }
+
   // --- Room Persistence & Bookmarks ---
 
   Future<void> saveJoinedRooms() async {
@@ -834,9 +892,11 @@ class XmppRoomService with ChangeNotifier {
     _roomNicknames['$accountId|${roomJid.toLowerCase()}'] = nick;
   }
 
+  @override
   void dispose() {
     _joinedRoomsStreamController.close();
     _roomParticipantStreamController.close();
     _groupInviteStreamController.close();
+    super.dispose();
   }
 }
