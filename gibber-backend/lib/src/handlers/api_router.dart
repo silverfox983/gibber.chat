@@ -15,6 +15,8 @@ import 'package:gibber_backend/src/services/health_service.dart';
 import 'package:gibber_backend/src/services/janus_client.dart';
 import 'package:gibber_backend/src/services/jwt_service.dart';
 import 'package:gibber_backend/src/services/user_gateway_service.dart';
+import 'package:gibber_backend/src/services/slidge_process_manager.dart';
+import 'package:gibber_backend/src/services/prosody_component_manager.dart';
 import 'package:uuid/uuid.dart';
 import 'package:gibber_backend/src/services/push_service.dart';
 
@@ -42,6 +44,8 @@ class ApiRouter {
   final HealthService healthService;
   final JwtService? jwtService;
   final UserGatewayService userGatewayService;
+  final SlidgeProcessManager slidgeProcessManager;
+  final ProsodyComponentManager prosodyComponentManager;
   final _uuid = const Uuid();
   final RateLimiter _registerLimiter = RateLimiter(maxRequests: 3, window: Duration(hours: 1));
   final RateLimiter _checkLimiter = RateLimiter(maxRequests: 20, window: Duration(minutes: 1));
@@ -71,6 +75,8 @@ class ApiRouter {
     required this.entitlementService,
     required this.paymentService,
     required this.userGatewayService,
+    required this.slidgeProcessManager,
+    required this.prosodyComponentManager,
     this.adminApiKey = 'gibber-admin-key',
     this.janusApiKey,
     this.janusUrl,
@@ -1449,17 +1455,58 @@ class ApiRouter {
     try {
       final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
       final gateway = body['gateway'] as String?;
+      final config = body['config'] as Map<String, dynamic>? ?? {};
 
       if (gateway == null || !_availableGateways.containsKey(gateway)) {
         return Response.badRequest(body: jsonEncode({'error': 'Invalid gateway type'}), headers: _jsonHeaders);
       }
 
+      final info = _availableGateways[gateway]!;
+      final componentJid = '${info['componentJid']}.${xmppRegistrar.domain}';
+      final componentSecret = Platform.environment['GIBBER_SLIDGE_${gateway.toUpperCase()}_SECRET']
+          ?? slidgeProcessManager.generateSecret();
+
+      final added = await prosodyComponentManager.addComponent(componentJid, componentSecret);
+      if (!added) {
+        return Response.internalServerError(
+          body: jsonEncode({'error': 'Failed to add Prosody component'}),
+          headers: _jsonHeaders,
+        );
+      }
+
+      final envConfig = <String, dynamic>{};
+      for (final key in info['requiresConfig'] as List) {
+        final envKey = '${gateway.toUpperCase()}_${key.toString().toUpperCase()}';
+        final envVal = Platform.environment[envKey];
+        if (envVal != null) {
+          envConfig[key] = envVal;
+        } else if (config.containsKey(key)) {
+          envConfig[key] = config[key];
+        }
+      }
+
+      final instance = await slidgeProcessManager.startInstance(
+        userJid: 'admin_${gateway}',
+        gatewayType: gateway,
+        config: envConfig,
+        componentJid: componentJid,
+        componentSecret: componentSecret,
+      );
+
+      if (instance == null) {
+        await prosodyComponentManager.removeComponent(componentJid);
+        return Response.internalServerError(
+          body: jsonEncode({'error': 'Failed to start gateway process'}),
+          headers: _jsonHeaders,
+        );
+      }
+
       return Response.ok(
         jsonEncode({
           'gateway': gateway,
-          'message': 'Gateway ${_availableGateways[gateway]!['name']} enabled',
-          'action': 'restart_required',
-          'restartCommand': 'supervisorctl restart prosody',
+          'message': 'Gateway ${info['name']} enabled',
+          'componentJid': componentJid,
+          'instanceId': instance.id,
         }),
         headers: _jsonHeaders,
       );
@@ -1484,12 +1531,25 @@ class ApiRouter {
         return Response.badRequest(body: jsonEncode({'error': 'Invalid gateway type'}), headers: _jsonHeaders);
       }
 
+      final info = _availableGateways[gateway]!;
+      final componentJid = '${info['componentJid']}.${xmppRegistrar.domain}';
+
+      final instances = slidgeProcessManager.getAllInstances();
+      final instance = instances.where((i) =>
+        i.gatewayType == gateway && i.componentJid == componentJid
+      ).firstOrNull;
+
+      if (instance != null) {
+        await slidgeProcessManager.stopInstance(instance.id);
+      }
+
+      await prosodyComponentManager.removeComponent(componentJid);
+
       return Response.ok(
         jsonEncode({
           'gateway': gateway,
-          'message': 'Gateway ${_availableGateways[gateway]!['name']} disabled',
-          'action': 'restart_required',
-          'restartCommand': 'supervisorctl restart prosody',
+          'message': 'Gateway ${info['name']} disabled',
+          'componentJid': componentJid,
         }),
         headers: _jsonHeaders,
       );

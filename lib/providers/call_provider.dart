@@ -265,6 +265,23 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _sipService = SipService();
     await _sipService!.initialize();
 
+    final accountId = _authService?.activeAccountId;
+    if (accountId != null) {
+      final localpart = accountId.split('@').first;
+      final password = await _authService?.getActiveAccountPassword();
+      if (password != null && password.isNotEmpty) {
+        _sipService!.start(
+          sipUri: '$localpart@cheogram.com',
+          wsUrl: 'wss://cheogram.com:10443',
+          password: password,
+          displayName: localpart,
+        );
+        debugPrint('CallProvider: SIP service started for $localpart@cheogram.com');
+      } else {
+        debugPrint('CallProvider: SIP service not started - no password available');
+      }
+    }
+
     _sipCallStateSub?.cancel();
     _sipCallStateSub = _sipService!.callStateStream.listen((state) {
       debugPrint('CallProvider: SIP call state: $state');

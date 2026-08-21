@@ -395,6 +395,10 @@ void main(List<String> args) async {
   final userGatewaySvc = UserGatewayService(db, slidgeProcessManager, prosodyComponentManager);
   await userGatewaySvc.startAllEnabledGateways();
 
+  Timer.periodic(const Duration(minutes: 5), (_) {
+    slidgeProcessManager.cleanupDeadInstances();
+  });
+
   JwtService? jwtService;
   if (jwtSecret.isNotEmpty) {
     jwtService = JwtService(secret: jwtSecret);
@@ -410,6 +414,8 @@ void main(List<String> args) async {
     entitlementService: entitlementSvc,
     paymentService: paymentSvc,
     userGatewayService: userGatewaySvc,
+    slidgeProcessManager: slidgeProcessManager,
+    prosodyComponentManager: prosodyComponentManager,
     adminApiKey: adminKey,
     captchaService: captchaSvc,
     jwtService: jwtService,

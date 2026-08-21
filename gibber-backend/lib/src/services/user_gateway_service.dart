@@ -90,7 +90,7 @@ class UserGatewayService {
       'optionalConfig': ['nickname', 'channels', 'password'],
       'componentJid': 'irc',
       'slidgeImage': 'ghcr.io/regretfulswan/slidirc:latest',
-      'perUserInstance': false,
+      'perUserInstance': true,
     },
     'matrix': {
       'name': 'Matrix',
@@ -189,6 +189,8 @@ class UserGatewayService {
       userJid: jid,
       gatewayType: gatewayType,
       config: existing.config,
+      componentJid: componentJid,
+      componentSecret: componentSecret,
     );
 
     if (instance != null) {
@@ -286,6 +288,10 @@ class UserGatewayService {
         return _testDiscordConfig(config);
       case 'matrix':
         return _testMatrixConfig(config);
+      case 'irc':
+        return _testIrcConfig(config);
+      case 'whatsapp':
+        return _testWhatsappConfig(config);
       default:
         return {'valid': true, 'message': 'Configuration accepted'};
     }
@@ -329,13 +335,39 @@ class UserGatewayService {
     return {'valid': true, 'message': 'Matrix configuration appears valid'};
   }
 
+  Map<String, dynamic>? _testIrcConfig(Map<String, dynamic> config) {
+    final hostname = config['server_hostname'];
+    if (hostname == null || hostname.toString().trim().isEmpty) {
+      return {'valid': false, 'error': 'server_hostname is required'};
+    }
+    final port = config['server_port'];
+    if (port != null) {
+      final portInt = int.tryParse(port.toString());
+      if (portInt == null || portInt < 1 || portInt > 65535) {
+        return {'valid': false, 'error': 'server_port must be a number between 1 and 65535'};
+      }
+    }
+    return {'valid': true, 'message': 'IRC configuration appears valid'};
+  }
+
+  Map<String, dynamic>? _testWhatsappConfig(Map<String, dynamic> config) {
+    final phone = config['phone_number'];
+    if (phone == null || phone.toString().trim().isEmpty) {
+      return {'valid': false, 'error': 'phone_number is required'};
+    }
+    final cleaned = phone.toString().replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    if (!RegExp(r'^\+?\d{7,15}$').hasMatch(cleaned)) {
+      return {'valid': false, 'error': 'phone_number must be in E.164 format (e.g. +1234567890)'};
+    }
+    return {'valid': true, 'message': 'WhatsApp configuration appears valid'};
+  }
+
   String _generateComponentJid(String jid, String gatewayType) {
     final userHash = jid.split('@').first.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     return '${gatewayType}_$userHash';
   }
 
   String _generateSecret() {
-    final random = DateTime.now().microsecondsSinceEpoch;
-    return 'slidge_${random.toRadixString(36)}';
+    return _processManager.generateSecret();
   }
 }

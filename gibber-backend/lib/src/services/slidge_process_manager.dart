@@ -44,7 +44,6 @@ class SlidgeProcessManager {
   static const String _venvDir = '/tmp/slidge_venvs';
 
   final Map<String, SlidgeInstance> _instances = {};
-  final Random _random = Random();
 
   SlidgeProcessManager() {
     _ensureDirectories();
@@ -102,13 +101,9 @@ class SlidgeProcessManager {
     }
   }
 
-  String _componentJidForUser(String userJid, String gatewayType) {
-    final userHash = userJid.split('@').first.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    return '${gatewayType}_$userHash';
-  }
-
-  String _generateSecret() {
-    final bytes = List<int>.generate(32, (_) => _random.nextInt(256));
+  String generateSecret() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(32, (_) => random.nextInt(256));
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
@@ -116,10 +111,10 @@ class SlidgeProcessManager {
     required String userJid,
     required String gatewayType,
     required Map<String, dynamic> config,
+    required String componentJid,
+    required String componentSecret,
   }) async {
     final instanceId = '${gatewayType}_${userJid.split('@').first}_${DateTime.now().millisecondsSinceEpoch}';
-    final componentJid = _componentJidForUser(userJid, gatewayType);
-    final componentSecret = _generateSecret();
 
     final envVars = <String, String>{
       'SLIDGE_COMPONENT_JID': componentJid,
