@@ -16,6 +16,7 @@ import 'package:gibber_backend/src/services/janus_client.dart';
 import 'package:gibber_backend/src/services/jwt_service.dart';
 import 'package:gibber_backend/src/services/user_gateway_service.dart';
 import 'package:uuid/uuid.dart';
+import 'package:gibber_backend/src/services/push_service.dart';
 
 extension _RequestIp on Request {
   String? get ip {
@@ -56,6 +57,8 @@ class ApiRouter {
   late final JanusClient _janusClient;
   final String? giphyApiKey;
 
+  PushService? _pushService;
+
   String? get _effectiveJanusApiKey =>
       janusApiKey ?? Platform.environment['GIBBER_JANUS_API_KEY'] ?? '';
   String? get _effectiveJanusUrl =>
@@ -81,6 +84,12 @@ class ApiRouter {
          adminSecret: Platform.environment['GIBBER_JANUS_ADMIN_SECRET'] ??
                        'janus-admin-secret-change-in-production',
        ) {
+    _pushService = PushService.fromEnv();
+    if (_pushService!.isConfigured) {
+      print('PushService: VAPID configured, push notifications enabled');
+    } else {
+      print('PushService: VAPID keys not set (set GIBBER_VAPID_PUBLIC_KEY and GIBBER_VAPID_PRIVATE_KEY)');
+    }
     _setupRoutes();
   }
 
@@ -130,6 +139,7 @@ class ApiRouter {
     _router.post('/gateways/<type>/test', _handleTestGateway);
     _router.post('/push/subscribe', _handlePushSubscribe);
     _router.delete('/push/subscribe/<jid>', _handlePushUnsubscribe);
+    _router.post('/push/send', _handlePushSend);
   }
 
   // XMPP Registration
@@ -1783,6 +1793,60 @@ class ApiRouter {
       return Response.ok(jsonEncode({'success': true}), headers: _jsonHeaders);
     } catch (e) {
       return Response.internalServerError(body: jsonEncode({'error': e.toString()}), headers: _jsonHeaders);
+    }
+  }
+
+  Future<Response> _handlePushSend(Request request) async {
+    if (_pushService == null || !_pushService!.isConfigured) {
+      return Response(503,
+        body: jsonEncode({'error': 'Push service not configured'}),
+        headers: _jsonHeaders,
+      );
+    }
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final targetJids = (body['jids'] as List<dynamic>?)?.cast<String>();
+      final payload = body['payload'] as Map<String, dynamic>?;
+      if (targetJids == null || payload == null) {
+        return Response.badRequest(
+          body: jsonEncode({'error': 'jids and payload required'}),
+          headers: _jsonHeaders,
+        );
+      }
+
+      int sent = 0;
+      int failed = 0;
+      for (final jid in targetJids) {
+        final sub = db.getPushSubscription(jid);
+        if (sub == null) continue;
+
+        try {
+          await _pushService!.sendPush(
+            endpoint: sub['endpoint'] as String,
+            p256dh: sub['p256dh'] as String? ?? '',
+            auth: sub['auth'] as String? ?? '',
+            title: payload['title'] as String? ?? 'Gibber',
+            body: payload['body'] as String? ?? '',
+            icon: payload['icon'] as String?,
+            tag: payload['tag'] as String?,
+            url: payload['url'] as String?,
+            conversationId: payload['conversationId'] as String?,
+            spaceId: payload['spaceId'] as String?,
+          );
+          sent++;
+        } catch (e) {
+          failed++;
+        }
+      }
+      return Response.ok(
+        jsonEncode({'sent': sent, 'failed': failed}),
+        headers: _jsonHeaders,
+      );
+    } catch (e) {
+      return Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+        headers: _jsonHeaders,
+      );
     }
   }
 }
