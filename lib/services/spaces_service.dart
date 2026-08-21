@@ -255,7 +255,7 @@ class SpacesService extends ChangeNotifier {
       final id = 'spaces_${xmpp.AbstractStanza.getRandomId()}';
       final iq = xmpp.IqStanza(id, originalIq.type);
       iq.toJid = originalIq.toJid;
-      iq.fromJid = originalIq.fromJid;
+      if (originalIq.fromJid != null) iq.fromJid = originalIq.fromJid;
       for (var child in originalIq.children) {
         iq.addChild(child);
       }
@@ -721,6 +721,7 @@ class SpacesService extends ChangeNotifier {
   Future<String?> createSpace(String domain, String node, String name, {String? description, String? topic, String? avatarUrl, String? bannerUrl, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true, bool audioRoom = false}) async {
     final iq = xmpp.IqStanza('create_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
     iq.toJid = xmpp.Jid.fromFullJid(domain);
+    iq.fromJid = _connection.account.fullJid;
 
     final pubsub = xmpp.XmppElement();
     pubsub.name = 'pubsub';
@@ -758,7 +759,6 @@ class SpacesService extends ChangeNotifier {
     if (topic != null && topic.isNotEmpty) addField('pubsub#subject', topic);
     if (avatarUrl != null && avatarUrl.isNotEmpty) addField('pubsub#node_avatar_url', avatarUrl);
     if (bannerUrl != null && bannerUrl.isNotEmpty) addField('pubsub#node_banner_url', bannerUrl);
-    addField('pubsub#node_type', 'leaf');
     addField('pubsub#access_model', accessModel);
     addField('pubsub#publish_model', publishModel);
     addField('pubsub#type', 'urn:xmpp:spaces:0');
@@ -769,6 +769,8 @@ class SpacesService extends ChangeNotifier {
     addField('pubsub#notify_sub', 'true');
     addField('pubsub#notify_config', 'true');
     addField('pubsub#notify_delete', 'true');
+    addField('pubsub#max_items', 'max');
+    addField('pubsub#deliver_payloads', 'true');
 
     configure.addChild(x);
     pubsub.addChild(configure);

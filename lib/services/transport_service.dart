@@ -51,7 +51,7 @@ class TransportService {
       final id = 'transport_${xmpp.AbstractStanza.getRandomId()}';
       final iq = xmpp.IqStanza(id, originalIq.type);
       iq.toJid = originalIq.toJid;
-      iq.fromJid = originalIq.fromJid;
+      if (originalIq.fromJid != null) iq.fromJid = originalIq.fromJid;
       for (var child in originalIq.children) {
         iq.addChild(child);
       }
