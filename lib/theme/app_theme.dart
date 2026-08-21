@@ -13,13 +13,8 @@ class GibberTheme {
     'Nunito',
   ];
 
-  static TextTheme _getTextTheme(String fontFamily, TextTheme base, Brightness brightness) {
-    Color primary;
-    if (brightness == Brightness.dark) {
-      primary = AppColors.textDarkPrimary;
-    } else {
-      primary = AppColors.textLightPrimary;
-    }
+  static TextTheme _getTextTheme(String fontFamily, TextTheme base, ColorScheme colorScheme) {
+    final primary = colorScheme.onSurface;
 
     switch (fontFamily) {
       case 'Inter':
@@ -93,35 +88,47 @@ class GibberTheme {
             ? AppColors.darkColorScheme(seed: seedColor)
             : AppColors.lightColorScheme(seed: seedColor));
 
-    final textTheme = _getTextTheme(fontFamily, ThemeData(brightness: brightness).textTheme, brightness);
+    final effectiveScheme = (amoledMode && brightness == Brightness.dark)
+        ? colorScheme.copyWith(
+            surface: Colors.black,
+            surfaceContainerLow: const Color(0xFF050505),
+            surfaceContainer: const Color(0xFF0A0A0A),
+            surfaceContainerHigh: const Color(0xFF111111),
+            surfaceContainerHighest: const Color(0xFF1A1A1A),
+            surfaceContainerLowest: Colors.black,
+            inverseSurface: const Color(0xFF1A1A1A),
+          )
+        : colorScheme;
+
+    final textTheme = _getTextTheme(fontFamily, ThemeData(brightness: brightness).textTheme, effectiveScheme);
 
     ThemeData base = ThemeData(
       useMaterial3: true,
       brightness: brightness,
-      colorScheme: colorScheme,
-      scaffoldBackgroundColor: colorScheme.surface,
+      colorScheme: effectiveScheme,
+      scaffoldBackgroundColor: effectiveScheme.surface,
       textTheme: textTheme,
     );
 
-    final titleColor = colorScheme.onSurface;
+    final titleColor = effectiveScheme.onSurface;
 
     return base.copyWith(
       appBarTheme: AppBarTheme(
-        backgroundColor: colorScheme.surface,
+        backgroundColor: effectiveScheme.surface,
         foregroundColor: titleColor,
         elevation: 0,
         centerTitle: false,
         titleTextStyle: _getAppBarTitleStyle(fontFamily, titleColor),
         surfaceTintColor: Colors.transparent,
-        iconTheme: IconThemeData(color: colorScheme.onSurface),
+        iconTheme: IconThemeData(color: effectiveScheme.onSurface),
       ),
       cardTheme: CardThemeData(
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
+          side: BorderSide(color: effectiveScheme.outlineVariant.withValues(alpha: 0.5)),
         ),
-        color: colorScheme.surfaceContainerHighest,
+        color: effectiveScheme.surfaceContainerHighest,
       ),
       listTileTheme: ListTileThemeData(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -129,22 +136,22 @@ class GibberTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: colorScheme.surfaceContainerHighest,
+        fillColor: effectiveScheme.surfaceContainerHighest,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.3)),
+          borderSide: BorderSide(color: effectiveScheme.outlineVariant.withValues(alpha: 0.3)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: colorScheme.primary, width: 2),
+          borderSide: BorderSide(color: effectiveScheme.primary, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: colorScheme.error),
+          borderSide: BorderSide(color: effectiveScheme.error),
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
@@ -153,8 +160,8 @@ class GibberTheme {
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          backgroundColor: colorScheme.primary,
-          foregroundColor: colorScheme.onPrimary,
+          backgroundColor: effectiveScheme.primary,
+          foregroundColor: effectiveScheme.onPrimary,
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
@@ -167,7 +174,7 @@ class GibberTheme {
         style: OutlinedButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          side: BorderSide(color: colorScheme.outline),
+          side: BorderSide(color: effectiveScheme.outline),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -177,15 +184,15 @@ class GibberTheme {
         ),
       ),
       navigationRailTheme: NavigationRailThemeData(
-        backgroundColor: colorScheme.surface,
-        indicatorColor: colorScheme.primaryContainer,
-        selectedIconTheme: IconThemeData(color: colorScheme.onPrimaryContainer),
-        unselectedIconTheme: IconThemeData(color: colorScheme.onSurfaceVariant),
+        backgroundColor: effectiveScheme.surface,
+        indicatorColor: effectiveScheme.primaryContainer,
+        selectedIconTheme: IconThemeData(color: effectiveScheme.onPrimaryContainer),
+        unselectedIconTheme: IconThemeData(color: effectiveScheme.onSurfaceVariant),
         labelType: NavigationRailLabelType.all,
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: colorScheme.surface,
-        indicatorColor: colorScheme.primaryContainer,
+        backgroundColor: effectiveScheme.surface,
+        indicatorColor: effectiveScheme.primaryContainer,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
@@ -193,60 +200,60 @@ class GibberTheme {
             return TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: colorScheme.onSurface,
+              color: effectiveScheme.onSurface,
             );
           }
           return TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
-            color: colorScheme.onSurfaceVariant,
+            color: effectiveScheme.onSurfaceVariant,
           );
         }),
       ),
       dividerTheme: DividerThemeData(
-        color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+        color: effectiveScheme.outlineVariant.withValues(alpha: 0.5),
         thickness: 1,
         space: 1,
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: colorScheme.surface,
-        modalBackgroundColor: colorScheme.surface,
+        backgroundColor: effectiveScheme.surface,
+        modalBackgroundColor: effectiveScheme.surface,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: colorScheme.surface,
+        backgroundColor: effectiveScheme.surface,
         elevation: 8,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        backgroundColor: colorScheme.inverseSurface,
-        contentTextStyle: TextStyle(color: colorScheme.onInverseSurface),
+        backgroundColor: effectiveScheme.inverseSurface,
+        contentTextStyle: TextStyle(color: effectiveScheme.onInverseSurface),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: colorScheme.surfaceContainerHighest,
-        selectedColor: colorScheme.primaryContainer,
-        labelStyle: TextStyle(color: colorScheme.onSurface, fontSize: 13),
+        backgroundColor: effectiveScheme.surfaceContainerHighest,
+        selectedColor: effectiveScheme.primaryContainer,
+        labelStyle: TextStyle(color: effectiveScheme.onSurface, fontSize: 13),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         side: BorderSide.none,
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
-          color: colorScheme.inverseSurface,
+          color: effectiveScheme.inverseSurface,
           borderRadius: BorderRadius.circular(8),
         ),
-        textStyle: TextStyle(color: colorScheme.onInverseSurface, fontSize: 12),
+        textStyle: TextStyle(color: effectiveScheme.onInverseSurface, fontSize: 12),
       ),
       popupMenuTheme: PopupMenuThemeData(
-        color: colorScheme.surfaceContainerHigh,
+        color: effectiveScheme.surfaceContainerHigh,
         elevation: 8,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       scrollbarTheme: ScrollbarThemeData(
-        thumbColor: WidgetStateProperty.all(colorScheme.onSurface.withValues(alpha: 0.3)),
+        thumbColor: WidgetStateProperty.all(effectiveScheme.onSurface.withValues(alpha: 0.3)),
         radius: const Radius.circular(4),
         thickness: WidgetStateProperty.all(6),
       ),

@@ -304,7 +304,6 @@ class GibberSidebarHeader extends StatelessWidget {
 
   void _showStatusPicker(BuildContext context) {
     final statusCtrl = TextEditingController(text: authService.myStatusMessage);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showModalBottomSheet(
       context: context,
@@ -328,7 +327,7 @@ class GibberSidebarHeader extends StatelessWidget {
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: isDark ? AppColors.textDarkPrimary : AppColors.textLightPrimary,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
             const SizedBox(height: 20),
@@ -337,9 +336,7 @@ class GibberSidebarHeader extends StatelessWidget {
               decoration: InputDecoration(
                 hintText: "What's on your mind?",
                 filled: true,
-                fillColor: isDark
-                    ? AppColors.darkSurfaceRaised
-                    : AppColors.lightSurfaceRaised,
+                fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,

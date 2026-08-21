@@ -524,9 +524,9 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
         ),
         const SizedBox(width: DesignTokens.space16),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Isolated & Secure', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textDarkPrimary)),
+          Text('Isolated & Secure', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurface)),
           const SizedBox(height: 4),
-          Text('Each platform runs in its own isolated container with your personal credentials.', style: TextStyle(fontSize: 13, color: AppColors.textDarkSecondary, height: 1.4)),
+          Text('Each platform runs in its own isolated container with your personal credentials.', style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4)),
         ])),
       ]),
     );
@@ -820,10 +820,10 @@ class _PlatformCard extends StatelessWidget {
             : isLocked
                 ? LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Colors.orange.withValues(alpha: 0.05), Colors.orange.withValues(alpha: 0.02)])
                 : null,
-        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
         border: Border.all(
-          color: isConnected ? platformColor.withValues(alpha: 0.5) : isLocked ? Colors.orange.withValues(alpha: 0.4) : (isDark ? AppColors.borderDark : AppColors.borderLight),
+          color: isConnected ? platformColor.withValues(alpha: 0.5) : isLocked ? Colors.orange.withValues(alpha: 0.4) : theme.colorScheme.outline,
           width: isConnected || isLocked ? 2 : 1,
         ),
         boxShadow: isConnected
@@ -845,7 +845,7 @@ class _PlatformCard extends StatelessWidget {
                   _PlatformIcon(platform: platform, color: platformColor, isConnected: isConnected, isLocked: isLocked),
                   const SizedBox(width: DesignTokens.space12),
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(info.name, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: isDark ? AppColors.textDarkPrimary : AppColors.textLightPrimary)),
+                    Text(info.name, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
                     const SizedBox(height: 2),
                     _StatusBadge(isConnected: isConnected, isConfigured: isConfigured, isStarting: isStarting, isLocked: isLocked, platformColor: platformColor),
                   ])),
@@ -853,7 +853,7 @@ class _PlatformCard extends StatelessWidget {
                 ]),
                 const SizedBox(height: DesignTokens.space16),
                 if (isConfigured && gateway?.componentJid != null) ...[
-                  Text(gateway!.componentJid!, style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: isDark ? AppColors.textDarkTertiary : AppColors.textLightTertiary)),
+                  Text(gateway!.componentJid!, style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: theme.colorScheme.onSurfaceVariant)),
                   const SizedBox(height: DesignTokens.space12),
                 ],
                 Row(children: [
@@ -864,7 +864,7 @@ class _PlatformCard extends StatelessWidget {
                   ] else if (isConfigured) ...[
                     Expanded(child: _ActionButton(label: 'Connect', icon: Icons.play_arrow_rounded, onPressed: isStarting ? null : onEnable, color: platformColor, filled: true)),
                     const SizedBox(width: DesignTokens.space8),
-                    Expanded(child: _ActionButton(label: 'Edit', icon: Icons.settings_rounded, onPressed: onConfigure, color: isDark ? AppColors.textDarkSecondary : AppColors.textLightSecondary, filled: false)),
+                    Expanded(child: _ActionButton(label: 'Edit', icon: Icons.settings_rounded, onPressed: onConfigure, color: theme.colorScheme.onSurfaceVariant, filled: false)),
                   ] else ...[
                     Expanded(child: _ActionButton(label: 'Configure', icon: Icons.add_rounded, onPressed: onConfigure, color: platformColor, filled: true)),
                   ],
@@ -1025,7 +1025,7 @@ class _BridgeConfigSheetState extends State<_BridgeConfigSheet> {
     return Container(
       margin: EdgeInsets.only(bottom: bottomPadding),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        color: theme.colorScheme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         border: Border(top: BorderSide(color: platformColor, width: 2)),
       ),
@@ -1036,21 +1036,21 @@ class _BridgeConfigSheetState extends State<_BridgeConfigSheet> {
               child: Icon(_iconForPlatform(widget.type), color: platformColor, size: 24)),
           const SizedBox(width: DesignTokens.space12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Configure ${widget.info.name}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: isDark ? AppColors.textDarkPrimary : AppColors.textLightPrimary)),
-            Text(widget.info.description, style: TextStyle(fontSize: 12, color: isDark ? AppColors.textDarkSecondary : AppColors.textLightSecondary)),
+            Text('Configure ${widget.info.name}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
+            Text(widget.info.description, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
           ])),
-          IconButton(icon: Icon(Icons.close_rounded, color: isDark ? AppColors.textDarkSecondary : AppColors.textLightSecondary), onPressed: () => Navigator.of(context).pop()),
+          IconButton(icon: Icon(Icons.close_rounded, color: theme.colorScheme.onSurfaceVariant), onPressed: () => Navigator.of(context).pop()),
         ])),
         const Divider(height: 1),
         Flexible(child: SingleChildScrollView(padding: const EdgeInsets.all(DesignTokens.space20), child: Form(key: _formKey, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           if (widget.info.requiredFields.isNotEmpty) ...[
-            _SectionLabel(label: 'REQUIRED', isDark: isDark),
+            _SectionLabel(label: 'REQUIRED'),
             const SizedBox(height: DesignTokens.space12),
             ...widget.info.requiredFields.map((f) => _buildField(f, required: true, isDark: isDark)),
           ],
           if (widget.info.optionalFields.isNotEmpty) ...[
             const SizedBox(height: DesignTokens.space20),
-            _SectionLabel(label: 'OPTIONAL', isDark: isDark),
+            _SectionLabel(label: 'OPTIONAL'),
             const SizedBox(height: DesignTokens.space12),
             ...widget.info.optionalFields.map((f) => _buildField(f, required: false, isDark: isDark)),
           ],
@@ -1077,9 +1077,9 @@ class _BridgeConfigSheetState extends State<_BridgeConfigSheet> {
         labelText: _labelFor(field),
         hintText: _hintFor(field),
         filled: true,
-        fillColor: isDark ? AppColors.darkSurfaceRaised : AppColors.lightSurfaceRaised,
+        fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd), borderSide: BorderSide.none),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd), borderSide: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd), borderSide: BorderSide(color: Theme.of(context).colorScheme.outline)),
         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd), borderSide: BorderSide(color: AppColors.primary, width: 2)),
       ),
       validator: required ? (v) => v == null || v.isEmpty ? 'Required' : null : null,
@@ -1134,10 +1134,9 @@ class _BridgeConfigSheetState extends State<_BridgeConfigSheet> {
 
 class _SectionLabel extends StatelessWidget {
   final String label;
-  final bool isDark;
-  const _SectionLabel({required this.label, required this.isDark});
+  const _SectionLabel({required this.label});
   @override
-  Widget build(BuildContext context) => Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: isDark ? AppColors.textDarkTertiary : AppColors.textLightTertiary, letterSpacing: 1.2));
+  Widget build(BuildContext context) => Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2));
 }
 
 // ─── Server gateway card ────────────────────────────────────────────────────

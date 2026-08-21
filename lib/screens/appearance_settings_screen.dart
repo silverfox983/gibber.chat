@@ -116,9 +116,9 @@ class _ThemeModeSection extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
         decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Theme.of(context).dividerColor),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3)),
         ),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -185,8 +185,8 @@ class _ColorSchemeSection extends StatelessWidget {
   const _ColorSchemeSection({required this.tp, this.effectiveScheme});
 
   static const List<_ColorPreset> _presets = [
-    _ColorPreset('Arctic Blue', Color(0xFF3B82F6)),
     _ColorPreset('Midnight Purple', Color(0xFF8B5CF6)),
+    _ColorPreset('Arctic Blue', Color(0xFF3B82F6)),
     _ColorPreset('Emerald', Color(0xFF10B981)),
     _ColorPreset('Sunset Orange', Color(0xFFF97316)),
     _ColorPreset('Ocean Teal', Color(0xFF06B6D4)),
@@ -200,9 +200,9 @@ class _ColorSchemeSection extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
         decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Theme.of(context).dividerColor),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3)),
         ),
         child: Padding(
           padding: const EdgeInsets.all(20),
@@ -437,9 +437,9 @@ class _MaterialYouSection extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
         decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Theme.of(context).dividerColor),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3)),
         ),
         child: SwitchListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -490,9 +490,9 @@ class _FontFamilySection extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
         decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Theme.of(context).dividerColor),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3)),
         ),
         child: Column(
           children: [
@@ -595,9 +595,9 @@ class _AmoledSection extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
         decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Theme.of(context).dividerColor),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3)),
         ),
         child: SwitchListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -645,9 +645,9 @@ class _LivePreviewCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
         decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Theme.of(context).dividerColor),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

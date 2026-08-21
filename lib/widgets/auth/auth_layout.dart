@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import '../../theme/app_theme.dart';
 
 class AuthLayout extends StatelessWidget {
   final Widget form;
@@ -113,7 +112,7 @@ class _FormPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final surfaceColor = isDark ? GibberTheme.eclipseMidnight : Colors.white;
+    final surfaceColor = Theme.of(context).colorScheme.surface;
 
     return Container(
       color: surfaceColor,
@@ -161,7 +160,7 @@ class _BrandPanelState extends State<_BrandPanel> with TickerProviderStateMixin 
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
+    final primary = Theme.of(context).colorScheme.primary;
     final secondary = isDark ? const Color(0xFF06B6D4) : const Color(0xFF10B981);
 
     return Container(
@@ -178,7 +177,7 @@ class _BrandPanelState extends State<_BrandPanel> with TickerProviderStateMixin 
       child: Stack(
         children: [
           CustomPaint(
-            painter: _AuthOrbPainter(_orbController, isDark),
+            painter: _AuthOrbPainter(_orbController, primary, secondary),
             size: Size.infinite,
           ),
           FadeTransition(
@@ -348,15 +347,14 @@ class _CompactBrandHeader extends StatelessWidget {
 
 class _AuthOrbPainter extends CustomPainter {
   final AnimationController controller;
-  final bool isDark;
+  final Color primary;
+  final Color secondary;
 
-  _AuthOrbPainter(this.controller, this.isDark);
+  _AuthOrbPainter(this.controller, this.primary, this.secondary);
 
   @override
   void paint(Canvas canvas, Size size) {
     final t = controller.value;
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
-    final secondary = isDark ? const Color(0xFF06B6D4) : const Color(0xFF10B981);
 
     final orbs = [
       _Orb(primary, 0.3, 0.3, 0.4, 0),

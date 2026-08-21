@@ -48,7 +48,7 @@ class GlassContainer extends StatelessWidget {
             decoration: BoxDecoration(
               color: backgroundColor ??
                   (isDark
-                      ? const Color(0xFF1E293B).withValues(alpha: opacity)
+                      ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: opacity)
                       : Colors.white.withValues(alpha: opacity * 0.75)),
               border: border ??
                   Border.all(
@@ -96,7 +96,7 @@ class GlassCard extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
 
     final bgColor = isDark
-        ? const Color(0xFF1E293B).withValues(alpha: 0.6)
+        ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6)
         : Colors.white.withValues(alpha: 0.8);
 
     Widget content = Container(

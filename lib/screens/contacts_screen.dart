@@ -61,8 +61,8 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                           colors: [
-                            AppColors.eclipsePurple,
-                            AppColors.eclipseMidnight,
+                            Theme.of(context).colorScheme.primary,
+                            Theme.of(context).colorScheme.scrim,
                           ],
                         ),
                       ),
@@ -76,8 +76,8 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           gradient: RadialGradient(colors: [
-                            AppColors.arcticBlue.withValues(alpha: 0.3),
-                            AppColors.arcticBlue.withValues(alpha: 0.0),
+                            Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+                            Theme.of(context).colorScheme.primary.withValues(alpha: 0.0),
                           ]),
                         ),
                       ),
@@ -191,11 +191,14 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
           ];
         },
         body: Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [AppColors.eclipseSurface, AppColors.eclipseDeep],
+              colors: [
+                Theme.of(context).colorScheme.surface,
+                Theme.of(context).colorScheme.surfaceContainerLow,
+              ],
             ),
           ),
           child: TabBarView(
@@ -267,8 +270,8 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: [
-                    AppColors.eclipseSurface,
-                    AppColors.eclipseMidnight.withValues(alpha: 0.8),
+                    Theme.of(context).colorScheme.surfaceContainerHighest,
+                    Theme.of(context).colorScheme.scrim.withValues(alpha: 0.8),
                   ]),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
@@ -407,16 +410,16 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
     final isWhatsapp = conv.protocol == 'WhatsApp';
     final themeColor = isDiscord
         ? const Color(0xFF5865F2)
-        : (isIrc ? AppColors.arcticBlue
-            : (isTelegram ? const Color(0xFF0088CC)
+        : (isIrc ? const Color(0xFF7B68EE)
+            : (isTelegram ? const Color(0xFF26A5E4)
                 : (isWhatsapp ? const Color(0xFF25D366) : AppColors.accent)));
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: [
-          AppColors.eclipseSurface,
-          AppColors.eclipseMidnight.withValues(alpha: 0.6),
+          Theme.of(context).colorScheme.surfaceContainerHighest,
+          Theme.of(context).colorScheme.scrim.withValues(alpha: 0.6),
         ]),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: themeColor.withValues(alpha: 0.4), width: 1.5),
@@ -497,8 +500,8 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               decoration: BoxDecoration(
                 gradient: LinearGradient(colors: [
-                  AppColors.eclipseSurface,
-                  AppColors.eclipseMidnight.withValues(alpha: 0.6),
+                  Theme.of(context).colorScheme.surfaceContainerHighest,
+                  Theme.of(context).colorScheme.scrim.withValues(alpha: 0.6),
                 ]),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
@@ -561,8 +564,8 @@ class _ContactTile extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: [
-          AppColors.eclipseSurface,
-          AppColors.eclipseMidnight.withValues(alpha: 0.6),
+          Theme.of(context).colorScheme.surfaceContainerHighest,
+          Theme.of(context).colorScheme.scrim.withValues(alpha: 0.6),
         ]),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
@@ -683,7 +686,7 @@ class _AvatarView extends StatelessWidget {
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: AppColors.eclipseMidnight,
+            color: Theme.of(context).colorScheme.scrim,
             shape: BoxShape.circle,
             image: bytes != null ? DecorationImage(image: MemoryImage(bytes), fit: BoxFit.cover) : null,
           ),
@@ -754,7 +757,7 @@ class _StatusIndicatorState extends State<_StatusIndicator> with SingleTickerPro
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,
-          border: Border.all(color: AppColors.eclipseMidnight, width: 2),
+          border: Border.all(color: Theme.of(context).colorScheme.scrim, width: 2),
         ),
       ),
     );

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import '../theme/app_theme.dart';
 import '../providers/chat_provider.dart';
 import '../services/auth_service.dart';
 import '../services/entitlement_service.dart';
@@ -180,7 +179,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
     final connectedAccounts = authService.connectedAccountIds.length;
 
     final stats = [
-      _StatData(Icons.mark_chat_unread_rounded, '$totalUnread', 'Unread', totalUnread > 0 ? GibberTheme.arcticBlue : Colors.grey),
+      _StatData(Icons.mark_chat_unread_rounded, '$totalUnread', 'Unread', totalUnread > 0 ? Theme.of(context).colorScheme.primary : Colors.grey),
       _StatData(Icons.people_outline_rounded, '$contactCount', 'Contacts', const Color(0xFF10B981)),
       _StatData(Icons.person_add_rounded, '$pendingRequests', 'Requests', pendingRequests > 0 ? Colors.orange : Colors.grey),
       _StatData(Icons.cloud_done_rounded, '$connectedAccounts', 'Accounts', const Color(0xFF06B6D4)),
@@ -205,8 +204,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
   }
 
   Widget _statCard(_StatData stat, bool isMobile) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final surface = isDark ? GibberTheme.eclipseSurface : Colors.white;
+    final surface = Theme.of(context).colorScheme.surface;
 
     return Container(
       padding: EdgeInsets.all(isMobile ? 14 : 20),
@@ -254,9 +252,8 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
   }
 
   Widget _buildTierMiningPanel(EntitlementService entitlement, bool isMobile) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
-    final surface = isDark ? GibberTheme.eclipseSurface : Colors.white;
+    final primary = Theme.of(context).colorScheme.primary;
+    final surface = Theme.of(context).colorScheme.surface;
 
     final tier = entitlement.currentTier;
     final tierColor = tier == UserTier.ultimate
@@ -360,7 +357,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: (isDark ? GibberTheme.eclipseDeep : const Color(0xFFF9FAFB)).withValues(alpha: 0.5),
+              color: Theme.of(context).colorScheme.surfaceContainerLow.withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -424,8 +421,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
   }
 
   Widget _buildQuickActions(bool isMobile) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
+    final primary = Theme.of(context).colorScheme.primary;
 
     final actions = [
       _QuickAction(Icons.chat_bubble_outline_rounded, 'New Chat', () {
@@ -500,8 +496,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
   }
 
   Widget _buildRecentChats(ChatProvider chatProvider, bool isMobile) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final surface = isDark ? GibberTheme.eclipseSurface : Colors.white;
+    final surface = Theme.of(context).colorScheme.surface;
     final recent = chatProvider.conversations.take(5).toList();
 
     if (recent.isEmpty) {
@@ -659,9 +654,8 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
   }
 
   Widget _buildOnboardingTips(ChatProvider chatProvider, AuthService authService, bool isMobile) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
-    final surface = isDark ? GibberTheme.eclipseSurface : Colors.white;
+    final primary = Theme.of(context).colorScheme.primary;
+    final surface = Theme.of(context).colorScheme.surface;
 
     final hasContacts = chatProvider.contacts.isNotEmpty;
     final hasChats = chatProvider.conversations.isNotEmpty;

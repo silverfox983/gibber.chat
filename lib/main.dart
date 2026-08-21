@@ -164,6 +164,8 @@ class _ChatAppState extends State<ChatApp> {
       _callProvider!.initialize(_authService!, _callHistoryService!, scheduler: _resourceScheduler!);
       _accountStatusNotifications.start(_authService!);
 
+      await _themeProvider!.initialized;
+
       _authService!.addListener(() {
         MobileLifecycleService.instance.syncServiceState(_authService!.isAuthenticated);
       });

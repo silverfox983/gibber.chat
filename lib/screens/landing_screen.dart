@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../theme/app_theme.dart';
 import '../providers/theme_provider.dart';
 import 'package:provider/provider.dart';
 
@@ -56,7 +55,7 @@ class _LandingScreenState extends State<LandingScreen>
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
-          CustomPaint(painter: _OrbPainter(_orbController, isDark), size: size),
+          CustomPaint(painter: _OrbPainter(_orbController, isDark, Theme.of(context).colorScheme.primary), size: size),
           FadeTransition(
             opacity: _fadeController,
             child: CustomScrollView(
@@ -84,7 +83,7 @@ class _LandingScreenState extends State<LandingScreen>
         vertical: 16,
       ),
       decoration: BoxDecoration(
-        color: (isDark ? GibberTheme.eclipseDeep : Colors.white).withValues(alpha: 0.85),
+        color: Theme.of(context).colorScheme.surfaceContainerLow.withValues(alpha: 0.85),
         border: Border(
           bottom: BorderSide(
             color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.15),
@@ -165,7 +164,7 @@ class _LandingScreenState extends State<LandingScreen>
     bool outlined = false,
     VoidCallback? onTap,
   }) {
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
+    final primary = Theme.of(context).colorScheme.primary;
     return SizedBox(
       height: 40,
       child: outlined
@@ -197,7 +196,7 @@ class _LandingScreenState extends State<LandingScreen>
   }
 
   Widget _buildHero(bool isDark, bool isMobile) {
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
+    final primary = Theme.of(context).colorScheme.primary;
     final secondary = isDark ? const Color(0xFF06B6D4) : const Color(0xFF10B981);
 
     return Container(
@@ -292,7 +291,7 @@ class _LandingScreenState extends State<LandingScreen>
   }
 
   Widget _buildMockupChat(bool isDark, bool isMobile, Color primary) {
-    final surface = isDark ? GibberTheme.eclipseSurface : Colors.white;
+    final surface = Theme.of(context).colorScheme.surface;
     final onSurface = isDark ? Colors.white : const Color(0xFF111827);
 
     return Container(
@@ -375,8 +374,8 @@ class _LandingScreenState extends State<LandingScreen>
 
   Widget _mockBubble(String text, {required bool isLeft, required bool isDark}) {
     final bg = isLeft
-        ? (isDark ? GibberTheme.eclipseSurface : const Color(0xFFF3F4F6))
-        : (isDark ? GibberTheme.eclipsePurple.withValues(alpha: 0.3) : GibberTheme.arcticBlue.withValues(alpha: 0.15));
+        ? Theme.of(context).colorScheme.surface
+        : Theme.of(context).colorScheme.primary.withValues(alpha: 0.15);
     final align = isLeft ? Alignment.centerLeft : Alignment.centerRight;
     return Align(
       alignment: align,
@@ -389,7 +388,7 @@ class _LandingScreenState extends State<LandingScreen>
   }
 
   Widget _buildFeatures(bool isDark, bool isMobile) {
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
+    final primary = Theme.of(context).colorScheme.primary;
     final features = [
       _FeatureData(Icons.lock_outline_rounded, 'End-to-End Encryption', 'Military-grade encryption protects every message and call. Your data never leaves your device.', primary),
       _FeatureData(Icons.mic_rounded, 'Live Transcription', 'On-device Whisper WASM transcribes voice calls in real time. No cloud, no data leaks.', primary),
@@ -412,7 +411,7 @@ class _LandingScreenState extends State<LandingScreen>
   }
 
   Widget _featureCard(_FeatureData f, bool isDark, bool isMobile) {
-    final surface = isDark ? GibberTheme.eclipseSurface : Colors.white;
+    final surface = Theme.of(context).colorScheme.surface;
     final cardWidth = isMobile ? double.infinity : 320.0;
 
     return Container(
@@ -458,7 +457,7 @@ class _LandingScreenState extends State<LandingScreen>
   }
 
   Widget _buildHowItWorks(bool isDark, bool isMobile) {
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
+    final primary = Theme.of(context).colorScheme.primary;
     final secondary = isDark ? const Color(0xFF06B6D4) : const Color(0xFF10B981);
     final steps = [
       _StepData('1', 'Create Account', 'Sign up for free — no credit card needed. Start messaging securely right away.', Icons.person_add_rounded, primary),
@@ -485,7 +484,7 @@ class _LandingScreenState extends State<LandingScreen>
   }
 
   Widget _stepCard(_StepData s, bool isDark, bool isMobile) {
-    final surface = isDark ? GibberTheme.eclipseSurface : Colors.white;
+    final surface = Theme.of(context).colorScheme.surface;
     return Padding(
       padding: EdgeInsets.only(bottom: isMobile ? 12 : 0, right: isMobile ? 0 : 12),
       child: Container(
@@ -526,7 +525,7 @@ class _LandingScreenState extends State<LandingScreen>
   }
 
   Widget _buildTiers(bool isDark, bool isMobile) {
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
+    final primary = Theme.of(context).colorScheme.primary;
     final tiers = [
       _TierData(
         'Free',
@@ -575,7 +574,7 @@ class _LandingScreenState extends State<LandingScreen>
   }
 
   Widget _tierCard(_TierData t, bool isDark, bool isMobile) {
-    final surface = isDark ? GibberTheme.eclipseSurface : Colors.white;
+    final surface = Theme.of(context).colorScheme.surface;
     final isFree = t.name == 'Free';
     final isUltimate = t.name == 'Ultimate';
 
@@ -677,7 +676,7 @@ class _LandingScreenState extends State<LandingScreen>
   }
 
   Widget _buildSecurity(bool isDark, bool isMobile) {
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
+    final primary = Theme.of(context).colorScheme.primary;
     final points = [
       ('End-to-End Encryption', 'Military-grade encryption protects every 1:1 and group message. Only you and your contacts can read them.'),
       ('On-Device Processing', 'Whisper WASM runs entirely in your browser. Zero cloud dependency.'),
@@ -697,7 +696,7 @@ class _LandingScreenState extends State<LandingScreen>
           width: isMobile ? double.infinity : 280,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: (isDark ? GibberTheme.eclipseSurface : Colors.white).withValues(alpha: 0.6),
+            color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.6),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: primary.withValues(alpha: 0.1)),
           ),
@@ -724,7 +723,7 @@ class _LandingScreenState extends State<LandingScreen>
   }
 
   Widget _buildFooter(bool isDark) {
-    final surface = isDark ? GibberTheme.eclipseSurface : const Color(0xFFF9FAFB);
+    final surface = Theme.of(context).colorScheme.surface;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
       decoration: BoxDecoration(
@@ -779,7 +778,7 @@ class _LandingScreenState extends State<LandingScreen>
     required bool isMobile,
     required Widget child,
   }) {
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
+    final primary = Theme.of(context).colorScheme.primary;
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: isMobile ? 24 : 80,
@@ -820,13 +819,13 @@ class _LandingScreenState extends State<LandingScreen>
 class _OrbPainter extends CustomPainter {
   final AnimationController controller;
   final bool isDark;
+  final Color primary;
 
-  _OrbPainter(this.controller, this.isDark);
+  _OrbPainter(this.controller, this.isDark, this.primary);
 
   @override
   void paint(Canvas canvas, Size size) {
     final t = controller.value;
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
     final secondary = isDark ? const Color(0xFF06B6D4) : const Color(0xFF10B981);
 
     final orbs = [

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import '../theme/app_theme.dart';
+
 import '../services/auth_service.dart';
 import '../services/registration_service.dart';
 import '../services/backend_config.dart';
@@ -505,7 +505,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Widget _buildStatusBanner(String message, bool isDark) {
-    final primary = isDark ? GibberTheme.eclipsePurple : GibberTheme.arcticBlue;
+    final primary = Theme.of(context).colorScheme.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(

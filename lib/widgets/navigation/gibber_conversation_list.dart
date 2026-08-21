@@ -165,7 +165,7 @@ class _ConversationTile extends StatelessWidget {
               fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
               color: isActive
                   ? AppColors.primary
-                  : (isDark ? AppColors.textDarkPrimary : AppColors.textLightPrimary),
+                  : Theme.of(context).colorScheme.onSurface,
             ),
             overflow: TextOverflow.ellipsis,
             maxLines: 1,
@@ -204,7 +204,7 @@ class _ConversationTile extends StatelessWidget {
         fontSize: 12,
         color: isActive
             ? AppColors.primary.withValues(alpha: 0.6)
-            : (isDark ? AppColors.textDarkSecondary : AppColors.textLightSecondary),
+            : Theme.of(context).colorScheme.onSurfaceVariant,
       ),
     );
   }
@@ -252,7 +252,7 @@ class _ConversationTile extends StatelessWidget {
           timeStr,
           style: TextStyle(
             fontSize: 11,
-            color: isDark ? AppColors.textDarkTertiary : AppColors.textLightTertiary,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
       ],

@@ -1,16 +1,21 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/app_colors.dart';
 
 class ThemeProvider extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
 
-  static const Color _defaultSeedColor = Color(0xFF3B82F6);
+  static const Color _defaultSeedColor = AppColors.primary;
   static const String _defaultFontFamily = 'Outfit';
 
   Color _seedColor = _defaultSeedColor;
   bool _useDynamicColors = false;
   bool _amoledMode = false;
   String _fontFamily = _defaultFontFamily;
+
+  final Completer<void> _initialized = Completer<void>();
+  Future<void> get initialized => _initialized.future;
 
   ThemeProvider() {
     _loadAppearance();
@@ -56,6 +61,10 @@ class ThemeProvider extends ChangeNotifier {
     }
 
     notifyListeners();
+
+    if (!_initialized.isCompleted) {
+      _initialized.complete();
+    }
   }
 
   Future<void> toggleTheme() async {

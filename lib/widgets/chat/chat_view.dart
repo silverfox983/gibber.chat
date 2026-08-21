@@ -94,15 +94,14 @@ class _ChatViewState extends State<ChatView> {
 
   Widget _buildHeader(BuildContext context) {
     final conv = widget.conversation;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        color: Theme.of(context).colorScheme.surface,
         border: Border(
           bottom: BorderSide(
-            color: isDark ? AppColors.borderDark : AppColors.borderLight,
+            color: Theme.of(context).colorScheme.outline,
           ),
         ),
       ),
@@ -118,7 +117,7 @@ class _ChatViewState extends State<ChatView> {
             const SizedBox(width: 4),
             _buildAvatar(conv),
             const SizedBox(width: 12),
-            Expanded(child: _buildTitleRow(conv, isDark)),
+            Expanded(child: _buildTitleRow(context, conv)),
             _buildHeaderActions(context, conv),
           ],
         ),
@@ -141,7 +140,7 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  Widget _buildTitleRow(Conversation conv, bool isDark) {
+  Widget _buildTitleRow(BuildContext context, Conversation conv) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -151,7 +150,7 @@ class _ChatViewState extends State<ChatView> {
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w700,
-            color: isDark ? AppColors.textDarkPrimary : AppColors.textLightPrimary,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
           overflow: TextOverflow.ellipsis,
           maxLines: 1,
@@ -170,7 +169,7 @@ class _ChatViewState extends State<ChatView> {
             conv.presenceMessage ?? conv.status.name.toUpperCase(),
             style: TextStyle(
               fontSize: 12,
-              color: isDark ? AppColors.textDarkSecondary : AppColors.textLightSecondary,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
             overflow: TextOverflow.ellipsis,
             maxLines: 1,
@@ -275,10 +274,9 @@ class _ChatViewState extends State<ChatView> {
 
   Widget _buildMessageList(BuildContext context) {
     final conv = widget.conversation;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = conv.wallpaperColor != null
         ? Color(conv.wallpaperColor!)
-        : (isDark ? AppColors.darkBackground : AppColors.lightBackground);
+        : Theme.of(context).colorScheme.surfaceContainerLow;
 
     final filtered = _isSearchingMessages && _msgSearchController.text.isNotEmpty
         ? conv.messages.where((m) => m.text.toLowerCase().contains(_msgSearchController.text.toLowerCase())).toList()
@@ -303,7 +301,7 @@ class _ChatViewState extends State<ChatView> {
               return Column(
                 children: [
                   if (showDateHeader) _buildDateHeader(msg.timestamp),
-                  _buildMessageBubble(msg, isDark),
+                  _buildMessageBubble(context, msg),
                 ],
               );
             },
@@ -364,15 +362,15 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  Widget _buildMessageBubble(ChatMessage msg, bool isDark) {
+  Widget _buildMessageBubble(BuildContext context, ChatMessage msg) {
     final isMe = msg.isSent;
     final alignment = isMe ? Alignment.centerRight : Alignment.centerLeft;
     final bgColor = isMe
         ? AppColors.primary
-        : (isDark ? AppColors.darkSurfaceRaised : AppColors.lightSurfaceRaised);
+        : Theme.of(context).colorScheme.surfaceContainerHighest;
     final textColor = isMe
         ? Colors.white
-        : (isDark ? AppColors.textDarkPrimary : AppColors.textLightPrimary);
+        : Theme.of(context).colorScheme.onSurface;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 2),
@@ -498,15 +496,13 @@ class _ChatViewState extends State<ChatView> {
   }
 
   Widget _buildMessageInput(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        color: Theme.of(context).colorScheme.surface,
         border: Border(
           top: BorderSide(
-            color: isDark ? AppColors.borderDark : AppColors.borderLight,
+            color: Theme.of(context).colorScheme.outline,
           ),
         ),
       ),
@@ -529,9 +525,7 @@ class _ChatViewState extends State<ChatView> {
                     borderSide: BorderSide.none,
                   ),
                   filled: true,
-                  fillColor: isDark
-                      ? AppColors.darkSurfaceRaised
-                      : AppColors.lightSurfaceRaised,
+                  fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 10,

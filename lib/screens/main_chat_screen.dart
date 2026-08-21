@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import '../core/app_colors.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:record/record.dart';
@@ -3806,15 +3805,12 @@ class _MainChatScreenState extends State<MainChatScreen> {
     bool isMobile, {
     VoidCallback? onCollapseSidebar,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final content = DecoratedBox(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         border: Border(
           right: BorderSide(
-            color: isDark
-                ? AppColors.borderDark
-                : AppColors.borderLight,
+            color: Theme.of(context).colorScheme.outline,
             width: 1,
           ),
         ),
@@ -3946,7 +3942,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
   void _showStatusPickerInline(AuthService authService) {
     final statusCtrl = TextEditingController(text: authService.myStatusMessage);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showModalBottomSheet(
       context: context,
@@ -3970,7 +3965,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: isDark ? AppColors.textDarkPrimary : AppColors.textLightPrimary,
+                color: Theme.of(ctx).colorScheme.onSurface,
               ),
             ),
             const SizedBox(height: 20),
@@ -3979,7 +3974,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
               decoration: InputDecoration(
                 hintText: "What's on your mind?",
                 filled: true,
-                fillColor: isDark ? AppColors.darkSurfaceRaised : AppColors.lightSurfaceRaised,
+                fillColor: Theme.of(ctx).colorScheme.surfaceContainerHighest,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,

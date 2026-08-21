@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../models/chat_models.dart';
+import '../services/database_service.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   final Conversation conversation;
@@ -14,12 +16,14 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   late bool _muteNotifications;
   late bool _messagePreview;
   String _notificationSound = 'Default';
+  int? _currentWallpaperColor;
 
   @override
   void initState() {
     super.initState();
     _muteNotifications = false;
     _messagePreview = true;
+    _currentWallpaperColor = widget.conversation.wallpaperColor;
   }
 
   @override
@@ -97,8 +101,27 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ListTile(
             leading: const Icon(Icons.photo_library_rounded),
             title: const Text('Chat wallpaper'),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () {},
+            subtitle: _currentWallpaperColor != null
+                ? const Text('Custom color set')
+                : const Text('Default'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_currentWallpaperColor != null)
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: Color(_currentWallpaperColor!),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: theme.colorScheme.outline),
+                    ),
+                  ),
+                const SizedBox(width: 8),
+                const Icon(Icons.chevron_right_rounded),
+              ],
+            ),
+            onTap: () => _showWallpaperPicker(context),
           ),
           ListTile(
             leading: const Icon(Icons.search_rounded),
@@ -108,8 +131,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ),
           const Divider(),
           ListTile(
-            leading: const Icon(Icons.delete_forever_rounded, color: Colors.red),
-            title: const Text('Delete chat', style: TextStyle(color: Colors.red)),
+            leading: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error),
+            title: Text('Delete chat', style: TextStyle(color: theme.colorScheme.error)),
             onTap: () {
               _showDeleteConfirmation(context);
             },
@@ -161,6 +184,84 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         ),
       ),
     );
+  }
+
+  void _showWallpaperPicker(BuildContext context) {
+    Color pickerColor = _currentWallpaperColor != null
+        ? Color(_currentWallpaperColor!)
+        : Theme.of(context).colorScheme.surface;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text('Chat Wallpaper',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const Spacer(),
+                    if (_currentWallpaperColor != null)
+                      TextButton(
+                        onPressed: () async {
+                          await _setWallpaperColor(null);
+                          if (ctx.mounted) Navigator.pop(ctx);
+                        },
+                        child: const Text('Reset'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 300,
+                  child: ColorPicker(
+                    pickerColor: pickerColor,
+                    onColorChanged: (color) => pickerColor = color,
+                    enableAlpha: false,
+                    displayThumbColor: true,
+                    pickerAreaHeightPercent: 0.7,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () async {
+                      await _setWallpaperColor(pickerColor.toARGB32());
+                      if (ctx.mounted) Navigator.pop(ctx);
+                    },
+                    child: const Text('Apply'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setWallpaperColor(int? color) async {
+    setState(() => _currentWallpaperColor = color);
+    widget.conversation.wallpaperColor = color;
+    await DatabaseService().updateConversationWallpaper(
+      widget.conversation.id,
+      widget.conversation.wallpaperPath,
+      color,
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(color != null ? 'Wallpaper color updated' : 'Wallpaper reset to default'),
+        ),
+      );
+    }
   }
 
   void _showDeleteConfirmation(BuildContext context) {
