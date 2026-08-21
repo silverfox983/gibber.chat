@@ -12,6 +12,7 @@ import '../services/data_export_service.dart';
 import '../services/jwt_token_service.dart';
 import '../services/backend_config.dart';
 import '../services/database_service.dart';
+import '../services/push_notification_service.dart';
 
 class AccountPreferencesScreen extends StatefulWidget {
   const AccountPreferencesScreen({super.key});
@@ -131,6 +132,17 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(height: 32),
+              Text('NOTIFICATIONS', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+              const SizedBox(height: 16),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Theme.of(context).colorScheme.outline),
+                ),
+                child: _PushNotificationTile(authService: authService),
               ),
               const SizedBox(height: 32),
               Text('APPEARANCE & SOUNDS', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
@@ -729,6 +741,100 @@ class _AccountEditorScreenState extends State<AccountEditorScreen> {
           labelStyle: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
       ),
+    );
+  }
+}
+
+class _PushNotificationTile extends StatefulWidget {
+  final AuthService authService;
+  const _PushNotificationTile({required this.authService});
+
+  @override
+  State<_PushNotificationTile> createState() => _PushNotificationTileState();
+}
+
+class _PushNotificationTileState extends State<_PushNotificationTile> {
+  PushPermissionStatus _status = PushPermissionStatus.prompt;
+  bool _subscribed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStatus();
+  }
+
+  Future<void> _loadStatus() async {
+    final status = await PushNotificationService.instance.getPermissionStatus();
+    final sub = await PushNotificationService.instance.getCurrentSubscription();
+    if (mounted) {
+      setState(() {
+        _status = status;
+        _subscribed = sub != null;
+      });
+    }
+  }
+
+  String get _statusLabel {
+    switch (_status) {
+      case PushPermissionStatus.granted:
+        return _subscribed ? 'Enabled' : 'Enabled (not subscribed)';
+      case PushPermissionStatus.denied:
+        return 'Blocked — enable in browser settings';
+      case PushPermissionStatus.prompt:
+        return 'Not enabled';
+      case PushPermissionStatus.unsupported:
+        return 'Not supported on this platform';
+    }
+  }
+
+  IconData get _statusIcon {
+    switch (_status) {
+      case PushPermissionStatus.granted: return Icons.notifications_active_rounded;
+      case PushPermissionStatus.denied: return Icons.notifications_off_rounded;
+      case PushPermissionStatus.prompt: return Icons.notifications_rounded;
+      case PushPermissionStatus.unsupported: return Icons.notifications_off_rounded;
+    }
+  }
+
+  Future<void> _handleTap() async {
+    if (_status == PushPermissionStatus.denied || _status == PushPermissionStatus.unsupported) {
+      return;
+    }
+
+    final accounts = widget.authService.savedAccounts;
+    if (accounts.isEmpty) return;
+    final jid = '${accounts.first.user}@${accounts.first.domain}';
+
+    if (_status == PushPermissionStatus.prompt) {
+      final result = await PushNotificationService.instance.requestPermission();
+      if (result != PushPermissionStatus.granted) return;
+      if (mounted) setState(() => _status = PushPermissionStatus.granted);
+    }
+
+    if (_subscribed) {
+      await PushNotificationService.instance.unsubscribe();
+      if (mounted) setState(() => _subscribed = false);
+    } else {
+      final success = await PushNotificationService.instance.subscribe(jid);
+      if (mounted) setState(() => _subscribed = success);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = _status == PushPermissionStatus.granted;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      leading: Icon(_statusIcon, color: enabled ? Colors.green : Colors.grey, size: 28),
+      title: const Text('Push Notifications', style: TextStyle(fontWeight: FontWeight.bold)),
+      subtitle: Text(_statusLabel),
+      trailing: enabled
+          ? Switch(
+              value: _subscribed,
+              onChanged: (_) => _handleTap(),
+            )
+          : null,
+      onTap: _handleTap,
     );
   }
 }
