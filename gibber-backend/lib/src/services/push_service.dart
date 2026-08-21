@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
-import 'package:crypto/crypto.dart' hide Hash;
+
 import 'package:http/http.dart' as http;
-import 'package:webcrypto/webcrypto.dart';
+import 'package:pointycastle/export.dart';
 
 class PushService {
   final String? _vapidPublicKey;
@@ -23,7 +23,8 @@ class PushService {
     return PushService(
       vapidPublicKey: Platform.environment['GIBBER_VAPID_PUBLIC_KEY'],
       vapidPrivateKey: Platform.environment['GIBBER_VAPID_PRIVATE_KEY'],
-      subject: Platform.environment['GIBBER_VAPID_SUBJECT'] ?? 'mailto:admin@gibberapp.online',
+      subject: Platform.environment['GIBBER_VAPID_SUBJECT'] ??
+          'mailto:admin@gibberapp.online',
     );
   }
 
@@ -34,28 +35,87 @@ class PushService {
       _vapidPrivateKey.isNotEmpty;
 
   String _base64UrlEncode(List<int> bytes) {
-    return base64Url.encode(bytes).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+    return base64Url
+        .encode(bytes)
+        .replaceAll('+', '-')
+        .replaceAll('/', '_')
+        .replaceAll('=', '');
   }
 
   Uint8List _base64UrlDecode(String input) {
-    String output = input.replaceAll('-', '+').replaceAll('_', '/');
+    var output = input.replaceAll('-', '+').replaceAll('_', '/');
     switch (output.length % 4) {
-      case 2: output += '==';
-      case 3: output += '=';
+      case 2:
+        output += '==';
+      case 3:
+        output += '=';
     }
     return base64Decode(output);
   }
 
-  Map<String, String> _generateVapidHeaders(String audience, String subject) {
-    final authToken = sha256.convert(utf8.encode('$audience$subject')).bytes;
-    final vapidKeyBytes = _base64UrlDecode(_vapidPublicKey!);
+  Uint8List _bigIntToBytes(BigInt value, int byteLength) {
+    final hexStr = value.toRadixString(16);
+    final padded = hexStr.padLeft(byteLength * 2, '0');
+    final bytes = Uint8List(byteLength);
+    for (var i = 0; i < byteLength; i++) {
+      bytes[i] = int.parse(padded.substring(i * 2, i * 2 + 2), radix: 16);
+    }
+    return bytes;
+  }
 
-    final signatureInput = 'webpush-${Hmac(sha256, authToken).convert(vapidKeyBytes).bytes}';
-    final signature = Hmac(sha256, authToken).convert(utf8.encode(signatureInput)).bytes;
+  ECDomainParameters get _curve => ECDomainParameters('prime256v1');
+
+  SecureRandom _secureRandom() {
+    final seedSource = Random.secure();
+    final seeds = Uint8List(32);
+    for (var i = 0; i < 32; i++) {
+      seeds[i] = seedSource.nextInt(256);
+    }
+    final secureRandom = SecureRandom('Fortuna')
+      ..seed(KeyParameter(seeds));
+    return secureRandom;
+  }
+
+  ECPrivateKey _importPrivateKey(Uint8List keyBytes) {
+    final d = _bytesToBigInt(keyBytes);
+    return ECPrivateKey(d, _curve);
+  }
+
+  BigInt _bytesToBigInt(Uint8List bytes) {
+    var result = BigInt.zero;
+    for (var i = 0; i < bytes.length; i++) {
+      result = (result << 8) | BigInt.from(bytes[i]);
+    }
+    return result;
+  }
+
+  Map<String, String> _generateVapidHeaders(
+      String audience, String subject) {
+    final privateKeyBytes = _base64UrlDecode(_vapidPrivateKey!);
+    final privateKey = _importPrivateKey(privateKeyBytes);
+
+    final header = base64Url.encode(utf8.encode('{"typ":"JWT","alg":"ES256"}'));
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final payload = base64Url.encode(utf8.encode(
+        '{"aud":"$audience","exp":${now + 12 * 3600},"sub":"$subject"}'));
+    final signingInput = '$header.$payload';
+    final signingInputBytes = utf8.encode(signingInput);
+
+    final digest = SHA256Digest();
+    final signer = ECDSASigner(digest)
+      ..init(true, PrivateKeyParameter<ECPrivateKey>(privateKey));
+    final sig = signer.generateSignature(signingInputBytes) as ECSignature;
+
+    final sigBytes = Uint8List(64);
+    final rBytes = _bigIntToBytes(sig.r, 32);
+    final sBytes = _bigIntToBytes(sig.s, 32);
+    sigBytes.setRange(0, 32, rBytes);
+    sigBytes.setRange(32, 64, sBytes);
+
+    final jwt = '$signingInput.${_base64UrlEncode(sigBytes)}';
 
     return {
-      'Authorization': 'vapid t=${_base64UrlEncode(signature)}, k=$_vapidPublicKey',
-      'Crypto-Key': 'p256ecdsa=$_vapidPublicKey',
+      'Authorization': 'vapid t=$jwt, k=$_vapidPublicKey',
     };
   }
 
@@ -64,38 +124,60 @@ class PushService {
     required Uint8List clientPublicKeyBytes,
     required Uint8List clientAuthBytes,
   }) async {
-    final random = Random.secure();
+    final salt = _secureRandom().nextBytes(16);
 
-    final salt = Uint8List(16);
-    for (var i = 0; i < 16; i++) {
-      salt[i] = random.nextInt(256);
-    }
+    final serverKeyPair =
+        ECKeyGenerator()..init(ECKeyGeneratorParameters(_curve));
+    final serverEphemeral = serverKeyPair.generateKeyPair();
+    final serverPrivateKey = serverEphemeral.privateKey as ECPrivateKey;
+    final serverPublicKey = serverEphemeral.publicKey as ECPublicKey;
+    final serverPublicRaw = serverPublicKey.Q!.getEncoded(false);
 
-    final serverEphemeralKeyPair = await EcdhPrivateKey.generateKey(EllipticCurve.p256);
-    final serverPublicRaw = await serverEphemeralKeyPair.publicKey.exportRawKey();
+    final clientPoint = _curve.curve.decodePoint(clientPublicKeyBytes);
+    final clientPubKey = ECPublicKey(clientPoint, _curve);
 
-    final clientPubKey = await EcdhPublicKey.importRawKey(clientPublicKeyBytes, EllipticCurve.p256);
+    final agreement = ECDHBasicAgreement()..init(serverPrivateKey);
+    final sharedSecretBigInt = agreement.calculateAgreement(clientPubKey);
+    final sharedSecret = _bigIntToBytes(sharedSecretBigInt, 32);
 
-    final sharedSecret = await serverEphemeralKeyPair.privateKey.deriveBits(256, clientPubKey);
-
-    final ikmData = Uint8List.fromList([
-      ...sharedSecret,
-      ...clientAuthBytes,
-      ...serverPublicRaw,
+    final info1 = Uint8List.fromList([
+      ...utf8.encode('WebPush: info'),
+      0x00,
       ...clientPublicKeyBytes,
+      ...serverPublicRaw,
     ]);
 
-    final hkdfKey = await HkdfSecretKey.importRawKey(ikmData);
-    final derivedKey = await hkdfKey.deriveBits(256, Hash.sha256, salt, utf8.encode('Content-Encoding: auth'));
+    final hkdf1 = HKDFKeyDerivator(SHA256Digest())
+      ..init(HkdfParameters(sharedSecret, 32, clientAuthBytes, info1));
+    final ikm = Uint8List(32);
+    hkdf1.deriveKey(null, 0, ikm, 0);
 
-    final contentEncryptionKey = derivedKey.sublist(0, 16);
-    final nonce = derivedKey.sublist(16, 28);
+    final hkdfCek = HKDFKeyDerivator(SHA256Digest())
+      ..init(HkdfParameters(ikm, 16, salt, utf8.encode('Content-Encoding: aes128gcm')));
+    final contentEncryptionKey = Uint8List(16);
+    hkdfCek.deriveKey(null, 0, contentEncryptionKey, 0);
 
-    final contentKey = await AesGcmSecretKey.importRawKey(contentEncryptionKey);
-    final encrypted = await contentKey.encryptBytes(payload, nonce);
+    final hkdfNonce = HKDFKeyDerivator(SHA256Digest())
+      ..init(HkdfParameters(ikm, 12, salt, utf8.encode('Content-Encoding: nonce')));
+    final nonce = Uint8List(12);
+    hkdfNonce.deriveKey(null, 0, nonce, 0);
 
-    final keyBytes = await serverEphemeralKeyPair.publicKey.exportRawKey();
-    return Uint8List.fromList([...salt, ...keyBytes, ...encrypted]);
+    final aes = GCMBlockCipher(AESEngine())
+      ..init(
+          true,
+          AEADParameters(
+            KeyParameter(contentEncryptionKey),
+            128,
+            nonce,
+            Uint8List(0),
+          ));
+    final encrypted = aes.process(payload);
+
+    return Uint8List.fromList([
+      ...salt,
+      ...serverPublicRaw,
+      ...encrypted,
+    ]);
   }
 
   Future<void> sendPush({
@@ -127,7 +209,8 @@ class PushService {
       });
 
       final audienceUri = Uri.parse(endpoint);
-      final audience = '${audienceUri.scheme}://${audienceUri.host}${audienceUri.port != 80 && audienceUri.port != 443 ? ':${audienceUri.port}' : ''}';
+      final audience =
+          '${audienceUri.scheme}://${audienceUri.host}${audienceUri.port != 80 && audienceUri.port != 443 ? ':${audienceUri.port}' : ''}';
 
       final clientPubKeyBytes = _base64UrlDecode(p256dh);
       final clientAuthBytes = _base64UrlDecode(auth);
@@ -152,7 +235,8 @@ class PushService {
       );
 
       if (response.statusCode != 201 && response.statusCode != 200) {
-        print('PushService: push to $endpoint failed with ${response.statusCode}: ${response.body}');
+        print(
+            'PushService: push to $endpoint failed with ${response.statusCode}: ${response.body}');
       }
     } catch (e) {
       print('PushService: failed to send push to $endpoint: $e');
