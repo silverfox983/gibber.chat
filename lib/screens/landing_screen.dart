@@ -252,7 +252,7 @@ class _LandingScreenState extends State<LandingScreen>
           ),
           const SizedBox(height: 28),
           Text(
-            'Secure Communication',
+            'Your Network, Your Rules.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: isMobile ? 32 : 56,
@@ -264,9 +264,8 @@ class _LandingScreenState extends State<LandingScreen>
           ),
           const SizedBox(height: 20),
           Text(
-            'Browser-native secure messaging with voice call transcription,\n'
-            'encrypted voice/video calls, and protocol bridging\n'
-            'for Slack, Discord, and more.',
+            'Chat, call, and post across every network — without the compromise.\n'
+            'No account required. No tracking. No ads.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: isMobile ? 15 : 18,
@@ -463,8 +462,8 @@ class _LandingScreenState extends State<LandingScreen>
     final secondary = isDark ? const Color(0xFF06B6D4) : const Color(0xFF10B981);
     final steps = [
       _StepData('1', 'Create Account', 'Sign up for free — no credit card needed. Start messaging securely right away.', Icons.person_add_rounded, primary),
-      _StepData('2', 'Connect & Communicate', 'Message, call, and transcribe — all encrypted and processed on your device.', Icons.chat_rounded, secondary),
-      _StepData('3', 'Upgrade When Ready', 'Go Pro or Ultimate for protocol bridging, unlimited features, and more. Pay monthly.', Icons.verified_rounded, primary),
+      _StepData('2', 'Connect & Communicate', 'Message and call anyone — encrypted and processed on your device. Zero knowledge.', Icons.chat_rounded, secondary),
+      _StepData('3', 'Take Back Control', 'Own your identity, your contacts, and your conversations. No company in the middle.', Icons.verified_rounded, primary),
     ];
 
     return _sectionWrapper(
@@ -534,7 +533,7 @@ class _LandingScreenState extends State<LandingScreen>
         '\$0',
         'Forever free',
         const Color(0xFF6B7280),
-        ['Gibber messaging & calls', '1:1 encrypted chat', 'Unlimited transcription', 'Unlimited AI queries', '4-person group calls', '30-day history'],
+        ['Gibber messaging & calls', '1:1 encrypted chat', 'Unlimited transcription', '4-person group calls', '30-day history'],
         [],
         ['Slack, Discord, IRC', 'Teams, Matrix, Telegram, SMS', '10+ person group calls', '365-day history'],
       ),
@@ -543,7 +542,7 @@ class _LandingScreenState extends State<LandingScreen>
         '\$9.99/mo',
         'Cancel anytime',
         primary,
-        ['Gibber messaging & calls', '1:1 encrypted chat', 'Unlimited transcription', 'Unlimited AI queries', '10-person group calls', '365-day history', 'Slack, Discord, IRC'],
+        ['Gibber messaging & calls', '1:1 encrypted chat', 'Unlimited transcription', '10-person group calls', '365-day history', 'Slack, Discord, IRC'],
         ['Teams, Matrix, Telegram, SMS'],
         [],
       ),
@@ -667,7 +666,7 @@ class _LandingScreenState extends State<LandingScreen>
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
                 child: Text(
-                  isUltimate ? 'Upgrade to Ultimate' : 'Upgrade to Pro',
+                  isUltimate ? 'Get Ultimate' : 'Get Started',
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
                 ),
               ),
@@ -746,6 +745,11 @@ class _LandingScreenState extends State<LandingScreen>
           Text(
             'Secure communication for everyone.',
             style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '100% Free & Open Source \u00B7 Built on XMPP \u00B7 No account required',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7)),
           ),
           Row(
             mainAxisSize: MainAxisSize.min,

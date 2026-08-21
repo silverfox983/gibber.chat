@@ -249,21 +249,8 @@ class EntitlementService extends ChangeNotifier {
     return _aiQueriesUsed < limit;
   }
 
-  String? transcriptionLimitMessage() {
-    if (currentTier == UserTier.ultimate) return null;
-    if (!canTranscribe) {
-      return 'Pro tier transcription limit (300 min/month) reached. Upgrade to Ultimate for unlimited.';
-    }
-    return null;
-  }
-
-  String? aiLimitMessage() {
-    if (currentTier == UserTier.ultimate) return null;
-    if (!canUseAI) {
-      return 'Pro tier AI query limit (100/month) reached. Upgrade to Ultimate for unlimited.';
-    }
-    return null;
-  }
+  String? transcriptionLimitMessage() => null;
+  String? aiLimitMessage() => null;
 
   void recordTranscriptionSeconds(int seconds) {
     _transcriptionSecondsUsed += seconds;

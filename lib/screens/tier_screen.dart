@@ -139,11 +139,6 @@ class _TierScreenState extends State<TierScreen> {
                 entitlement.transcriptionSecondsUsed ~/ 60,
                 entitlement.currentTier.transcriptionMinutesPerMonth == -1 ? null : entitlement.currentTier.transcriptionMinutesPerMonth,
                 'min'),
-            const SizedBox(height: 4),
-            _buildUsageRow(theme, Icons.auto_awesome_rounded, 'AI Queries',
-                entitlement.aiQueriesUsed,
-                entitlement.currentTier.aiQueriesPerMonth == -1 ? null : entitlement.currentTier.aiQueriesPerMonth,
-                ''),
           ],
           if (entitlement.currentTier == UserTier.free) ...[
             const SizedBox(height: 12),
@@ -151,11 +146,6 @@ class _TierScreenState extends State<TierScreen> {
                 entitlement.transcriptionSecondsUsed ~/ 60,
                 null,
                 'min'),
-            const SizedBox(height: 4),
-            _buildUsageRow(theme, Icons.auto_awesome_rounded, 'AI Queries',
-                entitlement.aiQueriesUsed,
-                null,
-                ''),
           ],
         ],
       ),
@@ -356,11 +346,11 @@ class _TierScreenState extends State<TierScreen> {
   Widget _buildTierComparisonCard(ThemeData theme, EntitlementService entitlement) {
     final tiers = [
       (UserTier.free, 'Free', Icons.person_rounded, theme.colorScheme.onSurfaceVariant,
-        ['Gibber protocol only', '4-person calls']),
+        ['Gibber messaging & calls', '4-person calls']),
       (UserTier.pro, 'Pro — \$9.99/mo', Icons.star_rounded, Colors.purpleAccent,
-        ['Gibber + Slack + Discord + IRC', '300 min transcription/mo', '100 AI queries/mo', '10-person calls']),
+        ['Gibber + Slack + Discord + IRC', '365-day history', '10-person calls']),
       (UserTier.ultimate, 'Ultimate — \$19.99/mo', Icons.workspace_premium_rounded, Colors.amber,
-        ['All protocols', 'Unlimited transcription', 'Unlimited AI', 'Unlimited calls']),
+        ['All protocols', 'Unlimited calls', 'Unlimited history']),
     ];
 
     return Container(
@@ -416,7 +406,7 @@ class _TierScreenState extends State<TierScreen> {
           ]),
           const SizedBox(height: 12),
           Text(
-            'Free users can donate idle CPU power to support development. Opt in from Settings.',
+            'Gibber is free forever. If you find it valuable, consider contributing to the project or purchasing a paid tier.',
             style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
           ),
         ],

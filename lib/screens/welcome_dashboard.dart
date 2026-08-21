@@ -675,7 +675,7 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
         Provider.of<ChatProvider>(context, listen: false).setSidebarTab(3);
       }));
     }
-    tips.add(_OnboardingTip(Icons.workspace_premium_rounded, 'Upgrade to Pro for more features', 'Get unlimited transcription, AI queries, and protocol bridging with a Pro or Ultimate plan.', () => context.goNamed('tier')));
+    tips.add(_OnboardingTip(Icons.workspace_premium_rounded, 'Unlock more features', 'Protocol bridging and larger group calls are available with Pro and Ultimate plans.', () => context.goNamed('tier')));
     tips.add(_OnboardingTip(Icons.edit_rounded, 'Set your status', 'Let contacts know your availability.', null));
 
     if (tips.isEmpty) return const SizedBox.shrink();

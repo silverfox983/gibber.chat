@@ -13,8 +13,10 @@ import 'package:share_plus/share_plus.dart';
 import '../services/auth_service.dart';
 import '../services/avatar_cache_service.dart';
 import '../services/spaces_service.dart';
+import '../services/story_service.dart';
 import '../models/space_models.dart';
 import '../providers/chat_provider.dart';
+import '../widgets/story_row.dart';
 
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
@@ -278,6 +280,11 @@ class _FeedScreenState extends State<FeedScreen>
           onRefresh: _refresh,
           child: CustomScrollView(
             slivers: [
+              // Stories row
+              SliverToBoxAdapter(
+                child: _buildStoriesRow(),
+              ),
+
               // Stats header
               SliverToBoxAdapter(
                 child: LayoutBuilder(
@@ -999,6 +1006,21 @@ class _FeedScreenState extends State<FeedScreen>
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildStoriesRow() {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final accountId = auth.activeAccountId;
+    if (accountId == null || _spacesService == null) return const SizedBox.shrink();
+    final conn = auth.activeXmppConnection;
+    if (conn == null) return const SizedBox.shrink();
+    final storyService = StoryService(_spacesService!, conn, accountId);
+    final contacts = auth.currentContacts;
+    final contactJids = contacts.map((c) => c.id).toList();
+    return StoryRow(
+      storyService: storyService,
+      contactJids: contactJids,
     );
   }
 }
