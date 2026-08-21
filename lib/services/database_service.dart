@@ -180,6 +180,19 @@ class DatabaseService {
             fetched_at TEXT
           )
         ''');
+
+        // --- Registered Transports ---
+        await db.execute('''
+          CREATE TABLE registered_transports(
+            gateway_jid TEXT PRIMARY KEY,
+            gateway_name TEXT,
+            gateway_type TEXT,
+            username TEXT,
+            password TEXT,
+            account_id TEXT,
+            registered_at TEXT DEFAULT (datetime('now'))
+          )
+        ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 3) {

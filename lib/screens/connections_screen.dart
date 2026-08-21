@@ -13,6 +13,7 @@ import '../services/entitlement_service.dart';
 import '../services/gateway_service.dart';
 import '../services/transport_service.dart';
 import '../services/database_service.dart';
+import '../services/backend_config.dart';
 import '../services/jwt_token_service.dart';
 import '../widgets/transport_registration_dialog.dart';
 
@@ -29,6 +30,7 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
   _ConnectionsTab _currentTab = _ConnectionsTab.bridges;
 
   // ─── Bridges tab state ──────────────────────────────────────────
+  late final JwtTokenService _jwtService;
   late BridgeConfigService _bridgeService;
   bool _bridgesLoading = true;
   String? _bridgesError;
@@ -51,6 +53,8 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
+    _jwtService = JwtTokenService();
+    _bridgeService = BridgeConfigService(_jwtService);
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
@@ -66,8 +70,8 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
   // ─── Bridges ────────────────────────────────────────────────────
 
   Future<void> _initBridges() async {
-    final jwtService = Provider.of<JwtTokenService>(context, listen: false);
-    _bridgeService = BridgeConfigService(jwtService);
+    final backendConfig = Provider.of<BackendConfig>(context, listen: false);
+    await _jwtService.init(apiUrl: backendConfig.apiUrl);
     await _loadUserGateways();
     _startStatusPolling();
   }
@@ -219,6 +223,7 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
     _statusPoller?.cancel();
     _pulseController.dispose();
     _searchController.dispose();
+    _jwtService.dispose();
     super.dispose();
   }
 
