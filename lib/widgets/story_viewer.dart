@@ -236,7 +236,6 @@ class _StoryViewerState extends State<StoryViewer> with TickerProviderStateMixin
   }
 
   Widget _buildHeader() {
-    final story = widget.stories[_currentIndex];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
