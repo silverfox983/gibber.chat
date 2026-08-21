@@ -41,11 +41,21 @@ class GatewayService extends ChangeNotifier {
     required String gateway,
     required Map<String, dynamic> config,
   }) async {
+    final adminKey = _config.adminKey;
+    if (adminKey == null || adminKey.isEmpty) {
+      return GatewayConfigResponse(
+        gateway: gateway,
+        error: 'Admin key not configured.',
+      );
+    }
     try {
       final response = await http
           .post(
             Uri.parse('$_backendUrl/gateways/configure'),
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              'x-admin-key': adminKey,
+            },
             body: jsonEncode({
               'gateway': gateway,
               'config': config,

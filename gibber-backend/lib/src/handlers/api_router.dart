@@ -1298,7 +1298,7 @@ class ApiRouter {
       'name': 'IRC',
       'description': 'Bridge to IRC networks',
       'icon': 'irc',
-      'requiresConfig': [],
+      'requiresConfig': ['server_hostname', 'server_port'],
       'componentJid': 'irc',
       'slidgeImage': 'ghcr.io/regretfulswan/slidirc:latest',
     },
@@ -1306,7 +1306,7 @@ class ApiRouter {
       'name': 'Matrix',
       'description': 'Bridge to Matrix homeservers',
       'icon': 'matrix',
-      'requiresConfig': ['homeserver'],
+      'requiresConfig': ['homeserver_url'],
       'componentJid': 'matrix',
       'slidgeImage': 'ghcr.io/regretfulswan/matridge:latest',
     },
@@ -1356,7 +1356,9 @@ class ApiRouter {
     final envVars = Platform.environment;
     if (envVars['TG_API_ID'] != null && envVars['TG_API_ID']!.isNotEmpty) configured.add('telegram');
     if (envVars['DISCORD_BOT_TOKEN'] != null && envVars['DISCORD_BOT_TOKEN']!.isNotEmpty) configured.add('discord');
+    if (envVars['IRC_SERVER_HOSTNAME'] != null && envVars['IRC_SERVER_HOSTNAME']!.isNotEmpty) configured.add('irc');
     if (envVars['MATRIX_HOMESERVER'] != null && envVars['MATRIX_HOMESERVER']!.isNotEmpty) configured.add('matrix');
+    if (envVars['WA_PHONE_NUMBER'] != null && envVars['WA_PHONE_NUMBER']!.isNotEmpty) configured.add('whatsapp');
     return configured;
   }
 

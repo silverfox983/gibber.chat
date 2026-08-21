@@ -61,6 +61,9 @@ SLIDIRC_SECRET="${GIBBER_SLIDIRC_SECRET:-change-me}"
 MATRIDGE_ENABLED="${GIBBER_MATRIDGE_ENABLED:-false}"
 MATRIDGE_SECRET="${GIBBER_MATRIDGE_SECRET:-change-me}"
 MATRIX_HOMESERVER="${MATRIX_HOMESERVER:-https://matrix.org}"
+SLIDGEWHATSAPPER_ENABLED="${GIBBER_SLIDGEWHATSAPPER_ENABLED:-false}"
+SLIDGEWHATSAPPER_SECRET="${GIBBER_SLIDGEWHATSAPPER_SECRET:-change-me}"
+WA_PHONE_NUMBER="${WA_PHONE_NUMBER:-}"
 
 # Janus/TURN configuration (for monolith deployment)
 JANUS_URL="${GIBBER_JANUS_URL:-ws://localhost:8188}"
@@ -131,6 +134,11 @@ if [ "$MATRIDGE_ENABLED" = "true" ]; then
     SLIDGE_COMPONENTS="${SLIDGE_COMPONENTS}
 Component \"matrix.${DOMAIN}\"
     component_secret = \"${MATRIDGE_SECRET}\""
+fi
+if [ "$SLIDGEWHATSAPPER_ENABLED" = "true" ]; then
+    SLIDGE_COMPONENTS="${SLIDGE_COMPONENTS}
+Component \"whatsapp.${DOMAIN}\"
+    component_secret = \"${SLIDGEWHATSAPPER_SECRET}\""
 fi
 
 cat > /etc/prosody/slidge-providers.conf << EOF

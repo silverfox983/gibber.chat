@@ -1,5 +1,5 @@
 # Slidge Gateway Transports - Docker Compose Configuration
-# Deploys gateway components for Telegram, Discord, IRC, and Matrix
+# Deploys gateway components for Telegram, Discord, IRC, Matrix, and WhatsApp
 #
 # Usage:
 #   docker compose -f slidge-compose.yml up -d
@@ -90,6 +90,28 @@ services:
       - SLIDGE_REGISTRATION_OPEN=${MATRIDGE_OPEN:-false}
       # Matrix-specific
       - MATRIX_HOMESERVER=${MATRIX_HOMESERVER:-https://matrix.org}
+    env_file:
+      - .env.slidge
+    networks:
+      - gibber_transports
+    depends_on:
+      - prosody
+
+  # =======================
+  # WhatsApp Gateway (Slidge WhatsApp)
+  # =======================
+  slidge-whatsapp:
+    image: ghcr.io/regretfulswan/slidge-whatsapp:latest
+    container_name: gibber-slidge-whatsapp
+    restart: unless-stopped
+    environment:
+      - SLIDGE_COMPONENT_JID=${SLIDGEWHATSAPPER_JID:-whatsapp.gibberapp.online}
+      - SLIDGE_COMPONENT_SECRET=${SLIDGEWHATSAPPER_SECRET:-change-me}
+      - SLIDGE_XMPP_SERVER=${XMPP_SERVER:-prosody}
+      - SLIDGE_XMPP_PORT=${XMPP_PORT:-5270}
+      - SLIDGE_REGISTRATION_OPEN=${SLIDGEWHATSAPPER_OPEN:-false}
+      # WhatsApp-specific
+      - WA_PHONE_NUMBER=${WA_PHONE_NUMBER:-}
     env_file:
       - .env.slidge
     networks:

@@ -365,6 +365,8 @@ class TransportService {
           gatewayName: gatewayJid.split('.').first,
           gatewayType: gatewayJid.contains('telegram') ? 'telegram' :
                        gatewayJid.contains('discord') ? 'discord' :
+                       gatewayJid.contains('matrix') ? 'matrix' :
+                       gatewayJid.contains('whatsapp') ? 'whatsapp' :
                        gatewayJid.contains('irc') ? 'irc' : 'gateway',
           username: formData['username'],
           password: formData['password'],

@@ -10,7 +10,7 @@ class BackendEntitlementService {
   static const Map<String, List<String>> tierProtocols = {
     'free': ['XMPP'],
     'pro': ['XMPP', 'Slack', 'Discord', 'IRC'],
-    'ultimate': ['XMPP', 'Slack', 'Discord', 'IRC', 'Teams', 'Matrix', 'Telegram', 'SMS'],
+    'ultimate': ['XMPP', 'Slack', 'Discord', 'IRC', 'Teams', 'Matrix', 'Telegram', 'WhatsApp', 'SMS'],
   };
 
   BackendEntitlementService({required this.db});
@@ -83,12 +83,13 @@ class BackendEntitlementService {
 
   Future<bool> isProtocolAuthorized(String jid, String protocol) async {
     final entitlement = await getEntitlement(jid);
-    if (!entitlement.isActive) return protocol == 'XMPP';
+    if (!entitlement.isActive) return protocol.toUpperCase() == 'XMPP';
 
-    if (entitlement.additionalProtocols.contains(protocol)) return true;
+    final normalized = protocol.toUpperCase();
+    if (entitlement.additionalProtocols.any((p) => p.toUpperCase() == normalized)) return true;
 
     final allowedProtocols = tierProtocols[entitlement.tier] ?? ['XMPP'];
-    return allowedProtocols.contains(protocol);
+    return allowedProtocols.any((p) => p.toUpperCase() == normalized);
   }
 
   Future<bool> authorizeGateway(String jid, String protocol) async {

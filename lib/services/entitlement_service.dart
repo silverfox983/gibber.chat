@@ -29,7 +29,7 @@ extension UserTierExtension on UserTier {
       case UserTier.pro:
         return ['XMPP', 'Slack', 'Discord', 'IRC'];
       case UserTier.ultimate:
-        return ['XMPP', 'Slack', 'Discord', 'IRC', 'Teams', 'Matrix', 'Telegram', 'SMS'];
+        return ['XMPP', 'Slack', 'Discord', 'IRC', 'Teams', 'Matrix', 'Telegram', 'WhatsApp', 'SMS'];
     }
   }
 

@@ -169,7 +169,7 @@ class UserGatewayService {
     final existing = getUserGateway(jid, gatewayType);
     if (existing == null) return null;
 
-    final componentJid = _generateComponentJid(jid, gatewayType);
+    final componentJid = existing.componentJid ?? _generateComponentJid(jid, gatewayType);
     final componentSecret = _generateSecret();
     final now = DateTime.now().toIso8601String();
 
@@ -363,8 +363,10 @@ class UserGatewayService {
   }
 
   String _generateComponentJid(String jid, String gatewayType) {
-    final userHash = jid.split('@').first.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    return '${gatewayType}_$userHash';
+    final parts = jid.split('@');
+    final userHash = parts.first.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final domain = parts.length > 1 ? parts[1].split('/').first : 'gibberapp.online';
+    return '${gatewayType}_$userHash.$domain';
   }
 
   String _generateSecret() {
