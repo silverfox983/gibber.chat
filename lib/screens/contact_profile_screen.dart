@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
-import 'dart:typed_data';
 import '../models/chat_models.dart';
 import '../services/auth_service.dart';
 import '../services/avatar_cache_service.dart';
@@ -46,6 +46,8 @@ class ContactProfileScreen extends StatelessWidget {
                   _showRenameDialog(context, chatProvider, authService);
                 } else if (val == 'share') {
                   _showShareQRDialog(context);
+                } else if (val == 'verify') {
+                  _showVerifyFingerprintDialog(context, authService);
                 } else if (val == 'refresh') {
                   authService.fetchContactVCard(contact.id);
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -89,6 +91,7 @@ class ContactProfileScreen extends StatelessWidget {
                 const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.edit_rounded, size: 18), title: Text('Rename'), dense: true)),
                 const PopupMenuItem(value: 'refresh', child: ListTile(leading: Icon(Icons.refresh_rounded, size: 18), title: Text('Refresh Profile'), dense: true)),
                 const PopupMenuItem(value: 'share', child: ListTile(leading: Icon(Icons.qr_code_rounded, size: 18), title: Text('Share via QR'), dense: true)),
+                const PopupMenuItem(value: 'verify', child: ListTile(leading: Icon(Icons.verified_user_rounded, size: 18), title: Text('Verify Fingerprint'), dense: true)),
                 const PopupMenuItem(value: 'block', child: ListTile(leading: Icon(Icons.block_rounded, size: 18, color: Colors.redAccent), title: Text('Block'), dense: true)),
                 const PopupMenuItem(value: 'remove', child: ListTile(leading: Icon(Icons.delete_forever_rounded, size: 18, color: Colors.redAccent), title: Text('Remove'), dense: true)),
               ],
@@ -374,6 +377,99 @@ class ContactProfileScreen extends StatelessWidget {
             icon: const Icon(Icons.share_rounded, size: 18),
             label: const Text('SHARE'),
           ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showVerifyFingerprintDialog(BuildContext context, AuthService authService) async {
+    final fingerprints = await authService.getOmemoFingerprintsDetailed(contact.id);
+    final myFingerprint = await authService.getMyOmemoFingerprint();
+    if (!context.mounted) return;
+
+    if (fingerprints.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No OMEMO fingerprints found. Send an encrypted message first.')),
+      );
+      return;
+    }
+
+    final firstDevice = fingerprints.entries.firstWhere(
+      (e) => !(e.value['isOwn'] as bool? ?? false),
+      orElse: () => fingerprints.entries.first,
+    );
+    final contactFp = firstDevice.value['fingerprint'] as String? ?? '';
+    final contactDeviceId = firstDevice.key;
+
+    if (!context.mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Verify Fingerprint', style: TextStyle(fontWeight: FontWeight.w900)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Compare these fingerprints in person or via a trusted channel.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                child: QrImageView(
+                  data: 'omemo:verify:${contact.id}:$contactDeviceId:${contactFp.replaceAll(' ', '')}',
+                  version: QrVersions.auto,
+                  size: 160,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('CONTACT\'S FINGERPRINT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.2)),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: contactFp));
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Contact fingerprint copied')));
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(contactFp, textAlign: TextAlign.center, style: const TextStyle(fontFamily: 'monospace', fontSize: 11, fontWeight: FontWeight.bold)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Icon(Icons.swap_vert_rounded, color: Theme.of(context).colorScheme.primary, size: 28),
+              const SizedBox(height: 16),
+              const Text('YOUR FINGERPRINT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.2)),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: myFingerprint));
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Your fingerprint copied')));
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(myFingerprint, textAlign: TextAlign.center, style: const TextStyle(fontFamily: 'monospace', fontSize: 11, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CLOSE')),
         ],
       ),
     );

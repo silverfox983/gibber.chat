@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../services/auth_service.dart';
 import '../services/omemo_storage_stub.dart' if (dart.library.io) '../services/omemo_storage.dart';
 
@@ -163,10 +164,17 @@ class _IdentityTrustScreenState extends State<IdentityTrustScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
+                    TextButton.icon(
+                      onPressed: () => _showDeviceFingerprintQR(context, jid, deviceId, fingerprint),
+                      icon: const Icon(Icons.qr_code_rounded, size: 18),
+                      label: const Text('SHOW QR'),
+                      style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.primary),
+                    ),
+                    const SizedBox(width: 8),
                     if (trustLevel != 1)
                       TextButton.icon(
-                        onPressed: () => authService.updateOmemoTrust(jid, deviceId, 1),
-                        icon: const Icon(Icons.verified_rounded, size: 18),
+                        onPressed: () => _showVerificationCompare(context, authService, jid, deviceId, fingerprint),
+                        icon: const Icon(Icons.compare_arrows_rounded, size: 18),
                         label: const Text('VERIFY'),
                         style: TextButton.styleFrom(foregroundColor: Colors.green),
                       ),
@@ -189,6 +197,134 @@ class _IdentityTrustScreenState extends State<IdentityTrustScreen> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeviceFingerprintQR(BuildContext context, String jid, int deviceId, String fingerprint) {
+    final qrData = 'omemo:verify:$jid:$deviceId:${fingerprint.replaceAll(' ', '')}';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Device $deviceId QR', style: const TextStyle(fontWeight: FontWeight.w900)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: QrImageView(
+                data: qrData,
+                version: QrVersions.auto,
+                size: 200,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              jid,
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Have your contact scan this to verify device $deviceId.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CLOSE'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: fingerprint));
+              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Fingerprint copied')));
+            },
+            icon: const Icon(Icons.copy_rounded, size: 18),
+            label: const Text('COPY'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showVerificationCompare(BuildContext context, AuthService authService, String jid, int deviceId, String contactFingerprint) async {
+    final myFingerprint = await authService.getMyOmemoFingerprint();
+    if (!context.mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Verify Fingerprint', style: TextStyle(fontWeight: FontWeight.w900)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Compare these fingerprints in person or via a trusted channel.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              const Text('YOUR FINGERPRINT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.2)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  myFingerprint,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Icon(Icons.swap_vert_rounded, color: Theme.of(context).colorScheme.primary, size: 28),
+              const SizedBox(height: 20),
+              Text('CONTACT\'S FINGERPRINT (Device $deviceId)', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.2)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  contactFingerprint,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              authService.updateOmemoTrust(jid, deviceId, 1);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Device $deviceId verified')));
+            },
+            icon: const Icon(Icons.verified_rounded, size: 18),
+            label: const Text('MATCHES'),
           ),
         ],
       ),

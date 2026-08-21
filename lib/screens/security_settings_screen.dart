@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../services/auth_service.dart';
 import 'package:flutter/services.dart';
 
@@ -84,29 +85,42 @@ class SecuritySettingsScreen extends StatelessWidget {
             future: authService.getMyOmemoFingerprint(),
             builder: (context, snapshot) {
               final fingerprint = snapshot.data ?? 'Loading fingerprint...';
-              return GestureDetector(
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: fingerprint));
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Fingerprint copied to clipboard')));
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    fingerprint,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontFamily: 'monospace', 
-                      fontSize: 13, 
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.0
+              return Column(
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: fingerprint));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Fingerprint copied to clipboard')));
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        fingerprint,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontFamily: 'monospace', 
+                          fontSize: 13, 
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showFingerprintQR(context, fingerprint),
+                      icon: const Icon(Icons.qr_code_rounded, size: 18),
+                      label: const Text('Show QR Code'),
+                    ),
+                  ),
+                ],
               );
             },
           ),
@@ -235,6 +249,57 @@ class SecuritySettingsScreen extends StatelessWidget {
             )).toList(),
           );
         },
+      ),
+    );
+  }
+
+  void _showFingerprintQR(BuildContext context, String fingerprint) {
+    final qrData = 'omemo:fingerprint:${fingerprint.replaceAll(' ', '')}';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Scan to Verify', style: TextStyle(fontWeight: FontWeight.w900)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: QrImageView(
+                data: qrData,
+                version: QrVersions.auto,
+                size: 200,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Have your contact scan this QR code to verify your identity.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CLOSE'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: fingerprint));
+              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Fingerprint copied')));
+            },
+            icon: const Icon(Icons.copy_rounded, size: 18),
+            label: const Text('COPY'),
+          ),
+        ],
       ),
     );
   }
