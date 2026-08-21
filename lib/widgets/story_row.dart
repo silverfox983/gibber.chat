@@ -1,8 +1,10 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import 'dart:io';
 import '../models/story_models.dart';
+import '../providers/chat_provider.dart';
 import '../services/story_service.dart';
 import '../services/avatar_cache_service.dart';
 import 'story_viewer.dart';
@@ -49,6 +51,22 @@ class _StoryRowState extends State<StoryRow> {
           _contactStories = contactStories;
           _loading = false;
         });
+
+        // Push story state to ChatProvider for conversation list rings
+        final chatProvider = context.read<ChatProvider>();
+        for (final jid in widget.contactJids) {
+          final stories = contactStories[jid];
+          if (stories != null && stories.isNotEmpty) {
+            final hasUnviewed = stories.any((s) => !s.viewed);
+            chatProvider.updateStoryState(jid, hasStory: true, hasUnviewed: hasUnviewed);
+          } else {
+            chatProvider.updateStoryState(jid, hasStory: false, hasUnviewed: false);
+          }
+        }
+        // Mark own story state
+        chatProvider.updateStoryState(widget.storyService.accountJid,
+            hasStory: myStories.isNotEmpty,
+            hasUnviewed: myStories.any((s) => !s.viewed));
       }
     } catch (e) {
       if (mounted) setState(() => _loading = false);

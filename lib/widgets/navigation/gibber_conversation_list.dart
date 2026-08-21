@@ -4,6 +4,7 @@ import '../../core/app_colors.dart';
 import '../../models/chat_models.dart';
 import '../../providers/chat_provider.dart';
 import '../../services/auth_service.dart';
+import '../story_ring.dart';
 
 class GibberConversationList extends StatelessWidget {
   final String searchQuery;
@@ -17,7 +18,7 @@ class GibberConversationList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    final chatProvider = Provider.of<ChatProvider>(context, listen: true);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final filtered = chatProvider.conversations
@@ -32,11 +33,15 @@ class GibberConversationList extends StatelessWidget {
         itemBuilder: (context, index) {
           final conv = filtered[index];
           final isActive = chatProvider.activeConversation?.id == conv.id;
+          final hasStory = chatProvider.contactHasStory(conv.id);
+          final hasUnviewed = chatProvider.contactHasUnviewedStory(conv.id);
           return _ConversationTile(
             conv: conv,
             isActive: isActive,
             isDark: isDark,
             authService: authService,
+            hasStory: hasStory,
+            hasUnviewedStory: hasUnviewed,
             onTap: () => chatProvider.setActiveConversation(conv.id),
           );
         },
@@ -50,6 +55,8 @@ class _ConversationTile extends StatelessWidget {
   final bool isActive;
   final bool isDark;
   final AuthService authService;
+  final bool hasStory;
+  final bool hasUnviewedStory;
   final VoidCallback onTap;
 
   const _ConversationTile({
@@ -57,6 +64,8 @@ class _ConversationTile extends StatelessWidget {
     required this.isActive,
     required this.isDark,
     required this.authService,
+    this.hasStory = false,
+    this.hasUnviewedStory = false,
     required this.onTap,
   });
 
@@ -113,12 +122,23 @@ class _ConversationTile extends StatelessWidget {
   }
 
   Widget _buildAvatar(BuildContext context, Color avatarColor, IconData? protocolIcon) {
-    return CircleAvatar(
+    final avatar = CircleAvatar(
       radius: 24,
       backgroundColor: avatarColor.withValues(alpha: 0.1),
       backgroundImage: conv.avatarBytes != null ? MemoryImage(conv.avatarBytes!) : null,
       child: _buildAvatarContent(avatarColor, protocolIcon),
     );
+
+    if (hasStory) {
+      return StoryRing(
+        hasUnviewed: hasUnviewedStory,
+        radius: 24,
+        onTap: onTap,
+        child: avatar,
+      );
+    }
+
+    return avatar;
   }
 
   Widget _buildAvatarContent(Color avatarColor, IconData? protocolIcon) {

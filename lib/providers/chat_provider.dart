@@ -45,6 +45,10 @@ class ChatProvider with ChangeNotifier {
   // Persistent drafts per conversation
   final Map<String, String> _drafts = {};
 
+  // Story state per contact: {jid: {hasStory, hasUnviewed}}
+  final Map<String, bool> _contactHasStory = {};
+  final Map<String, bool> _contactHasUnviewedStory = {};
+
   List<Contact> get contacts => _contacts;
   List<String> get blockedJids => _blockedJids;
   List<Map<String, String>> get pendingSubscriptions => _pendingSubscriptions;
@@ -104,6 +108,28 @@ class ChatProvider with ChangeNotifier {
 
   String getDraft(String conversationId) {
     return _drafts[conversationId] ?? '';
+  }
+
+  bool contactHasStory(String jid) => _contactHasStory[jid.toLowerCase()] ?? false;
+  bool contactHasUnviewedStory(String jid) => _contactHasUnviewedStory[jid.toLowerCase()] ?? false;
+
+  void updateStoryState(String jid, {required bool hasStory, required bool hasUnviewed}) {
+    final key = jid.toLowerCase();
+    bool changed = false;
+    if ((_contactHasStory[key] ?? false) != hasStory) {
+      _contactHasStory[key] = hasStory;
+      changed = true;
+    }
+    if ((_contactHasUnviewedStory[key] ?? false) != hasUnviewed) {
+      _contactHasUnviewedStory[key] = hasUnviewed;
+      changed = true;
+    }
+    if (changed) notifyListeners();
+  }
+
+  void clearStoryState() {
+    _contactHasStory.clear();
+    _contactHasUnviewedStory.clear();
   }
 
   bool isTyping(String conversationId) {
