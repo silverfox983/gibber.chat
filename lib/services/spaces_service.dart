@@ -718,7 +718,7 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
-  Future<String?> createSpace(String domain, String node, String name, {String? description, String? topic, String? avatarUrl, String? bannerUrl, String accessModel = 'open', String publishModel = 'publishers'}) async {
+  Future<String?> createSpace(String domain, String node, String name, {String? description, String? topic, String? avatarUrl, String? bannerUrl, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true}) async {
     final iq = xmpp.IqStanza('create_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
     iq.toJid = xmpp.Jid.fromFullJid(domain);
 
@@ -788,22 +788,24 @@ class SpacesService extends ChangeNotifier {
         return 'Server rejected the space creation request.';
       }
 
-      // SUCCESS — now create MUC room and auto-subscribe
-      final mucJid = '$node@conference.$domain';
+      // SUCCESS — now create MUC room (optional) and auto-subscribe
       final myJid = _connection.account.fullJid.userAtDomain;
 
-      // Create MUC room with timeout (lazy — joining creates it on Prosody)
-      try {
-        await _joinMucRoom(mucJid, myJid).timeout(
-          const Duration(seconds: 5),
-          onTimeout: () {
-            debugPrint('SpacesService: MUC join timed out after 5s for $mucJid');
-            return false;
-          },
-        );
-        debugPrint('SpacesService: MUC room joined/created at $mucJid');
-      } catch (e) {
-        debugPrint('SpacesService: MUC room creation failed: $e');
+      // Create optional MUC room for real-time chat (lazy — joining creates it on Prosody)
+      if (createChatRoom) {
+        final mucJid = '$node@conference.$domain';
+        try {
+          await _joinMucRoom(mucJid, myJid).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              debugPrint('SpacesService: MUC join timed out after 5s for $mucJid');
+              return false;
+            },
+          );
+          debugPrint('SpacesService: MUC room joined/created at $mucJid');
+        } catch (e) {
+          debugPrint('SpacesService: MUC room creation failed: $e');
+        }
       }
 
       // Auto-subscribe to the PubSub node so creator sees posts

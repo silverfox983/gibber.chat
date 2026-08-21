@@ -82,6 +82,7 @@ class _SpaceInviteDialogState extends State<SpaceInviteDialog> {
           Wrap(spacing: 8, children: [
             _roleChip(theme, 'member', Icons.people_rounded, 'Member'),
             _roleChip(theme, 'publisher', Icons.edit_note_rounded, 'Publisher'),
+            _roleChip(theme, 'admin', Icons.admin_panel_settings_rounded, 'Admin'),
             _roleChip(theme, 'owner', Icons.shield_rounded, 'Owner'),
           ]),
           const SizedBox(height: 20),

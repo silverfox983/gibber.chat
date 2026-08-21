@@ -23,19 +23,15 @@ class CreateSpaceDialog extends StatefulWidget {
 }
 
 class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
-  final _nameController = TextEditingController();
+  final _titleController = TextEditingController();
   final _descController = TextEditingController();
-  final _slugController = TextEditingController();
-  late final TextEditingController _domainController;
-  final _topicController = TextEditingController();
-  final _avatarUrlController = TextEditingController();
   final _bannerUrlController = TextEditingController();
+  late final TextEditingController _domainController;
+  late final TextEditingController _slugController;
   bool _isLoading = false;
-  bool _domainValid = false;
   bool _domainChecked = false;
-  String? _domainError;
-  String _accessModel = 'open';
-  String _publishModel = 'publishers';
+  bool _domainValid = false;
+  bool _createChatRoom = true;
 
   @override
   void initState() {
@@ -44,91 +40,87 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
     _domainController = TextEditingController(
       text: d.contains('.') ? 'pubsub.$d' : d,
     );
-    _nameController.addListener(_onNameChanged);
-    _validateDomain();
+    _slugController = TextEditingController();
+    _titleController.addListener(_onTitleChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _validateDomain());
   }
 
-  void _onNameChanged() {
-    final name = _nameController.text.trim();
-    if (name.isNotEmpty && _slugController.text.isEmpty) {
-      final slug = name.toLowerCase()
-          .replaceAll(RegExp(r'[^a-z0-9\s\-]'), '')
-          .replaceAll(RegExp(r'\s+'), '-')
-          .replaceAll(RegExp(r'-+'), '-')
-          .replaceAll(RegExp(r'^-+|-+$'), '');
-      _slugController.text = slug;
+  void _onTitleChanged() {
+    final title = _titleController.text.trim();
+    if (title.isNotEmpty && _slugController.text.isEmpty) {
+      _slugController.text = _generateSlug(title);
     }
+  }
+
+  String _generateSlug(String title) {
+    return title
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9\s\-]'), '')
+        .replaceAll(RegExp(r'\s+'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
   }
 
   @override
   void dispose() {
-    _nameController.removeListener(_onNameChanged);
-    _nameController.dispose();
+    _titleController.removeListener(_onTitleChanged);
+    _titleController.dispose();
     _descController.dispose();
-    _slugController.dispose();
-    _domainController.dispose();
-    _topicController.dispose();
-    _avatarUrlController.dispose();
     _bannerUrlController.dispose();
+    _domainController.dispose();
+    _slugController.dispose();
     super.dispose();
   }
 
   Future<void> _validateDomain() async {
     final domain = _domainController.text.trim();
     if (domain.isEmpty || !domain.contains('.')) {
-      setState(() { _domainValid = false; _domainChecked = true; _domainError = null; });
+      setState(() { _domainValid = false; _domainChecked = true; });
       return;
     }
-    setState(() { _domainChecked = false; _domainError = null; });
+    setState(() { _domainChecked = false; });
     try {
       await widget.spacesService.discoverAllSpaces(domain).timeout(
         const Duration(seconds: 10),
         onTimeout: () => <SpaceNode>[],
       );
       if (mounted) {
-        setState(() {
-          _domainChecked = true;
-          _domainValid = true;
-          _domainError = null;
-        });
+        setState(() { _domainChecked = true; _domainValid = true; });
       }
     } catch (_) {
       if (mounted) {
-        setState(() {
-          _domainChecked = true;
-          _domainValid = false;
-          _domainError = 'Could not reach "$domain". Check the address.';
-        });
+        setState(() { _domainChecked = true; _domainValid = false; });
       }
     }
   }
 
-  bool _showNameError = false;
+  bool _showTitleError = false;
   bool _showSlugError = false;
 
   Future<void> _createSpace() async {
-    final name = _nameController.text.trim();
+    final title = _titleController.text.trim();
     final slug = _slugController.text.trim().replaceAll(RegExp(r'-+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
     final targetDomain = _domainController.text.trim();
 
     bool hasError = false;
-    if (name.isEmpty) { setState(() => _showNameError = true); hasError = true; }
+    if (title.isEmpty) { setState(() => _showTitleError = true); hasError = true; }
     if (slug.isEmpty) { setState(() => _showSlugError = true); hasError = true; }
     if (!_domainValid) { hasError = true; }
     if (hasError) return;
 
-    setState(() { _isLoading = true; _showNameError = false; _showSlugError = false; });
+    setState(() { _isLoading = true; _showTitleError = false; _showSlugError = false; });
 
     final errorMessage = await widget.spacesService.createSpace(
       targetDomain,
       slug,
-      name,
+      title,
       description: _descController.text.trim(),
-      topic: _topicController.text.trim(),
-      avatarUrl: _avatarUrlController.text.trim(),
+      topic: '',
+      avatarUrl: null,
       bannerUrl: _bannerUrlController.text.trim(),
-      accessModel: _accessModel,
-      publishModel: _publishModel,
+      accessModel: 'authorize',
+      publishModel: 'publishers',
+      createChatRoom: _createChatRoom,
     );
 
     setState(() => _isLoading = false);
@@ -136,20 +128,20 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
     if (errorMessage == null) {
       if (mounted) {
         final auth = Provider.of<AuthService>(context, listen: false);
-        auth.joinPersistedSpace(targetDomain, slug, name);
+        auth.joinPersistedSpace(targetDomain, slug, title);
 
         Navigator.pop(context);
 
         final newSpace = SpaceNode(
           domain: targetDomain,
           node: slug,
-          name: name,
+          name: title,
           isSubscribed: true,
         );
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Space "$name" created!'),
+            content: Text('Community "$title" created!'),
             backgroundColor: Colors.green.shade700,
             duration: const Duration(seconds: 3),
             action: SnackBarAction(
@@ -171,7 +163,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
         String displayError = errorMessage;
         if (errorMessage.toLowerCase().contains('conflict') ||
             errorMessage.toLowerCase().contains('already exists')) {
-          displayError = 'A space with this address already exists. Try a different name.';
+          displayError = 'A community with this address already exists. Try a different name.';
           setState(() => _showSlugError = true);
         }
         ScaffoldMessenger.of(context).showSnackBar(
@@ -226,7 +218,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Create New Space',
+                    'Create Community',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 24,
@@ -237,7 +229,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'A space groups rooms and communities under a shared topic.',
+                    'Communities let you post, share, and discuss with others around a shared topic.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,
@@ -246,22 +238,22 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                   ),
                   const SizedBox(height: 32),
                   _buildTextField(
-                    controller: _nameController,
-                    label: 'Space Name',
+                    controller: _titleController,
+                    label: 'Community Title',
                     icon: Icons.title_rounded,
                     theme: theme,
-                    errorText: _showNameError ? 'Space name is required' : null,
-                    hintText: 'e.g. Gaming Hub',
+                    errorText: _showTitleError ? 'Title is required' : null,
+                    hintText: 'e.g. Open Source Projects',
                   ),
                   const SizedBox(height: 16),
                   _buildTextField(
                     controller: _slugController,
-                    label: 'Space Address',
+                    label: 'Address',
                     icon: Icons.link_rounded,
                     theme: theme,
-                    errorText: _showSlugError ? 'Address is required (letters, numbers, hyphens)' : null,
-                    hintText: 'my-gaming-hub',
-                    helperText: 'Used in URLs. Only letters, numbers, and hyphens.',
+                    errorText: _showSlugError ? 'Address is required' : null,
+                    hintText: 'open-source-projects',
+                    helperText: 'Only letters, numbers, and hyphens',
                     suffix: Padding(
                       padding: const EdgeInsets.only(right: 16),
                       child: Text(
@@ -282,24 +274,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                     icon: Icons.description_rounded,
                     theme: theme,
                     maxLines: 2,
-                    hintText: 'What is this space about?',
-                  ),
-                  const SizedBox(height: 16),
-                  _buildTextField(
-                    controller: _topicController,
-                    label: 'Topic / Subject (Optional)',
-                    icon: Icons.subject_rounded,
-                    theme: theme,
-                    hintText: 'Short subject line for the space',
-                  ),
-                  const SizedBox(height: 16),
-                  _buildTextField(
-                    controller: _avatarUrlController,
-                    label: 'Avatar URL (Optional)',
-                    icon: Icons.image_rounded,
-                    theme: theme,
-                    hintText: 'https://example.com/avatar.jpg',
-                    keyboardType: TextInputType.url,
+                    hintText: 'What is this community about?',
                   ),
                   const SizedBox(height: 16),
                   _buildTextField(
@@ -310,55 +285,114 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                     hintText: 'https://example.com/banner.jpg',
                     keyboardType: TextInputType.url,
                   ),
-                  const SizedBox(height: 16),
-                  _buildTextField(
-                    controller: _domainController,
-                    label: 'Server',
-                    icon: Icons.dns_rounded,
-                    theme: theme,
-                    helperText: 'The PubSub server where this space will live',
-                    errorText: _domainError,
-                    suffix: Padding(
-                      padding: const EdgeInsets.only(right: 12),
-                      child: _domainChecked
-                          ? Icon(
-                              _domainValid ? Icons.check_circle : Icons.error,
-                              color: _domainValid
-                                  ? Colors.green
-                                  : theme.colorScheme.error,
-                              size: 20,
-                            )
-                          : const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: theme.colorScheme.outline.withValues(alpha: 0.2),
+                      ),
                     ),
-                    onChanged: (_) => _validateDomain(),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.dns_rounded,
+                          color: theme.colorScheme.primary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Server',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _domainController.text.trim().isNotEmpty
+                                    ? _domainController.text.trim()
+                                    : widget.domain,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: theme.colorScheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (_domainChecked)
+                          Icon(
+                            _domainValid ? Icons.check_circle : Icons.error,
+                            color: _domainValid ? Colors.green : theme.colorScheme.error,
+                            size: 20,
+                          )
+                        else
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 16),
-                  _buildDropdown(
-                    label: 'Who Can View',
-                    icon: Icons.visibility_rounded,
-                    theme: theme,
-                    value: _accessModel,
-                    options: const [
-                      DropdownMenuItem(value: 'open', child: Text('Public — Anyone can view')),
-                      DropdownMenuItem(value: 'authorize', child: Text('Private — Requires approval')),
-                    ],
-                    onChanged: (v) => setState(() => _accessModel = v ?? 'open'),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDropdown(
-                    label: 'Who Can Post',
-                    icon: Icons.edit_rounded,
-                    theme: theme,
-                    value: _publishModel,
-                    options: const [
-                      DropdownMenuItem(value: 'open', child: Text('Anyone — All members can post')),
-                      DropdownMenuItem(value: 'publishers', child: Text('Admins Only — Moderated posting')),
-                    ],
-                    onChanged: (v) => setState(() => _publishModel = v ?? 'publishers'),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: theme.colorScheme.outline.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.chat_rounded,
+                          color: theme.colorScheme.primary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Create a chat room',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurface,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Members can join to chat in real-time',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _createChatRoom,
+                          onChanged: (v) => setState(() => _createChatRoom = v),
+                          activeTrackColor: theme.colorScheme.primary.withValues(alpha: 0.5),
+                          activeThumbColor: theme.colorScheme.primary,
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 24),
                   if (_isLoading)
@@ -400,7 +434,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                               elevation: 0,
                             ),
                             child: const Text(
-                              'Create Space',
+                              'Create',
                               style: TextStyle(
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: 0.5,
@@ -452,7 +486,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
         helperText: helperText,
         helperMaxLines: 2,
         errorText: errorText,
-        suffixIcon: suffix != null ? suffix : null,
+        suffixIcon: suffix,
         filled: true,
         fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
         border: OutlineInputBorder(
@@ -475,45 +509,6 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildDropdown({
-    required String label,
-    required IconData icon,
-    required ThemeData theme,
-    required String value,
-    required List<DropdownMenuItem<String>> options,
-    required void Function(String?) onChanged,
-  }) {
-    return DropdownButtonFormField<String>(
-      value: value,
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-        prefixIcon: Icon(icon, color: theme.colorScheme.primary),
-        filled: true,
-        fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: theme.colorScheme.primary, width: 2),
-        ),
-      ),
-      dropdownColor: theme.colorScheme.surfaceContainerHighest,
-      style: TextStyle(
-        color: theme.colorScheme.onSurface,
-        fontWeight: FontWeight.w500,
-      ),
-      items: options,
-      onChanged: onChanged,
     );
   }
 }
