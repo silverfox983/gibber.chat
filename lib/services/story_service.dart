@@ -188,6 +188,19 @@ class StoryService {
     }
   }
 
+  Future<bool> deleteStory(String storyId) async {
+    final domain = accountJid.contains('@') ? accountJid.split('@')[1] : accountJid;
+    final ok = await _spacesService.retractItem(domain, _storiesNode, storyId);
+    if (ok) {
+      for (final cache in [_myStoriesCache, _storyCache]) {
+        for (final key in cache.keys) {
+          cache[key]!.removeWhere((s) => s.id == storyId);
+        }
+      }
+    }
+    return ok;
+  }
+
   Story? _parseStory(dynamic item, String authorJid) {
     try {
       final id = item.id ?? '';

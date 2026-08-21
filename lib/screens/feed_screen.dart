@@ -36,6 +36,11 @@ class _FeedScreenState extends State<FeedScreen>
   SpacesService? _spacesServiceInstance;
   int _newLiveCount = 0;
   String? _attachedImageUrl;
+  String? _draftNode;
+  String? _draftTitle;
+  String? _draftBody;
+  final TextEditingController _composeTitleCtrl = TextEditingController();
+  final TextEditingController _composeBodyCtrl = TextEditingController();
 
   // UI state for immutable SpaceItems
   final Set<String> _bookmarkedItems = {};
@@ -121,12 +126,37 @@ class _FeedScreenState extends State<FeedScreen>
     _spacesServiceInstance?.removeListener(_onSpacesServiceChanged);
     _tabController.dispose();
     _searchController.dispose();
+    _composeTitleCtrl.dispose();
+    _composeBodyCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _refresh() async {
     setState(() => _newLiveCount = 0);
     await _initializeFeed();
+  }
+
+  Future<void> _loadDraft(String node) async {
+    if (_spacesService == null) return;
+    final draft = await _spacesService!.loadDraft(node);
+    if (draft != null && mounted) {
+      setState(() {
+        _draftNode = node;
+        _draftTitle = draft['title'] as String?;
+        _draftBody = draft['content'] as String?;
+      });
+    }
+  }
+
+  void _clearDraft() {
+    if (_draftNode != null) {
+      _spacesService?.deleteDraft(_draftNode!);
+    }
+    setState(() {
+      _draftNode = null;
+      _draftTitle = null;
+      _draftBody = null;
+    });
   }
 
   @override
@@ -520,18 +550,62 @@ class _FeedScreenState extends State<FeedScreen>
                   ],
                 ],
               ),
-              trailing: IconButton(
-                icon: Icon(
-                  (_bookmarkedItems.contains(item.id) || item.isBookmarked) ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-                  color: (_bookmarkedItems.contains(item.id) || item.isBookmarked) ? Colors.amber.shade700 : theme.colorScheme.onSurfaceVariant,
-                ),
-                onPressed: () => setState(() {
-                  if (_bookmarkedItems.contains(item.id) || item.isBookmarked) {
-                    _bookmarkedItems.remove(item.id);
-                  } else {
-                    _bookmarkedItems.add(item.id);
-                  }
-                }),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (item.isPinned)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Icon(Icons.push_pin_rounded, size: 16, color: theme.colorScheme.primary),
+                    ),
+                  PopupMenuButton<String>(
+                    icon: Icon(
+                      (_bookmarkedItems.contains(item.id) || item.isBookmarked) ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                      color: (_bookmarkedItems.contains(item.id) || item.isBookmarked) ? Colors.amber.shade700 : theme.colorScheme.onSurfaceVariant,
+                    ),
+                    onSelected: (action) async {
+                      if (action == 'pin') {
+                        final ok = await _spacesService?.pinItem(item.sourceSpace?.domain ?? item.jid ?? '', item.node ?? '', item.id);
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(ok == true ? 'Post pinned' : 'Failed to pin')),
+                        );
+                        if (ok == true) _refresh();
+                      } else if (action == 'unpin') {
+                        final ok = await _spacesService?.retractItem(item.sourceSpace?.domain ?? item.jid ?? '', item.node ?? '', item.id);
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(ok == true ? 'Post unpinned' : 'Failed to unpin')),
+                        );
+                        if (ok == true) _refresh();
+                      } else if (action == 'bookmark') {
+                        setState(() {
+                          if (_bookmarkedItems.contains(item.id) || item.isBookmarked) {
+                            _bookmarkedItems.remove(item.id);
+                          } else {
+                            _bookmarkedItems.add(item.id);
+                          }
+                        });
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: item.isPinned ? 'unpin' : 'pin',
+                        child: Row(children: [
+                          Icon(item.isPinned ? Icons.push_pin_outlined : Icons.push_pin_rounded, size: 18),
+                          const SizedBox(width: 12),
+                          Text(item.isPinned ? 'Unpin' : 'Pin post'),
+                        ]),
+                      ),
+                      PopupMenuItem(
+                        value: 'bookmark',
+                        child: Row(children: [
+                          Icon((_bookmarkedItems.contains(item.id) || item.isBookmarked) ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, size: 18),
+                          const SizedBox(width: 12),
+                          Text((_bookmarkedItems.contains(item.id) || item.isBookmarked) ? 'Remove bookmark' : 'Bookmark'),
+                        ]),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
 
@@ -824,9 +898,13 @@ class _FeedScreenState extends State<FeedScreen>
       ScaffoldMessenger.of(ctx2).showSnackBar(const SnackBar(content: Text('Join a space first to post.')));
       return;
     }
-    final titleCtrl = TextEditingController();
-    final bodyCtrl = TextEditingController();
     SpaceNode? sel = _mySpaces.first;
+    _composeTitleCtrl.clear();
+    _composeBodyCtrl.clear();
+    if (_draftNode != null && _draftTitle != null || _draftBody != null) {
+      _composeTitleCtrl.text = _draftTitle ?? '';
+      _composeBodyCtrl.text = _draftBody ?? '';
+    }
     showModalBottomSheet(
       context: ctx2,
       isScrollControlled: true,
@@ -853,11 +931,18 @@ class _FeedScreenState extends State<FeedScreen>
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               ),
               items: _mySpaces.map((s) => DropdownMenuItem(value: s, child: Text(s.name, overflow: TextOverflow.ellipsis))).toList(),
-              onChanged: (v) => setM(() => sel = v),
+              onChanged: (v) {
+                setM(() => sel = v);
+                if (v != null) {
+                  _composeTitleCtrl.clear();
+                  _composeBodyCtrl.clear();
+                  _loadDraft(v.node);
+                }
+              },
             ),
             const SizedBox(height: 12),
             TextField(
-              controller: titleCtrl,
+              controller: _composeTitleCtrl,
               decoration: InputDecoration(
                 labelText: 'Title (optional)',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -866,7 +951,7 @@ class _FeedScreenState extends State<FeedScreen>
             ),
             const SizedBox(height: 12),
             TextField(
-              controller: bodyCtrl,
+              controller: _composeBodyCtrl,
               maxLines: 5,
               decoration: InputDecoration(
                 labelText: 'Write something…',
@@ -901,13 +986,33 @@ class _FeedScreenState extends State<FeedScreen>
                 tooltip: 'Attach Image',
               ),
               const Spacer(),
-              TextButton(onPressed: () => Navigator.pop(sctx), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () {
+                  final title = _composeTitleCtrl.text.trim();
+                  final body = _composeBodyCtrl.text.trim();
+                  if (title.isNotEmpty || body.isNotEmpty) {
+                    _spacesService?.saveDraft(sel!.node, title: title, content: body);
+                    setState(() {
+                      _draftNode = sel!.node;
+                      _draftTitle = title;
+                      _draftBody = body;
+                    });
+                    ScaffoldMessenger.of(ctx2).showSnackBar(
+                      SnackBar(content: Text(sel != null ? 'Draft saved' : ''), duration: const Duration(seconds: 1)),
+                    );
+                  }
+                  Navigator.pop(sctx);
+                },
+                child: const Text('Save Draft'),
+              ),
+              const SizedBox(width: 4),
+              TextButton(onPressed: () { _clearDraft(); Navigator.pop(sctx); }, child: const Text('Discard')),
               const SizedBox(width: 8),
               FilledButton.icon(
                 icon: const Icon(Icons.send_rounded, size: 18),
                 label: const Text('Publish'),
                 onPressed: () async {
-                  final body = bodyCtrl.text.trim();
+                  final body = _composeBodyCtrl.text.trim();
                   if (body.isEmpty || sel == null) return;
                   final auth = Provider.of<AuthService>(ctx2, listen: false);
                   final authorName = auth.getResolvedNickname(null);
@@ -933,7 +1038,7 @@ class _FeedScreenState extends State<FeedScreen>
 
                     final success = await _spacesService?.publishMicroblogEntry(
                       sel!.domain, sel!.node,
-                      title: titleCtrl.text.trim(), content: body, authorName: authorName,
+                      title: _composeTitleCtrl.text.trim(), content: body, authorName: authorName,
                       imageUrl: finalImageUrl,
                     );
                     
@@ -942,6 +1047,7 @@ class _FeedScreenState extends State<FeedScreen>
                       ScaffoldMessenger.of(ctx2).showSnackBar(SnackBar(content: Text(success == true ? 'Posted!' : 'Failed to post.')));
                       if (success == true) {
                         _attachedImageUrl = null;
+                        _clearDraft();
                         _refresh();
                       }
                     }
