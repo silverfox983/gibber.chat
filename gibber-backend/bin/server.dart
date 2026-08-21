@@ -495,6 +495,9 @@ void main(List<String> args) async {
           if (request.method == 'GET') {
             final staticResponse = await staticHandler(request);
             if (staticResponse.statusCode == 200) {
+              if (path.endsWith('.js')) {
+                return staticResponse.change(headers: {'Content-Type': 'application/javascript'});
+              }
               return staticResponse;
             }
             if (indexBytes.isNotEmpty && !isAssetRequest(path)) {

@@ -80,6 +80,12 @@ gibberapp.online {
     }
 
     # Static web frontend (Flutter web build)
+    @jsFiles {
+        file *.js
+    }
+    handle @jsFiles {
+        header Content-Type "application/javascript"
+    }
     root * /srv/gibber-web
     try_files {path} /index.html
     file_server
