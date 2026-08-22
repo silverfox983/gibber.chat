@@ -757,7 +757,7 @@ class SpacesService extends ChangeNotifier {
       return x;
     }
 
-    Future<xmpp.IqStanza> _sendCreateNode({xmpp.XmppElement? configForm}) async {
+    Future<xmpp.IqStanza> _sendCreateNode({required String domain, xmpp.XmppElement? configForm}) async {
       final iq = xmpp.IqStanza('create_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
       iq.toJid = xmpp.Jid.fromFullJid(domain);
       final pubsub = xmpp.XmppElement();
@@ -777,7 +777,7 @@ class SpacesService extends ChangeNotifier {
       return _sendIq(iq);
     }
 
-    Future<xmpp.IqStanza> _sendConfigureNode(xmpp.XmppElement configForm) async {
+    Future<xmpp.IqStanza> _sendConfigureNode(String domain, xmpp.XmppElement configForm) async {
       final iq = xmpp.IqStanza('config_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
       iq.toJid = xmpp.Jid.fromFullJid(domain);
       final pubsub = xmpp.XmppElement();
@@ -792,11 +792,11 @@ class SpacesService extends ChangeNotifier {
       return _sendIq(iq);
     }
 
-    String _formatError(xmpp.IqStanza response, String defaultMessage) {
+    String _formatError(String errorDomain, xmpp.IqStanza response, String defaultMessage) {
       final errorNode = response.getChild('error');
       final fullXml = response.buildXmlString();
-      debugPrint('SpacesService: createSpace error: $fullXml');
-      if (errorNode == null) return '$defaultMessage (raw: ${fullXml.length > 400 ? fullXml.substring(0, 400) : fullXml})';
+      debugPrint('SpacesService: createSpace error on $errorDomain: $fullXml');
+      if (errorNode == null) return 'CreateSpace v2: $defaultMessage (domain: $errorDomain) raw: ${fullXml.length > 400 ? fullXml.substring(0, 400) : fullXml}';
 
       final errorXml = errorNode.buildXmlString();
       final textEl = errorNode.children
@@ -811,81 +811,99 @@ class SpacesService extends ChangeNotifier {
           .toList();
 
       if (childNames.contains('forbidden') || childNames.contains('not-authorized')) {
-        return 'Permission denied on $domain. Ensure the server has a spaces service (e.g. spaces.<domain>) configured to allow Space creation. Raw: $errorXml';
+        return 'Permission denied on $errorDomain. Ensure the server has a spaces service (e.g. spaces.<domain>) configured to allow Space creation. Raw: $errorXml';
       }
       if (childNames.contains('conflict')) {
         return 'A space with this Node ID already exists.';
       }
       if (childNames.isNotEmpty) {
-        return 'Server rejected the space request: ${childNames.join(', ')}${text != null && text.isNotEmpty ? ' - $text' : ''}${errorType != null ? ' (type: $errorType)' : ''}. Raw: $errorXml';
+        return 'Server rejected the space request on $errorDomain: ${childNames.join(', ')}${text != null && text.isNotEmpty ? ' - $text' : ''}${errorType != null ? ' (type: $errorType)' : ''}. Raw: $errorXml';
       }
       if (errorType != null) {
-        return 'Server rejected the space request: $errorType${text != null && text.isNotEmpty ? ' - $text' : ''}. Raw: $errorXml';
+        return 'Server rejected the space request on $errorDomain: $errorType${text != null && text.isNotEmpty ? ' - $text' : ''}. Raw: $errorXml';
       }
-      return '$defaultMessage (raw: $errorXml)';
+      return 'CreateSpace v2: $defaultMessage (domain: $errorDomain) Raw: $errorXml';
     }
 
     Future<bool> _isSuccess(xmpp.IqStanza response) async =>
         response.type != xmpp.IqStanzaType.ERROR;
 
-    try {
+    Future<String?> _tryCreateOnDomain(String targetDomain) async {
       final configForm = _buildConfigForm();
-
-      // 1. Try combined create-and-configure (XEP-0060 §8.1.3).
-      var response = await _sendCreateNode(configForm: configForm);
+      final response = await _sendCreateNode(domain: targetDomain, configForm: configForm);
       if (await _isSuccess(response)) {
-        debugPrint('SpacesService: created+configured Space node $node on $domain');
-      } else {
-        final combinedError = _formatError(response, 'Server rejected the space creation request.');
+        debugPrint('SpacesService: created+configured Space node $node on $targetDomain');
+        return null;
+      }
+      final combinedError = _formatError(targetDomain, response, 'Server rejected the space creation request.');
 
-        // 2. Fallback: create node with default config, then configure separately.
-        response = await _sendCreateNode();
-        if (await _isSuccess(response)) {
-          debugPrint('SpacesService: created Space node $node with default config; applying config now');
-          final configResponse = await _sendConfigureNode(configForm);
-          if (await _isSuccess(configResponse)) {
-            debugPrint('SpacesService: configured Space node $node');
-          } else {
-            final configError = _formatError(configResponse, 'Space was created but configuration failed.');
-            debugPrint('SpacesService: configure fallback failed: $configError');
-          }
+      // Fallback: create node with default config, then configure separately.
+      final createResponse = await _sendCreateNode(domain: targetDomain);
+      if (await _isSuccess(createResponse)) {
+        debugPrint('SpacesService: created Space node $node with default config on $targetDomain; applying config now');
+        final configResponse = await _sendConfigureNode(targetDomain, configForm);
+        if (await _isSuccess(configResponse)) {
+          debugPrint('SpacesService: configured Space node $node on $targetDomain');
+          return null;
         } else {
-          return combinedError;
+          final configError = _formatError(targetDomain, configResponse, 'Space was created but configuration failed.');
+          debugPrint('SpacesService: configure fallback failed on $targetDomain: $configError');
+          // Node exists; treat as success but MUC/subscribe may not work fully.
+          return null;
         }
       }
+      return combinedError;
+    }
 
-      // SUCCESS — now create MUC room (optional) and auto-subscribe
-      final myJid = _connection.account.fullJid.userAtDomain;
+    try {
+      final domains = [domain];
+      if (domain.startsWith('spaces.')) {
+        domains.add('pubsub.${domain.substring(7)}');
+      }
 
-      if (createChatRoom) {
-        final baseDomain = domain.startsWith('pubsub.') || domain.startsWith('spaces.')
-            ? domain.substring(domain.indexOf('.') + 1)
-            : domain;
-        final mucJid = '$node@conference.$baseDomain';
-        try {
-          await _joinMucRoom(mucJid, myJid).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () {
-              debugPrint('SpacesService: MUC join timed out after 5s for $mucJid');
-              return false;
-            },
-          );
-          debugPrint('SpacesService: MUC room joined/created at $mucJid');
-        } catch (e) {
-          debugPrint('SpacesService: MUC room creation failed: $e');
+      String? lastError;
+      for (final targetDomain in domains) {
+        lastError = await _tryCreateOnDomain(targetDomain);
+        if (lastError == null) {
+          // SUCCESS — now create MUC room (optional) and auto-subscribe
+          final myJid = _connection.account.fullJid.userAtDomain;
+
+          if (createChatRoom) {
+            final baseDomain = targetDomain.startsWith('pubsub.') || targetDomain.startsWith('spaces.')
+                ? targetDomain.substring(targetDomain.indexOf('.') + 1)
+                : targetDomain;
+            final mucJid = '$node@conference.$baseDomain';
+            try {
+              await _joinMucRoom(mucJid, myJid).timeout(
+                const Duration(seconds: 5),
+                onTimeout: () {
+                  debugPrint('SpacesService: MUC join timed out after 5s for $mucJid');
+                  return false;
+                },
+              );
+              debugPrint('SpacesService: MUC room joined/created at $mucJid');
+            } catch (e) {
+              debugPrint('SpacesService: MUC room creation failed: $e');
+            }
+          }
+
+          try {
+            await subscribeToSpace(targetDomain, node, myJid, spaceType: 'leaf').timeout(
+              const Duration(seconds: 5),
+              onTimeout: () => false,
+            );
+          } catch (e) {
+            debugPrint('SpacesService: PubSub subscribe failed: $e');
+          }
+
+          return null;
+        }
+        // If the service doesn't exist on this domain, try the next fallback.
+        if (!lastError.contains('item-not-found') && !lastError.contains('service-unavailable')) {
+          return lastError;
         }
       }
-
-      try {
-        await subscribeToSpace(domain, node, myJid, spaceType: 'leaf').timeout(
-          const Duration(seconds: 5),
-          onTimeout: () => false,
-        );
-      } catch (e) {
-        debugPrint('SpacesService: PubSub subscribe failed: $e');
-      }
-
-      return null;
+      return lastError;
     } catch (e) {
       return 'Network error: ${e.toString()}';
     }

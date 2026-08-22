@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/space_models.dart';
@@ -137,11 +138,29 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
       widget.onSuccess();
     } else {
       if (mounted) {
+        final shortError = errorMessage.length > 160
+            ? '${errorMessage.substring(0, 160)}...'
+            : errorMessage;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(errorMessage),
-            duration: const Duration(seconds: 6),
+            content: Text(shortError),
+            duration: const Duration(seconds: 10),
             backgroundColor: Theme.of(context).colorScheme.error,
+            action: SnackBarAction(
+              label: 'COPY',
+              textColor: Colors.white,
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: errorMessage));
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Full error copied to clipboard'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              },
+            ),
           ),
         );
       }
@@ -188,19 +207,19 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                     color: theme.colorScheme.primary,
                   ),
                   const SizedBox(height: 16),
-                  Text(
-                    'Create Space',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
-                      color: theme.colorScheme.onSurface,
+                    Text(
+                      'Create Space (v2)',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.5,
+                        color: theme.colorScheme.onSurface,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Spaces are private, invite-only communities with a linked chat room.',
+                    const SizedBox(height: 8),
+                    Text(
+                      'Spaces are private, invite-only communities with a linked chat room. If creation still fails, copy the error message and paste it to support.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,
