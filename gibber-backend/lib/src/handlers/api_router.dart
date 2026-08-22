@@ -1465,7 +1465,16 @@ class ApiRouter {
 
       final info = _availableGateways[gateway]!;
       final componentJid = '${info['componentJid']}.${xmppRegistrar.domain}';
-      final componentSecret = Platform.environment['GIBBER_SLIDGE_${gateway.toUpperCase()}_SECRET']
+      final secretEnvVar = switch (gateway) {
+        'telegram' => 'GIBBER_SLIDGRAM_SECRET',
+        'discord' => 'GIBBER_SLIDCORD_SECRET',
+        'irc' => 'GIBBER_SLIDIRC_SECRET',
+        'matrix' => 'GIBBER_MATRIDGE_SECRET',
+        'whatsapp' => 'GIBBER_SLIDGEWHATSAPPER_SECRET',
+        _ => 'GIBBER_SLIDGE_${gateway.toUpperCase()}_SECRET',
+      };
+      final componentSecret = Platform.environment[secretEnvVar]
+          ?? Platform.environment['GIBBER_SLIDGE_SECRET']
           ?? slidgeProcessManager.generateSecret();
 
       final added = await prosodyComponentManager.addComponent(componentJid, componentSecret);
@@ -1478,7 +1487,21 @@ class ApiRouter {
 
       final envConfig = <String, dynamic>{};
       for (final key in info['requiresConfig'] as List) {
-        final envKey = '${gateway.toUpperCase()}_${key.toString().toUpperCase()}';
+        final envKey = switch (gateway) {
+          'telegram' => switch (key) {
+              'api_id' => 'TG_API_ID',
+              'api_hash' => 'TG_API_HASH',
+              _ => 'TELEGRAM_${key.toString().toUpperCase()}',
+            },
+          'discord' => 'DISCORD_${key.toString().toUpperCase()}',
+          'irc' => 'IRC_${key.toString().toUpperCase()}',
+          'matrix' => switch (key) {
+              'homeserver_url' => 'MATRIX_HOMESERVER',
+              _ => 'MATRIX_${key.toString().toUpperCase()}',
+            },
+          'whatsapp' => 'WA_${key.toString().toUpperCase()}',
+          _ => '${gateway.toUpperCase()}_${key.toString().toUpperCase()}',
+        };
         final envVal = Platform.environment[envKey];
         if (envVal != null) {
           envConfig[key] = envVal;
