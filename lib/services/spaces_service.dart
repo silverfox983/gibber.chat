@@ -719,124 +719,143 @@ class SpacesService extends ChangeNotifier {
   }
 
   Future<String?> createSpace(String domain, String node, String name, {String? description, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true}) async {
-    final iq = xmpp.IqStanza('create_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
-    iq.toJid = xmpp.Jid.fromFullJid(domain);
-    // Do not set iq.fromJid - the XMPP server must stamp the sender's JID.
+    // Build the XEP-0060 node configuration form (Movim-style Space config).
+    xmpp.XmppElement _buildConfigForm() {
+      final x = xmpp.XmppElement();
+      x.name = 'x';
+      x.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
+      x.addAttribute(xmpp.XmppAttribute('type', 'submit'));
 
-    final pubsub = xmpp.XmppElement();
-    pubsub.name = 'pubsub';
-    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
-
-    final create = xmpp.XmppElement();
-    create.name = 'create';
-    create.addAttribute(xmpp.XmppAttribute('node', node));
-    pubsub.addChild(create);
-
-    final configure = xmpp.XmppElement();
-    configure.name = 'configure';
-    final x = xmpp.XmppElement();
-    x.name = 'x';
-    x.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
-    x.addAttribute(xmpp.XmppAttribute('type', 'submit'));
-
-    void addField(String name, String value, {String? type}) {
-      final field = xmpp.XmppElement();
-      field.name = 'field';
-      field.addAttribute(xmpp.XmppAttribute('var', name));
-      if (type != null) {
-        field.addAttribute(xmpp.XmppAttribute('type', type));
+      void addField(String fieldName, String value, {String? type}) {
+        final field = xmpp.XmppElement();
+        field.name = 'field';
+        field.addAttribute(xmpp.XmppAttribute('var', fieldName));
+        if (type != null) {
+          field.addAttribute(xmpp.XmppAttribute('type', type));
+        }
+        final val = xmpp.XmppElement();
+        val.name = 'value';
+        val.textValue = value;
+        field.addChild(val);
+        x.addChild(field);
       }
-      final val = xmpp.XmppElement();
-      val.name = 'value';
-      val.textValue = value;
-      field.addChild(val);
-      x.addChild(field);
+
+      addField('FORM_TYPE', 'http://jabber.org/protocol/pubsub#node_config', type: 'hidden');
+      addField('pubsub#title', name);
+      if (description != null && description.isNotEmpty) addField('pubsub#description', description);
+      addField('pubsub#access_model', accessModel);
+      addField('pubsub#publish_model', publishModel);
+      addField('pubsub#type', 'urn:xmpp:spaces:0');
+      addField('pubsub#persist_items', 'true');
+      addField('pubsub#deliver_payloads', 'true');
+      addField('pubsub#max_items', 'max');
+      addField('pubsub#notify_retract', 'true');
+      addField('pubsub#notify_sub', 'true');
+      addField('pubsub#notify_config', 'true');
+      addField('pubsub#notify_delete', 'true');
+      addField('pubsub#purge_offline', 'false');
+      return x;
     }
 
-    addField('FORM_TYPE', 'http://jabber.org/protocol/pubsub#node_config', type: 'hidden');
-    addField('pubsub#title', name);
-    if (description != null && description.isNotEmpty) addField('pubsub#description', description);
-    addField('pubsub#access_model', accessModel);
-    addField('pubsub#publish_model', publishModel);
-    addField('pubsub#type', 'urn:xmpp:spaces:0');
-    addField('pubsub#persist_items', 'true');
-    addField('pubsub#deliver_payloads', 'true');
-    addField('pubsub#max_items', 'max');
-    addField('pubsub#notify_retract', 'true');
-    addField('pubsub#notify_sub', 'true');
-    addField('pubsub#notify_config', 'true');
-    addField('pubsub#notify_delete', 'true');
-    addField('pubsub#purge_offline', 'false');
+    Future<xmpp.IqStanza> _sendCreateNode({xmpp.XmppElement? configForm}) async {
+      final iq = xmpp.IqStanza('create_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
+      iq.toJid = xmpp.Jid.fromFullJid(domain);
+      final pubsub = xmpp.XmppElement();
+      pubsub.name = 'pubsub';
+      pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+      final create = xmpp.XmppElement();
+      create.name = 'create';
+      create.addAttribute(xmpp.XmppAttribute('node', node));
+      pubsub.addChild(create);
+      if (configForm != null) {
+        final configure = xmpp.XmppElement();
+        configure.name = 'configure';
+        configure.addChild(configForm);
+        pubsub.addChild(configure);
+      }
+      iq.addChild(pubsub);
+      return _sendIq(iq);
+    }
 
-    configure.addChild(x);
-    pubsub.addChild(configure);
-    iq.addChild(pubsub);
+    Future<xmpp.IqStanza> _sendConfigureNode(xmpp.XmppElement configForm) async {
+      final iq = xmpp.IqStanza('config_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
+      iq.toJid = xmpp.Jid.fromFullJid(domain);
+      final pubsub = xmpp.XmppElement();
+      pubsub.name = 'pubsub';
+      pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub#owner'));
+      final configure = xmpp.XmppElement();
+      configure.name = 'configure';
+      configure.addAttribute(xmpp.XmppAttribute('node', node));
+      configure.addChild(configForm);
+      pubsub.addChild(configure);
+      iq.addChild(pubsub);
+      return _sendIq(iq);
+    }
+
+    String _formatError(xmpp.IqStanza response, String defaultMessage) {
+      final errorNode = response.getChild('error');
+      final errorXml = response.buildXmlString();
+      debugPrint('SpacesService: createSpace error: $errorXml');
+      if (errorNode == null) return defaultMessage;
+
+      final textEl = errorNode.children
+          .whereType<xmpp.XmppElement>()
+          .firstWhere((e) => e.name == 'text', orElse: () => xmpp.XmppElement());
+      final text = textEl.textValue?.trim();
+      final errorType = errorNode.getAttribute('type')?.value;
+      final childNames = errorNode.children
+          .whereType<xmpp.XmppElement>()
+          .where((e) => e.name != null && e.name != 'text')
+          .map((e) => e.name!)
+          .toList();
+
+      if (childNames.contains('forbidden') || childNames.contains('not-authorized')) {
+        return 'Permission denied on $domain. Ensure the server has a spaces service (e.g. spaces.<domain>) configured to allow Space creation.';
+      }
+      if (childNames.contains('conflict')) {
+        return 'A space with this Node ID already exists.';
+      }
+      if (childNames.isNotEmpty) {
+        return 'Server rejected the space request: ${childNames.join(', ')}${text != null && text.isNotEmpty ? ' - $text' : ''}${errorType != null ? ' (type: $errorType)' : ''}';
+      }
+      if (errorType != null) {
+        return 'Server rejected the space request: $errorType${text != null && text.isNotEmpty ? ' - $text' : ''}';
+      }
+      return defaultMessage;
+    }
+
+    Future<bool> _isSuccess(xmpp.IqStanza response) async =>
+        response.type != xmpp.IqStanzaType.ERROR;
 
     try {
-      final response = await _sendIq(iq);
-      if (response.type == xmpp.IqStanzaType.ERROR) {
-        final errorNode = response.getChild('error');
-        final errorXml = response.buildXmlString();
-        debugPrint('SpacesService: createSpace error: $errorXml');
-        if (errorNode != null) {
-          final textEl = errorNode.children
-              .whereType<xmpp.XmppElement>()
-              .firstWhere((e) => e.name == 'text', orElse: () => xmpp.XmppElement());
-          final text = textEl.textValue?.trim();
+      final configForm = _buildConfigForm();
 
-          // Collect standard XMPP error conditions and pubsub-specific conditions
-          const standardConditions = {
-            'bad-request',
-            'conflict',
-            'feature-not-implemented',
-            'forbidden',
-            'gone',
-            'internal-server-error',
-            'item-not-found',
-            'jid-malformed',
-            'not-acceptable',
-            'not-allowed',
-            'not-authorized',
-            'policy-violation',
-            'recipient-unavailable',
-            'registration-required',
-            'remote-server-not-found',
-            'remote-server-timeout',
-            'resource-constraint',
-            'service-unavailable',
-            'subscription-required',
-            'undefined-condition',
-            'unexpected-request',
-            'wait',
-          };
-          final conditions = errorNode.children
-              .whereType<xmpp.XmppElement>()
-              .where((e) =>
-                  e.name != null &&
-                  e.name != 'text' &&
-                  (standardConditions.contains(e.name) || (e.name?.contains('#') ?? false)))
-              .map((e) => e.name!)
-              .toList();
+      // 1. Try combined create-and-configure (XEP-0060 §8.1.3).
+      var response = await _sendCreateNode(configForm: configForm);
+      if (await _isSuccess(response)) {
+        debugPrint('SpacesService: created+configured Space node $node on $domain');
+      } else {
+        final combinedError = _formatError(response, 'Server rejected the space creation request.');
 
-          final primary = conditions.isNotEmpty ? conditions.first : null;
-
-          if (primary == 'forbidden' || primary == 'not-authorized') {
-            return 'Permission denied on $domain. Ensure the server has a spaces service (e.g. spaces.<domain>) configured to allow Space creation.';
+        // 2. Fallback: create node with default config, then configure separately.
+        response = await _sendCreateNode();
+        if (await _isSuccess(response)) {
+          debugPrint('SpacesService: created Space node $node with default config; applying config now');
+          final configResponse = await _sendConfigureNode(configForm);
+          if (await _isSuccess(configResponse)) {
+            debugPrint('SpacesService: configured Space node $node');
+          } else {
+            final configError = _formatError(configResponse, 'Space was created but configuration failed.');
+            debugPrint('SpacesService: configure fallback failed: $configError');
           }
-          if (primary == 'conflict') {
-            return 'A space with this Node ID already exists.';
-          }
-          if (primary != null) {
-            return 'Server rejected the space request: $primary${text != null && text.isNotEmpty ? ' - $text' : ''}';
-          }
+        } else {
+          return combinedError;
         }
-        return 'Server rejected the space creation request.';
       }
 
       // SUCCESS — now create MUC room (optional) and auto-subscribe
       final myJid = _connection.account.fullJid.userAtDomain;
 
-      // Create optional MUC room for real-time chat (lazy — joining creates it on Prosody)
       if (createChatRoom) {
         final baseDomain = domain.startsWith('pubsub.') || domain.startsWith('spaces.')
             ? domain.substring(domain.indexOf('.') + 1)
@@ -856,7 +875,6 @@ class SpacesService extends ChangeNotifier {
         }
       }
 
-      // Auto-subscribe to the PubSub node so creator sees posts
       try {
         await subscribeToSpace(domain, node, myJid, spaceType: 'leaf').timeout(
           const Duration(seconds: 5),
