@@ -794,10 +794,11 @@ class SpacesService extends ChangeNotifier {
 
     String _formatError(xmpp.IqStanza response, String defaultMessage) {
       final errorNode = response.getChild('error');
-      final errorXml = response.buildXmlString();
-      debugPrint('SpacesService: createSpace error: $errorXml');
-      if (errorNode == null) return defaultMessage;
+      final fullXml = response.buildXmlString();
+      debugPrint('SpacesService: createSpace error: $fullXml');
+      if (errorNode == null) return '$defaultMessage (raw: ${fullXml.length > 400 ? fullXml.substring(0, 400) : fullXml})';
 
+      final errorXml = errorNode.buildXmlString();
       final textEl = errorNode.children
           .whereType<xmpp.XmppElement>()
           .firstWhere((e) => e.name == 'text', orElse: () => xmpp.XmppElement());
@@ -810,18 +811,18 @@ class SpacesService extends ChangeNotifier {
           .toList();
 
       if (childNames.contains('forbidden') || childNames.contains('not-authorized')) {
-        return 'Permission denied on $domain. Ensure the server has a spaces service (e.g. spaces.<domain>) configured to allow Space creation.';
+        return 'Permission denied on $domain. Ensure the server has a spaces service (e.g. spaces.<domain>) configured to allow Space creation. Raw: $errorXml';
       }
       if (childNames.contains('conflict')) {
         return 'A space with this Node ID already exists.';
       }
       if (childNames.isNotEmpty) {
-        return 'Server rejected the space request: ${childNames.join(', ')}${text != null && text.isNotEmpty ? ' - $text' : ''}${errorType != null ? ' (type: $errorType)' : ''}';
+        return 'Server rejected the space request: ${childNames.join(', ')}${text != null && text.isNotEmpty ? ' - $text' : ''}${errorType != null ? ' (type: $errorType)' : ''}. Raw: $errorXml';
       }
       if (errorType != null) {
-        return 'Server rejected the space request: $errorType${text != null && text.isNotEmpty ? ' - $text' : ''}';
+        return 'Server rejected the space request: $errorType${text != null && text.isNotEmpty ? ' - $text' : ''}. Raw: $errorXml';
       }
-      return defaultMessage;
+      return '$defaultMessage (raw: $errorXml)';
     }
 
     Future<bool> _isSuccess(xmpp.IqStanza response) async =>

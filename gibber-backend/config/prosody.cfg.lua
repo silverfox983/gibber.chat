@@ -125,6 +125,8 @@ Component "pubsub.gibberapp.online" "pubsub"
     -- Map all users on this server to the registered role so the permission below applies
     server_user_role = "prosody:registered"
     -- Allow any registered user on this server to create PubSub nodes
+    -- (pubsub_create_nodes is the legacy option; add_permissions is the Prosody 13.0+ option)
+    pubsub_create_nodes = true
     add_permissions = {
         ["prosody:registered"] = { "pubsub:create-node" }
     }
@@ -139,6 +141,8 @@ Component "spaces.gibberapp.online" "pubsub"
     -- Map all users on this server to the registered role so the permission below applies
     server_user_role = "prosody:registered"
     -- Allow registered users to create Space nodes
+    -- (pubsub_create_nodes is the legacy option; add_permissions is the Prosody 13.0+ option)
+    pubsub_create_nodes = true
     add_permissions = {
         ["prosody:registered"] = { "pubsub:create-node" }
     }
