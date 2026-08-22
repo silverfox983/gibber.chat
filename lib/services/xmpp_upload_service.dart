@@ -1,8 +1,7 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../models/chat_models.dart';
+import '../models/picked_file.dart';
 import 'auth_service_deps.dart';
-import 'http_upload_service.dart';
 
 class XmppUploadService {
   final AuthServiceUploadDeps _d;
@@ -17,7 +16,7 @@ class XmppUploadService {
   Future<void> sendFile(
     String accountId,
     String toJid,
-    File file, {
+    PickedFile file, {
     MessageType type = MessageType.image,
   }) async {
     final conn = _d.xmppConnections[accountId];
@@ -26,15 +25,12 @@ class XmppUploadService {
       throw Exception('Upload service not available for this account.');
     }
 
-    final fileName = file.path.split(RegExp(r'[/\\]')).last;
-    final size = await file.length();
-    final contentType = type == MessageType.image
-        ? 'image/jpeg'
-        : 'application/octet-stream';
+    final contentType = file.contentType;
+    final size = file.size;
 
-    debugPrint('XEP-0363: Requesting slot for $fileName ($size bytes)...');
+    debugPrint('XEP-0363: Requesting slot for ${file.name} ($size bytes, $contentType)...');
     final slot = await uploadService.requestUploadSlot(
-      fileName,
+      file.name,
       size,
       contentType: contentType,
     );
@@ -49,7 +45,12 @@ class XmppUploadService {
     final getUrl = slot['get']!;
 
     debugPrint('XEP-0363: Uploading to $putUrl...');
-    final success = await uploadService.uploadFile(putUrl, file, contentType);
+    final success = await uploadService.uploadBytes(
+      putUrl,
+      file.bytes,
+      contentType,
+      totalSize: size,
+    );
 
     if (!success) {
       throw Exception('Failed to upload file to the server.');
@@ -62,14 +63,14 @@ class XmppUploadService {
       toJid,
       getUrl,
       type: type,
-      fileName: fileName,
+      fileName: file.name,
       filePath: file.path,
     );
   }
 
   Future<void> sendMediaMessage(
     String toJid,
-    File file,
+    PickedFile file,
     MessageType type, {
     String? accountId,
     bool isGroup = false,

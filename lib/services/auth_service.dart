@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/chat_models.dart';
+import '../models/picked_file.dart';
 import '../models/user_profile.dart';
 import './jingle_signaling_service.dart';
 import './xmpp_proxy_service.dart' if (dart.library.html) './xmpp_proxy_service_web.dart';
@@ -492,14 +493,14 @@ class AuthService with ChangeNotifier {
   Future<void> sendFile(
     String accountId,
     String toJid,
-    File file, {
+    PickedFile file, {
     MessageType type = MessageType.image,
   }) =>
       _uploadServiceHandler.sendFile(accountId, toJid, file, type: type);
 
   Future<void> sendMediaMessage(
     String toJid,
-    File file,
+    PickedFile file,
     MessageType type, {
     String? accountId,
     bool isGroup = false,

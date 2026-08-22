@@ -15,7 +15,6 @@ import 'package:open_filex/open_filex.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:image_picker/image_picker.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:giphy_get/giphy_get.dart';
@@ -24,6 +23,7 @@ import '../widgets/common/empty_state.dart';
 import '../widgets/audio_waveform.dart';
 import '../widgets/typing_indicator.dart';
 import '../models/chat_models.dart';
+import '../models/picked_file.dart';
 import '../services/auth_service.dart';
 import '../services/avatar_cache_service.dart';
 import '../providers/chat_provider.dart';
@@ -425,10 +425,24 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   Future<void> _pickImage(Conversation activeChat) async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      _showUploadPreview(activeChat, File(pickedFile.path), isImage: true);
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+    if (result != null && result.files.single.bytes != null) {
+      final f = result.files.single;
+      final contentType = PickedFile.detectMimeType(f.name);
+      _showUploadPreview(
+        activeChat,
+        PickedFile(
+          name: f.name,
+          bytes: f.bytes!,
+          size: f.size,
+          path: f.path,
+          contentType: contentType,
+        ),
+        isImage: true,
+      );
     }
   }
 
@@ -441,14 +455,23 @@ class _MainChatScreenState extends State<MainChatScreen> {
       );
       return;
     }
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.platform.pickFiles(
       type: FileType.any,
+      withData: true,
     );
-    if (result != null && result.files.single.path != null) {
+    if (result != null && result.files.single.bytes != null) {
+      final f = result.files.single;
+      final contentType = PickedFile.detectMimeType(f.name);
       _showUploadPreview(
         activeChat,
-        File(result.files.single.path!),
-        isImage: false,
+        PickedFile(
+          name: f.name,
+          bytes: f.bytes!,
+          size: f.size,
+          path: f.path,
+          contentType: contentType,
+        ),
+        isImage: PickedFile.isImage(f.name),
       );
     }
   }
@@ -469,7 +492,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
   void _showUploadPreview(
     Conversation activeChat,
-    File file, {
+    PickedFile file, {
     required bool isImage,
   }) {
     showDialog(
@@ -486,7 +509,11 @@ class _MainChatScreenState extends State<MainChatScreen> {
             if (isImage)
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.file(file, height: 200, fit: BoxFit.cover),
+                child: Image.memory(
+                  file.bytes,
+                  height: 200,
+                  fit: BoxFit.cover,
+                ),
               )
             else
               ListTile(
@@ -494,9 +521,9 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   Icons.insert_drive_file,
                   color: Theme.of(context).colorScheme.primary,
                 ),
-                title: Text(file.path.split(RegExp(r'[/\\]')).last),
+                title: Text(file.name),
                 subtitle: Text(
-                  '${(file.lengthSync() / 1024).toStringAsFixed(1)} KB',
+                  '${(file.size / 1024).toStringAsFixed(1)} KB',
                 ),
               ),
           ],
@@ -531,29 +558,22 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
   Future<void> _uploadAndSend(
     Conversation activeChat,
-    File file,
+    PickedFile file,
     MessageType type,
   ) async {
     try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text('Uploading ${type.name}...'),
-            ],
+      final backendConfig = Provider.of<BackendConfig>(context, listen: false);
+      final maxSize = backendConfig.maxUploadSize;
+      if (file.size > maxSize) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('File too large (${(file.size / 1024 / 1024).toStringAsFixed(1)} MB). Max: ${(maxSize / 1024 / 1024).toStringAsFixed(0)} MB.'),
+            backgroundColor: Theme.of(context).colorScheme.error,
           ),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+        );
+        return;
+      }
 
       await _authService.sendMediaMessage(
         activeChat.id,
@@ -617,7 +637,16 @@ class _MainChatScreenState extends State<MainChatScreen> {
       final path = await _audioRecorder.stop();
       setState(() => _isRecording = false);
       if (path != null) {
-        _uploadAndSend(activeChat, File(path), MessageType.voice);
+        final file = File(path);
+        final bytes = await file.readAsBytes();
+        final voiceFile = PickedFile(
+          name: path.split(RegExp(r'[/\\]')).last,
+          bytes: bytes,
+          size: bytes.length,
+          path: path,
+          contentType: 'audio/m4a',
+        );
+        _uploadAndSend(activeChat, voiceFile, MessageType.voice);
       }
     } else {
       if (await _audioRecorder.hasPermission()) {
@@ -2691,14 +2720,17 @@ class _MainChatScreenState extends State<MainChatScreen> {
               ),
             if (isNetwork)
               ListTile(
-                leading: const Icon(Icons.download_rounded, color: Colors.blue),
-                title: const Text('Download & Save'),
+                leading: Icon(
+                  kIsWeb ? Icons.public_rounded : Icons.download_rounded,
+                  color: kIsWeb ? Colors.orange : Colors.blue,
+                ),
+                title: Text(kIsWeb ? 'Open in Browser' : 'Download & Save'),
                 onTap: () async {
                   Navigator.pop(context);
                   _downloadAndOpenFile(msg);
                 },
               ),
-            if (isNetwork)
+            if (isNetwork && !kIsWeb)
               ListTile(
                 leading: const Icon(Icons.public_rounded, color: Colors.orange),
                 title: const Text('Open in Browser'),
@@ -2732,9 +2764,15 @@ class _MainChatScreenState extends State<MainChatScreen> {
   }
 
   Future<void> _downloadAndOpenFile(ChatMessage msg) async {
-    if (kIsWeb) return;
     try {
-      final response = await http.get(Uri.parse(msg.text));
+      final uri = Uri.parse(msg.text);
+      if (kIsWeb) {
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+        return;
+      }
+      final response = await http.get(uri);
       if (response.statusCode == 200) {
         final directory = await getApplicationDocumentsDirectory();
         final fileName = msg.fileName ?? msg.text.split('/').last;

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/chat_models.dart';
+import '../models/picked_file.dart';
 import 'auth_service_deps.dart';
 import 'jingle_signaling_service.dart';
 import 'xmpp_omemo_service.dart';
@@ -10,6 +11,34 @@ class XmppStanzaHandler {
   final AuthServiceStanzaDeps _d;
 
   XmppStanzaHandler(this._d);
+
+  MessageType _classifyMessage(String text, xmpp.XmppElement? parent) {
+    final oobX = parent?.getChild('x');
+    if (oobX != null && oobX.getAttribute('xmlns')?.value == 'jabber:x:oob') {
+      final urlEl = oobX.getChild('url');
+      if (urlEl != null && urlEl.textValue != null) {
+        return PickedFile.classifyFromUrl(urlEl.textValue!);
+      }
+    }
+
+    final trimmed = text.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      if (PickedFile.isImageUrl(trimmed)) return MessageType.image;
+      if (PickedFile.isFileUrl(trimmed)) return MessageType.file;
+    }
+
+    return MessageType.text;
+  }
+
+  String? _extractOobUrl(xmpp.XmppElement? parent) {
+    final oobX = parent?.getChild('x');
+    if (oobX != null && oobX.getAttribute('xmlns')?.value == 'jabber:x:oob') {
+      return oobX.getChild('url')?.textValue;
+    }
+    return null;
+  }
+
+  String _extractFileName(String url) => PickedFile.fileNameFromUrl(url);
 
   Future<void> handleMessageStanza(
     xmpp.MessageStanza stanza,
@@ -276,10 +305,14 @@ class XmppStanzaHandler {
       }
 
       if (finalBody != null) {
+        final msgType = _classifyMessage(finalBody, stanza);
+        final oobUrl = _extractOobUrl(stanza);
+        final fileName = oobUrl != null ? _extractFileName(oobUrl) : null;
+
         _d.messageStreamController.add(
           ChatMessage(
             id: stanza.id ?? 'xmpp_${DateTime.now().microsecondsSinceEpoch}',
-            text: finalBody,
+            text: oobUrl ?? finalBody,
             timestamp: DateTime.now(),
             isSent: isMe,
             senderId: fromJid,
@@ -287,8 +320,9 @@ class XmppStanzaHandler {
             accountId: accountId,
             protocol: 'XMPP',
             conversationId: roomJid.toLowerCase(),
-            type: MessageType.text,
+            type: msgType,
             isGroup: true,
+            fileName: fileName,
           ),
         );
       }
@@ -342,10 +376,12 @@ class XmppStanzaHandler {
         _d.messageStreamController.add(
           ChatMessage(
             id: stanza.id ?? 'xmpp_${DateTime.now().microsecondsSinceEpoch}',
-            text: isRetraction ? '🚫 Message retracted' : finalBody,
+            text: isRetraction ? '🚫 Message retracted' : (_extractOobUrl(stanza) ?? finalBody),
             timestamp: DateTime.now(),
             isSent: false,
-            type: isRetraction ? MessageType.system : (isLocation ? MessageType.location : MessageType.text),
+            type: isRetraction
+                ? MessageType.system
+                : (isLocation ? MessageType.location : _classifyMessage(finalBody, stanza)),
             senderId: bareJid,
             senderName: bareJid.split('@').first,
             conversationId: bareJid,
@@ -356,6 +392,7 @@ class XmppStanzaHandler {
             latitude: lat,
             longitude: lon,
             locationLabel: locLabel,
+            fileName: _extractOobUrl(stanza) != null ? _extractFileName(_extractOobUrl(stanza)!) : null,
           ),
         );
       }

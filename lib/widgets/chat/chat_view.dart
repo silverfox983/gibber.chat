@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -510,11 +508,6 @@ class _ChatViewState extends State<ChatView> {
         top: false,
         child: Row(
           children: [
-            IconButton(
-              icon: const Icon(Icons.add_rounded),
-              onPressed: _pickAttachment,
-              tooltip: 'Attachments',
-            ),
             Expanded(
               child: TextField(
                 controller: _messageController,
@@ -567,58 +560,4 @@ class _ChatViewState extends State<ChatView> {
     _scrollToBottom();
   }
 
-  Future<void> _pickAttachment() async {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.image_rounded),
-              title: const Text('Photo library'),
-              onTap: () async {
-                Navigator.pop(ctx);
-                final picker = ImagePicker();
-                final img = await picker.pickImage(source: ImageSource.gallery);
-                if (img != null) {
-                  await _sendAttachment(img.path, isImage: true);
-                }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt_rounded),
-              title: const Text('Camera'),
-              onTap: () async {
-                Navigator.pop(ctx);
-                final picker = ImagePicker();
-                final img = await picker.pickImage(source: ImageSource.camera);
-                if (img != null) {
-                  await _sendAttachment(img.path, isImage: true);
-                }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.insert_drive_file_rounded),
-              title: const Text('File'),
-              onTap: () async {
-                Navigator.pop(ctx);
-                final result = await FilePicker.platform.pickFiles();
-                if (result != null && result.files.single.path != null) {
-                  await _sendAttachment(result.files.single.path!, isImage: false);
-                }
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _sendAttachment(String path, {required bool isImage}) async {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      SnackBar(content: Text(isImage ? 'Image upload not yet implemented' : 'File upload not yet implemented')),
-    );
-  }
 }

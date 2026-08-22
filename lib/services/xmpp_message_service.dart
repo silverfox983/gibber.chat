@@ -174,6 +174,17 @@ class XmppMessageService {
       msg.addChild(requestEl);
     }
 
+    if ((type == MessageType.image || type == MessageType.file) && text.startsWith('http')) {
+      final oobX = xmpp.XmppElement();
+      oobX.name = 'x';
+      oobX.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:oob'));
+      final urlEl = xmpp.XmppElement();
+      urlEl.name = 'url';
+      urlEl.textValue = text;
+      oobX.addChild(urlEl);
+      msg.addChild(oobX);
+    }
+
     conn.writeStanza(msg);
 
     return _StanzaWriteResult(
