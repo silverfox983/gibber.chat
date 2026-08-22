@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -276,12 +278,28 @@ class _ChatViewState extends State<ChatView> {
         ? Color(conv.wallpaperColor!)
         : Theme.of(context).colorScheme.surfaceContainerLow;
 
+    final wallpaperImage = conv.wallpaperPath != null && !kIsWeb
+        ? FileImage(File(conv.wallpaperPath!))
+        : null;
+
     final filtered = _isSearchingMessages && _msgSearchController.text.isNotEmpty
         ? conv.messages.where((m) => m.text.toLowerCase().contains(_msgSearchController.text.toLowerCase())).toList()
         : conv.messages;
 
     return Container(
       color: bgColor,
+      decoration: wallpaperImage != null
+          ? BoxDecoration(
+              image: DecorationImage(
+                image: wallpaperImage,
+                fit: BoxFit.cover,
+                colorFilter: ColorFilter.mode(
+                  Colors.black.withValues(alpha: 0.1),
+                  BlendMode.darken,
+                ),
+              ),
+            )
+          : null,
       child: Stack(
         children: [
           ListView.builder(

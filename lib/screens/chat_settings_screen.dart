@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:provider/provider.dart';
 import '../models/chat_models.dart';
+import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../providers/chat_provider.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   final Conversation conversation;
@@ -15,14 +18,15 @@ class ChatSettingsScreen extends StatefulWidget {
 class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   late bool _muteNotifications;
   late bool _messagePreview;
-  String _notificationSound = 'Default';
+  late String _notificationSound;
   int? _currentWallpaperColor;
 
   @override
   void initState() {
     super.initState();
-    _muteNotifications = false;
-    _messagePreview = true;
+    _muteNotifications = widget.conversation.muteNotifications;
+    _messagePreview = widget.conversation.messagePreview;
+    _notificationSound = widget.conversation.notificationSound;
     _currentWallpaperColor = widget.conversation.wallpaperColor;
   }
 
@@ -53,7 +57,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             value: _muteNotifications,
             onChanged: (val) {
               setState(() => _muteNotifications = val);
-              _saveNotificationSettings();
+              _saveSetting(muteNotifications: val);
             },
           ),
           SwitchListTile(
@@ -62,16 +66,14 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             value: _messagePreview,
             onChanged: (val) {
               setState(() => _messagePreview = val);
-              _saveNotificationSettings();
+              _saveSetting(messagePreview: val);
             },
           ),
           ListTile(
             title: const Text('Notification sound'),
             subtitle: Text(_notificationSound),
             trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () {
-              _showSoundPicker(context);
-            },
+            onTap: () => _showSoundPicker(context),
           ),
           const Divider(),
           Padding(
@@ -85,19 +87,42 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               ),
             ),
           ),
-          SwitchListTile(
-            title: const Text('Read receipts'),
-            subtitle: const Text('Send read receipts for messages'),
-            value: true,
-            onChanged: (val) {},
-          ),
-          SwitchListTile(
-            title: const Text('Typing indicators'),
-            subtitle: const Text('Let others know when you are typing'),
-            value: true,
-            onChanged: (val) {},
+          Consumer<AuthService>(
+            builder: (context, auth, _) {
+              return Column(
+                children: [
+                  SwitchListTile(
+                    title: const Text('Read receipts'),
+                    subtitle: const Text('Send read receipts for messages'),
+                    value: auth.sendReadReceipts,
+                    onChanged: (val) {
+                      auth.setSendReadReceipts(val);
+                    },
+                  ),
+                  SwitchListTile(
+                    title: const Text('Typing indicators'),
+                    subtitle: const Text('Let others know when you are typing'),
+                    value: auth.sendTypingIndicators,
+                    onChanged: (val) {
+                      auth.setSendTypingIndicators(val);
+                    },
+                  ),
+                ],
+              );
+            },
           ),
           const Divider(),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'Appearance',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ),
           ListTile(
             leading: const Icon(Icons.photo_library_rounded),
             title: const Text('Chat wallpaper'),
@@ -123,29 +148,36 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             ),
             onTap: () => _showWallpaperPicker(context),
           ),
-          ListTile(
-            leading: const Icon(Icons.search_rounded),
-            title: const Text('Search in conversation'),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () {},
-          ),
           const Divider(),
           ListTile(
             leading: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error),
             title: Text('Delete chat', style: TextStyle(color: theme.colorScheme.error)),
-            onTap: () {
-              _showDeleteConfirmation(context);
-            },
+            onTap: () => _showDeleteConfirmation(context),
           ),
         ],
       ),
     );
   }
 
-  void _saveNotificationSettings() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Notification settings saved')),
+  Future<void> _saveSetting({
+    bool? muteNotifications,
+    bool? messagePreview,
+    String? notificationSound,
+  }) async {
+    if (muteNotifications != null) widget.conversation.muteNotifications = muteNotifications;
+    if (messagePreview != null) widget.conversation.messagePreview = messagePreview;
+    if (notificationSound != null) widget.conversation.notificationSound = notificationSound;
+
+    await DatabaseService().updateConversationSettings(
+      widget.conversation.id,
+      muteNotifications: muteNotifications,
+      messagePreview: messagePreview,
+      notificationSound: notificationSound,
     );
+
+    if (mounted) {
+      context.read<ChatProvider>().notifyListeners();
+    }
   }
 
   void _showSoundPicker(BuildContext context) {
@@ -167,6 +199,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                   : null,
               onTap: () {
                 setState(() => _notificationSound = 'Default');
+                _saveSetting(notificationSound: 'Default');
                 Navigator.pop(ctx);
               },
             ),
@@ -177,6 +210,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                   : null,
               onTap: () {
                 setState(() => _notificationSound = 'Silent');
+                _saveSetting(notificationSound: 'Silent');
                 Navigator.pop(ctx);
               },
             ),
@@ -256,6 +290,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       color,
     );
     if (mounted) {
+      context.read<ChatProvider>().notifyListeners();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(color != null ? 'Wallpaper color updated' : 'Wallpaper reset to default'),
@@ -280,6 +315,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             onPressed: () {
               Navigator.pop(ctx);
               Navigator.pop(context);
+              context.read<ChatProvider>().removeConversation(widget.conversation.id);
             },
             child: const Text('DELETE', style: TextStyle(color: Colors.red)),
           ),

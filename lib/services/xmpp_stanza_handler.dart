@@ -103,7 +103,8 @@ class XmppStanzaHandler {
     _d.jingleServices[accountId]?.handleIncomingMessage(stanza);
 
     final request = stanza.getChild('request');
-    if (request != null &&
+    if (_d.sendReadReceipts &&
+        request != null &&
         request.getAttribute('xmlns')?.value == 'urn:xmpp:receipts') {
       final receipt = xmpp.MessageStanza(
         DateTime.now().millisecondsSinceEpoch.toString(),

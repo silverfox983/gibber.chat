@@ -374,8 +374,15 @@ class ChatProvider with ChangeNotifier {
               accountId: currentAccountId,
               isGroup: c.isGroup,
               unreadCount: c.unreadCount,
+              muteNotifications: c.muteNotifications,
+              messagePreview: c.messagePreview,
+              notificationSound: c.notificationSound,
+              omemoEnabled: c.omemoEnabled,
             ),
           );
+          if (c.omemoEnabled) {
+            authService.omemoService.setOmemoEnabled(c.id, true);
+          }
         }
       }
       notifyListeners();

@@ -29,7 +29,7 @@ class DatabaseService {
     }
     return await openDatabase(
       path,
-      version: 17,
+      version: 18,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -71,7 +71,11 @@ class DatabaseService {
             unread_count INTEGER,
             last_message_id TEXT,
             wallpaper_path TEXT,
-            wallpaper_color INTEGER
+            wallpaper_color INTEGER,
+            mute_notifications INTEGER DEFAULT 0,
+            message_preview INTEGER DEFAULT 1,
+            notification_sound TEXT DEFAULT 'Default',
+            omemo_enabled INTEGER DEFAULT 0
           )
         ''');
 
@@ -391,7 +395,21 @@ class DatabaseService {
               vcard_xml TEXT,
               fetched_at TEXT
             )
-          ''');
+           ''');
+        }
+        if (oldVersion < 18) {
+          await db.execute(
+            'ALTER TABLE conversations ADD COLUMN mute_notifications INTEGER DEFAULT 0',
+          );
+          await db.execute(
+            'ALTER TABLE conversations ADD COLUMN message_preview INTEGER DEFAULT 1',
+          );
+          await db.execute(
+            "ALTER TABLE conversations ADD COLUMN notification_sound TEXT DEFAULT 'Default'",
+          );
+          await db.execute(
+            'ALTER TABLE conversations ADD COLUMN omemo_enabled INTEGER DEFAULT 0',
+          );
         }
       },
     );
@@ -591,6 +609,10 @@ class DatabaseService {
           unreadCount: m['unread_count'] ?? 0,
           wallpaperPath: m['wallpaper_path'],
           wallpaperColor: m['wallpaper_color'] as int?,
+          muteNotifications: (m['mute_notifications'] ?? 0) == 1,
+          messagePreview: (m['message_preview'] ?? 1) == 1,
+          notificationSound: m['notification_sound'] ?? 'Default',
+          omemoEnabled: (m['omemo_enabled'] ?? 0) == 1,
         ),
       );
     }
@@ -804,6 +826,10 @@ class DatabaseService {
       'unread_count': conv.unreadCount,
       'wallpaper_path': conv.wallpaperPath,
       'wallpaper_color': conv.wallpaperColor,
+      'mute_notifications': conv.muteNotifications ? 1 : 0,
+      'message_preview': conv.messagePreview ? 1 : 0,
+      'notification_sound': conv.notificationSound,
+      'omemo_enabled': conv.omemoEnabled ? 1 : 0,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -816,6 +842,28 @@ class DatabaseService {
     await db.update(
       'conversations',
       {'wallpaper_path': path, 'wallpaper_color': color},
+      where: 'LOWER(id) = LOWER(?)',
+      whereArgs: [conversationId.toLowerCase()],
+    );
+  }
+
+  Future<void> updateConversationSettings(
+    String conversationId, {
+    bool? muteNotifications,
+    bool? messagePreview,
+    String? notificationSound,
+    bool? omemoEnabled,
+  }) async {
+    final db = await database;
+    final updates = <String, dynamic>{};
+    if (muteNotifications != null) updates['mute_notifications'] = muteNotifications ? 1 : 0;
+    if (messagePreview != null) updates['message_preview'] = messagePreview ? 1 : 0;
+    if (notificationSound != null) updates['notification_sound'] = notificationSound;
+    if (omemoEnabled != null) updates['omemo_enabled'] = omemoEnabled ? 1 : 0;
+    if (updates.isEmpty) return;
+    await db.update(
+      'conversations',
+      updates,
       where: 'LOWER(id) = LOWER(?)',
       whereArgs: [conversationId.toLowerCase()],
     );

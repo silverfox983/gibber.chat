@@ -58,6 +58,14 @@ class XmppOmemoService with ChangeNotifier {
     notifyListeners();
   }
 
+  void setOmemoEnabled(String chatId, bool enabled) {
+    final id = chatId.toLowerCase();
+    if ((_omemoEnabled[id] ?? false) != enabled) {
+      _omemoEnabled[id] = enabled;
+      notifyListeners();
+    }
+  }
+
   bool isOmemoSupportedByServer(String accountId) {
     return _serverFeatures[accountId]?.contains(OmemoService.nsOmemo) ?? false;
   }

@@ -291,6 +291,10 @@ class Conversation {
   String? encryptionType;
   String? pinnedMessageId;
   String? pinnedMessageText;
+  bool muteNotifications;
+  bool messagePreview;
+  String notificationSound;
+  bool omemoEnabled;
 
   Conversation({
     required this.id,
@@ -314,6 +318,10 @@ class Conversation {
     this.encryptionType,
     this.pinnedMessageId,
     this.pinnedMessageText,
+    this.muteNotifications = false,
+    this.messagePreview = true,
+    this.notificationSound = 'Default',
+    this.omemoEnabled = false,
   });
 
   bool isGroup;

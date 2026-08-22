@@ -329,6 +329,7 @@ class XmppMessageService {
     String? accountId,
     bool isGroup = false,
   }) {
+    if (!_d.sendReadReceipts) return;
     final id = accountId ?? _d.activeAccountId;
     final conn = _d.xmppConnections[id];
     if (conn != null &&
@@ -613,6 +614,7 @@ class XmppMessageService {
     String? accountId,
     bool isGroup = false,
   }) {
+    if (!_d.sendTypingIndicators) return;
     final id = accountId ?? _d.activeAccountId;
     final conn = _d.xmppConnections[id];
     if (conn != null &&

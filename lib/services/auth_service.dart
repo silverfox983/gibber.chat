@@ -394,7 +394,11 @@ class AuthService with ChangeNotifier {
 
   Future<void> updateOmemoTrust(String jid, int deviceId, int trustLevel) => _omemoService.updateOmemoTrust(jid, deviceId, trustLevel);
 
-  void toggleOmemo(String chatId) => _omemoService.toggleOmemo(chatId);
+  void toggleOmemo(String chatId) {
+    _omemoService.toggleOmemo(chatId);
+    final enabled = _omemoService.isOmemoEnabled(chatId);
+    DatabaseService().updateConversationSettings(chatId, omemoEnabled: enabled);
+  }
 
   bool isOmemoSupportedByServer(String accountId) => _omemoService.isOmemoSupportedByServer(accountId);
 
@@ -2331,6 +2335,8 @@ class _AuthMessageDeps implements AuthServiceMessageDeps {
   StreamController<JingleEvent> get jingleEventController => _auth._jingleEventController;
   Map<String, String> get sentOriginIds => _auth._sentOriginIds;
   DatabaseService get databaseService => DatabaseService();
+  bool get sendReadReceipts => _auth.sendReadReceipts;
+  bool get sendTypingIndicators => _auth.sendTypingIndicators;
 }
 
 class _AuthStanzaDeps implements AuthServiceStanzaDeps {
@@ -2349,6 +2355,7 @@ class _AuthStanzaDeps implements AuthServiceStanzaDeps {
   Map<String, String> get sentOriginIds => _auth._sentOriginIds;
   void notifyListeners() => _auth.notifyListeners();
   Future<void> refreshOmemoDevices(String chatId, {String? accountId}) => _auth.refreshOmemoDevices(chatId, accountId: accountId);
+  bool get sendReadReceipts => _auth.sendReadReceipts;
 }
 
 class _AuthVCardDeps implements AuthServiceVCardDeps {

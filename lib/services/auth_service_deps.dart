@@ -74,6 +74,8 @@ abstract class AuthServiceMessageDeps {
   StreamController<JingleEvent> get jingleEventController;
   Map<String, String> get sentOriginIds;
   DatabaseService get databaseService;
+  bool get sendReadReceipts;
+  bool get sendTypingIndicators;
 }
 
 abstract class AuthServiceStanzaDeps {
@@ -89,6 +91,7 @@ abstract class AuthServiceStanzaDeps {
   Map<String, String> get sentOriginIds;
   void notifyListeners();
   Future<void> refreshOmemoDevices(String chatId, {String? accountId});
+  bool get sendReadReceipts;
 }
 
 abstract class AuthServiceVCardDeps {

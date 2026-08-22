@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../models/chat_models.dart';
+import '../providers/chat_provider.dart';
+import '../services/auth_service.dart';
 
 class ChatInfoScreen extends StatelessWidget {
   final Conversation conversation;
@@ -11,6 +14,8 @@ class ChatInfoScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isGroup = conversation.isGroup;
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
 
     return Scaffold(
       appBar: AppBar(
@@ -78,16 +83,22 @@ class ChatInfoScreen extends StatelessWidget {
                 : 'Not encrypted'),
           ),
           if (!isGroup) ...[
-          ListTile(
-            leading: const Icon(Icons.person_rounded),
-            title: const Text('View profile'),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('View profile not yet available')),
-              );
-            },
-          ),
+            ListTile(
+              leading: const Icon(Icons.person_rounded),
+              title: const Text('View profile'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () {
+                final contact = chatProvider.contacts.firstWhere(
+                  (c) => c.id.toLowerCase() == conversation.id.toLowerCase(),
+                  orElse: () => Contact(
+                    id: conversation.id,
+                    name: conversation.name,
+                    protocol: conversation.protocol,
+                  ),
+                );
+                context.pushNamed('contactProfile', extra: {'contact': contact});
+              },
+            ),
           ],
           const Divider(),
           ListTile(
@@ -104,13 +115,44 @@ class ChatInfoScreen extends StatelessWidget {
             title: const Text('Search messages'),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () {
-              context.pop();
+              Navigator.pop(context);
+              chatProvider.setMessageSearchQuery('');
             },
           ),
           const Divider(),
-          ListTile(
-            leading: const Icon(Icons.block_rounded, color: Colors.red),
-            title: const Text('Block contact', style: TextStyle(color: Colors.red)),
+          if (!isGroup)
+            ListTile(
+              leading: const Icon(Icons.block_rounded, color: Colors.red),
+              title: const Text('Block contact', style: TextStyle(color: Colors.red)),
+              onTap: () => _showBlockConfirmation(context, authService),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showBlockConfirmation(BuildContext context, AuthService authService) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Block contact?'),
+        content: Text('You will no longer receive messages from ${conversation.name}.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await authService.blockContact(conversation.id);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('${conversation.name} blocked')),
+                );
+              }
+            },
+            child: const Text('BLOCK', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
