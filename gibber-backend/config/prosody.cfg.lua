@@ -121,6 +121,8 @@ muc_room_default_anonymous = false
 
 -- PubSub (XEP-0060) for Spaces/communities
 Component "pubsub.gibberapp.online" "pubsub"
+    -- Allow any registered user on this server to create PubSub nodes (Spaces)
+    pubsub_create_nodes = true
 
 -- Gateway transports via Slidge (external components)
 -- Component secrets are loaded from environment variables or slidge-providers.conf
