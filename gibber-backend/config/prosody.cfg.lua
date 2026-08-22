@@ -119,10 +119,29 @@ muc_room_default_history_length = 50
 muc_room_locking = false
 muc_room_default_anonymous = false
 
--- PubSub (XEP-0060) for Spaces/communities
+-- PubSub (XEP-0060) for general use (blogs, feeds, etc.)
 Component "pubsub.gibberapp.online" "pubsub"
-    -- Allow any registered user on this server to create PubSub nodes (Spaces)
-    pubsub_create_nodes = true
+    modules_enabled = { "disco" }
+    -- Allow any registered user on this server to create PubSub nodes
+    add_permissions = {
+        ["prosody:registered"] = { "pubsub:create-node" }
+    }
+    -- Store enough items for feeds; "max" in client config resolves to this cap
+    pubsub_max_items = 10000
+    -- Expose publisher JID in events so clients can trust post authors
+    expose_publisher = true
+
+-- Spaces (XEP-0503) PubSub service - Movim-style dedicated service
+Component "spaces.gibberapp.online" "pubsub"
+    modules_enabled = { "disco" }
+    -- Allow registered users to create Space nodes
+    add_permissions = {
+        ["prosody:registered"] = { "pubsub:create-node" }
+    }
+    -- Store bookmarks, posts, and comments for Spaces
+    pubsub_max_items = 10000
+    -- Include publisher JID in Space events
+    expose_publisher = true
 
 -- Gateway transports via Slidge (external components)
 -- Component secrets are loaded from environment variables or slidge-providers.conf

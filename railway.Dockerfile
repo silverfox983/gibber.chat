@@ -19,10 +19,16 @@ RUN flutter build web --release
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    lsb-release \
+    && curl -fsSL -o /etc/apt/sources.list.d/prosody.sources https://prosody.im/downloads/repos/$(lsb_release -sc)/prosody.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
     libsqlite3-0 \
     ca-certificates \
     supervisor \
-    prosody \
+    prosody-13.0 \
     janus \
     coturn \
     openssl \

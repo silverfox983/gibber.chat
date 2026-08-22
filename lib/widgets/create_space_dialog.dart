@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -25,51 +26,36 @@ class CreateSpaceDialog extends StatefulWidget {
 class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
-  final _bannerUrlController = TextEditingController();
   late final TextEditingController _domainController;
-  late final TextEditingController _slugController;
+  late final String _spaceKey;
   bool _isLoading = false;
   bool _domainChecked = false;
   bool _domainValid = false;
+  bool _showTitleError = false;
   bool _createChatRoom = true;
-  bool _audioRoom = false;
 
   @override
   void initState() {
     super.initState();
     final d = widget.domain;
     _domainController = TextEditingController(
-      text: d.contains('.') ? 'pubsub.$d' : d,
+      text: d.contains('.') ? 'spaces.$d' : d,
     );
-    _slugController = TextEditingController();
-    _titleController.addListener(_onTitleChanged);
+    _spaceKey = _generateSpaceKey();
     WidgetsBinding.instance.addPostFrameCallback((_) => _validateDomain());
   }
 
-  void _onTitleChanged() {
-    final title = _titleController.text.trim();
-    if (title.isNotEmpty && _slugController.text.isEmpty) {
-      _slugController.text = _generateSlug(title);
-    }
-  }
-
-  String _generateSlug(String title) {
-    return title
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\s\-]'), '')
-        .replaceAll(RegExp(r'\s+'), '-')
-        .replaceAll(RegExp(r'-+'), '-')
-        .replaceAll(RegExp(r'^-+|-+$'), '');
+  String _generateSpaceKey() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rnd = Random.secure();
+    return List.generate(8, (_) => chars[rnd.nextInt(chars.length)]).join();
   }
 
   @override
   void dispose() {
-    _titleController.removeListener(_onTitleChanged);
     _titleController.dispose();
     _descController.dispose();
-    _bannerUrlController.dispose();
     _domainController.dispose();
-    _slugController.dispose();
     super.dispose();
   }
 
@@ -95,34 +81,23 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
     }
   }
 
-  bool _showTitleError = false;
-  bool _showSlugError = false;
-
   Future<void> _createSpace() async {
     final title = _titleController.text.trim();
-    final slug = _slugController.text.trim().replaceAll(RegExp(r'-+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
     final targetDomain = _domainController.text.trim();
 
     bool hasError = false;
     if (title.isEmpty) { setState(() => _showTitleError = true); hasError = true; }
-    if (slug.isEmpty) { setState(() => _showSlugError = true); hasError = true; }
     if (!_domainValid) { hasError = true; }
     if (hasError) return;
 
-    setState(() { _isLoading = true; _showTitleError = false; _showSlugError = false; });
+    setState(() { _isLoading = true; _showTitleError = false; });
 
     final errorMessage = await widget.spacesService.createSpace(
       targetDomain,
-      slug,
+      _spaceKey,
       title,
       description: _descController.text.trim(),
-      topic: '',
-      avatarUrl: null,
-      bannerUrl: _bannerUrlController.text.trim(),
-      accessModel: 'authorize',
-      publishModel: 'publishers',
       createChatRoom: _createChatRoom,
-      audioRoom: _audioRoom,
     );
 
     setState(() => _isLoading = false);
@@ -130,20 +105,20 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
     if (errorMessage == null) {
       if (mounted) {
         final auth = Provider.of<AuthService>(context, listen: false);
-        auth.joinPersistedSpace(targetDomain, slug, title);
+        auth.joinPersistedSpace(targetDomain, _spaceKey, title);
 
         Navigator.pop(context);
 
         final newSpace = SpaceNode(
           domain: targetDomain,
-          node: slug,
+          node: _spaceKey,
           name: title,
           isSubscribed: true,
         );
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Community "$title" created!'),
+            content: Text('Space "$title" created!'),
             backgroundColor: Colors.green.shade700,
             duration: const Duration(seconds: 3),
             action: SnackBarAction(
@@ -162,15 +137,9 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
       widget.onSuccess();
     } else {
       if (mounted) {
-        String displayError = errorMessage;
-        if (errorMessage.toLowerCase().contains('conflict') ||
-            errorMessage.toLowerCase().contains('already exists')) {
-          displayError = 'A community with this address already exists. Try a different name.';
-          setState(() => _showSlugError = true);
-        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(displayError),
+            content: Text(errorMessage),
             duration: const Duration(seconds: 6),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
@@ -220,7 +189,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Create Community',
+                    'Create Space',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 24,
@@ -231,7 +200,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Communities let you post, share, and discuss with others around a shared topic.',
+                    'Spaces are private, invite-only communities with a linked chat room.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,
@@ -241,33 +210,11 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                   const SizedBox(height: 32),
                   _buildTextField(
                     controller: _titleController,
-                    label: 'Community Title',
+                    label: 'Space Title',
                     icon: Icons.title_rounded,
                     theme: theme,
                     errorText: _showTitleError ? 'Title is required' : null,
                     hintText: 'e.g. Open Source Projects',
-                  ),
-                  const SizedBox(height: 16),
-                  _buildTextField(
-                    controller: _slugController,
-                    label: 'Address',
-                    icon: Icons.link_rounded,
-                    theme: theme,
-                    errorText: _showSlugError ? 'Address is required' : null,
-                    hintText: 'open-source-projects',
-                    helperText: 'Only letters, numbers, and hyphens',
-                    suffix: Padding(
-                      padding: const EdgeInsets.only(right: 16),
-                      child: Text(
-                        _domainController.text.trim().isNotEmpty
-                            ? '@${_domainController.text.trim()}'
-                            : '',
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
                   ),
                   const SizedBox(height: 16),
                   _buildTextField(
@@ -276,16 +223,53 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                     icon: Icons.description_rounded,
                     theme: theme,
                     maxLines: 2,
-                    hintText: 'What is this community about?',
+                    hintText: 'What is this space about?',
                   ),
                   const SizedBox(height: 16),
-                  _buildTextField(
-                    controller: _bannerUrlController,
-                    label: 'Banner URL (Optional)',
-                    icon: Icons.photo_size_select_actual_rounded,
-                    theme: theme,
-                    hintText: 'https://example.com/banner.jpg',
-                    keyboardType: TextInputType.url,
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: theme.colorScheme.outline.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.key_rounded,
+                          color: theme.colorScheme.primary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Invitation key',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '$_spaceKey@${_domainController.text.trim().isNotEmpty ? _domainController.text.trim() : widget.domain}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  fontFamily: 'monospace',
+                                  color: theme.colorScheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Container(
@@ -392,56 +376,6 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                           onChanged: (v) => setState(() => _createChatRoom = v),
                           activeTrackColor: theme.colorScheme.primary.withValues(alpha: 0.5),
                           activeThumbColor: theme.colorScheme.primary,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: theme.colorScheme.outline.withValues(alpha: 0.2),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.mic_rounded,
-                          color: _audioRoom ? Colors.red : theme.colorScheme.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Voice room',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: theme.colorScheme.onSurface,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Audio-only room for live conversations',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Switch(
-                          value: _audioRoom,
-                          onChanged: (v) => setState(() => _audioRoom = v),
-                          activeTrackColor: Colors.red.withValues(alpha: 0.5),
-                          activeThumbColor: Colors.red,
                         ),
                       ],
                     ),

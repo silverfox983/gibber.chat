@@ -718,7 +718,7 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
-  Future<String?> createSpace(String domain, String node, String name, {String? description, String? topic, String? avatarUrl, String? bannerUrl, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true, bool audioRoom = false}) async {
+  Future<String?> createSpace(String domain, String node, String name, {String? description, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true}) async {
     final iq = xmpp.IqStanza('create_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
     iq.toJid = xmpp.Jid.fromFullJid(domain);
     iq.fromJid = _connection.account.fullJid;
@@ -755,22 +755,19 @@ class SpacesService extends ChangeNotifier {
 
     addField('FORM_TYPE', 'http://jabber.org/protocol/pubsub#node_config', type: 'hidden');
     addField('pubsub#title', name);
-    if (description != null) addField('pubsub#description', description);
-    if (topic != null && topic.isNotEmpty) addField('pubsub#subject', topic);
-    if (avatarUrl != null && avatarUrl.isNotEmpty) addField('pubsub#node_avatar_url', avatarUrl);
-    if (bannerUrl != null && bannerUrl.isNotEmpty) addField('pubsub#node_banner_url', bannerUrl);
+    if (description != null && description.isNotEmpty) addField('pubsub#description', description);
     addField('pubsub#access_model', accessModel);
     addField('pubsub#publish_model', publishModel);
     addField('pubsub#type', 'urn:xmpp:spaces:0');
-    if (audioRoom) addField('SpacesService#room_type', 'audio');
-    addField('pubsub#notify_retract', 'true');
     addField('pubsub#persist_items', 'true');
-    addField('pubsub#purge_offline', 'false');
+    addField('pubsub#deliver_payloads', 'true');
+    addField('pubsub#max_items', 'max');
+    addField('pubsub#send_last_published_item', 'on_sub');
+    addField('pubsub#notify_retract', 'true');
     addField('pubsub#notify_sub', 'true');
     addField('pubsub#notify_config', 'true');
     addField('pubsub#notify_delete', 'true');
-    addField('pubsub#max_items', '1000');
-    addField('pubsub#deliver_payloads', 'true');
+    addField('pubsub#purge_offline', 'false');
 
     configure.addChild(x);
     pubsub.addChild(configure);
@@ -782,14 +779,14 @@ class SpacesService extends ChangeNotifier {
         final errorNode = response.getChild('error');
         if (errorNode != null) {
           if (errorNode.children.any((e) => e.name == 'forbidden' || e.name == 'not-authorized' || e.name == 'INVALID')) {
-            return 'Permission denied on $domain. This server does not allow public space creation. Try using your own JID (e.g. user@domain.com) as the PubSub Domain.';
+            return 'Permission denied on $domain. Ensure the server has a spaces service (e.g. spaces.<domain>) configured to allow Space creation.';
           }
-        if (errorNode.children.any((e) => e.name == 'conflict')) {
-          return 'A space with this Node ID already exists.';
+          if (errorNode.children.any((e) => e.name == 'conflict')) {
+            return 'A space with this Node ID already exists.';
+          }
         }
-      }
-      debugPrint('SpacesService: createSpace error: ${response.buildXmlString()}');
-      return 'Server rejected the space creation request.';
+        debugPrint('SpacesService: createSpace error: ${response.buildXmlString()}');
+        return 'Server rejected the space creation request.';
       }
 
       // SUCCESS — now create MUC room (optional) and auto-subscribe
@@ -797,7 +794,9 @@ class SpacesService extends ChangeNotifier {
 
       // Create optional MUC room for real-time chat (lazy — joining creates it on Prosody)
       if (createChatRoom) {
-        final baseDomain = domain.startsWith('pubsub.') ? domain.substring(7) : domain;
+        final baseDomain = domain.startsWith('pubsub.') || domain.startsWith('spaces.')
+            ? domain.substring(domain.indexOf('.') + 1)
+            : domain;
         final mucJid = '$node@conference.$baseDomain';
         try {
           await _joinMucRoom(mucJid, myJid).timeout(
