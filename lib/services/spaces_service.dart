@@ -769,7 +769,7 @@ class SpacesService extends ChangeNotifier {
     addField('pubsub#notify_sub', 'true');
     addField('pubsub#notify_config', 'true');
     addField('pubsub#notify_delete', 'true');
-    addField('pubsub#max_items', 'max');
+    addField('pubsub#max_items', '1000');
     addField('pubsub#deliver_payloads', 'true');
 
     configure.addChild(x);
@@ -784,11 +784,12 @@ class SpacesService extends ChangeNotifier {
           if (errorNode.children.any((e) => e.name == 'forbidden' || e.name == 'not-authorized' || e.name == 'INVALID')) {
             return 'Permission denied on $domain. This server does not allow public space creation. Try using your own JID (e.g. user@domain.com) as the PubSub Domain.';
           }
-          if (errorNode.children.any((e) => e.name == 'conflict')) {
-            return 'A space with this Node ID already exists.';
-          }
+        if (errorNode.children.any((e) => e.name == 'conflict')) {
+          return 'A space with this Node ID already exists.';
         }
-        return 'Server rejected the space creation request.';
+      }
+      debugPrint('SpacesService: createSpace error: ${response.buildXmlString()}');
+      return 'Server rejected the space creation request.';
       }
 
       // SUCCESS — now create MUC room (optional) and auto-subscribe
@@ -796,7 +797,8 @@ class SpacesService extends ChangeNotifier {
 
       // Create optional MUC room for real-time chat (lazy — joining creates it on Prosody)
       if (createChatRoom) {
-        final mucJid = '$node@conference.$domain';
+        final baseDomain = domain.startsWith('pubsub.') ? domain.substring(7) : domain;
+        final mucJid = '$node@conference.$baseDomain';
         try {
           await _joinMucRoom(mucJid, myJid).timeout(
             const Duration(seconds: 5),

@@ -119,6 +119,9 @@ muc_room_default_history_length = 50
 muc_room_locking = false
 muc_room_default_anonymous = false
 
+-- PubSub (XEP-0060) for Spaces/communities
+Component "pubsub.gibberapp.online" "pubsub"
+
 -- Gateway transports via Slidge (external components)
 -- Component secrets are loaded from environment variables or slidge-providers.conf
 include "slidge-providers.conf"
