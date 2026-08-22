@@ -122,6 +122,8 @@ muc_room_default_anonymous = false
 -- PubSub (XEP-0060) for general use (blogs, feeds, etc.)
 Component "pubsub.gibberapp.online" "pubsub"
     modules_enabled = { "disco" }
+    -- Map all users on this server to the registered role so the permission below applies
+    server_user_role = "prosody:registered"
     -- Allow any registered user on this server to create PubSub nodes
     add_permissions = {
         ["prosody:registered"] = { "pubsub:create-node" }
@@ -134,6 +136,8 @@ Component "pubsub.gibberapp.online" "pubsub"
 -- Spaces (XEP-0503) PubSub service - Movim-style dedicated service
 Component "spaces.gibberapp.online" "pubsub"
     modules_enabled = { "disco" }
+    -- Map all users on this server to the registered role so the permission below applies
+    server_user_role = "prosody:registered"
     -- Allow registered users to create Space nodes
     add_permissions = {
         ["prosody:registered"] = { "pubsub:create-node" }

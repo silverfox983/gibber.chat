@@ -721,7 +721,7 @@ class SpacesService extends ChangeNotifier {
   Future<String?> createSpace(String domain, String node, String name, {String? description, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true}) async {
     final iq = xmpp.IqStanza('create_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
     iq.toJid = xmpp.Jid.fromFullJid(domain);
-    iq.fromJid = _connection.account.fullJid;
+    // Do not set iq.fromJid - the XMPP server must stamp the sender's JID.
 
     final pubsub = xmpp.XmppElement();
     pubsub.name = 'pubsub';
@@ -762,7 +762,6 @@ class SpacesService extends ChangeNotifier {
     addField('pubsub#persist_items', 'true');
     addField('pubsub#deliver_payloads', 'true');
     addField('pubsub#max_items', 'max');
-    addField('pubsub#send_last_published_item', 'on_sub');
     addField('pubsub#notify_retract', 'true');
     addField('pubsub#notify_sub', 'true');
     addField('pubsub#notify_config', 'true');
@@ -777,15 +776,60 @@ class SpacesService extends ChangeNotifier {
       final response = await _sendIq(iq);
       if (response.type == xmpp.IqStanzaType.ERROR) {
         final errorNode = response.getChild('error');
+        final errorXml = response.buildXmlString();
+        debugPrint('SpacesService: createSpace error: $errorXml');
         if (errorNode != null) {
-          if (errorNode.children.any((e) => e.name == 'forbidden' || e.name == 'not-authorized' || e.name == 'INVALID')) {
+          final textEl = errorNode.children
+              .whereType<xmpp.XmppElement>()
+              .firstWhere((e) => e.name == 'text', orElse: () => xmpp.XmppElement());
+          final text = textEl.textValue?.trim();
+
+          // Collect standard XMPP error conditions and pubsub-specific conditions
+          const standardConditions = {
+            'bad-request',
+            'conflict',
+            'feature-not-implemented',
+            'forbidden',
+            'gone',
+            'internal-server-error',
+            'item-not-found',
+            'jid-malformed',
+            'not-acceptable',
+            'not-allowed',
+            'not-authorized',
+            'policy-violation',
+            'recipient-unavailable',
+            'registration-required',
+            'remote-server-not-found',
+            'remote-server-timeout',
+            'resource-constraint',
+            'service-unavailable',
+            'subscription-required',
+            'undefined-condition',
+            'unexpected-request',
+            'wait',
+          };
+          final conditions = errorNode.children
+              .whereType<xmpp.XmppElement>()
+              .where((e) =>
+                  e.name != null &&
+                  e.name != 'text' &&
+                  (standardConditions.contains(e.name) || (e.name?.contains('#') ?? false)))
+              .map((e) => e.name!)
+              .toList();
+
+          final primary = conditions.isNotEmpty ? conditions.first : null;
+
+          if (primary == 'forbidden' || primary == 'not-authorized') {
             return 'Permission denied on $domain. Ensure the server has a spaces service (e.g. spaces.<domain>) configured to allow Space creation.';
           }
-          if (errorNode.children.any((e) => e.name == 'conflict')) {
+          if (primary == 'conflict') {
             return 'A space with this Node ID already exists.';
           }
+          if (primary != null) {
+            return 'Server rejected the space request: $primary${text != null && text.isNotEmpty ? ' - $text' : ''}';
+          }
         }
-        debugPrint('SpacesService: createSpace error: ${response.buildXmlString()}');
         return 'Server rejected the space creation request.';
       }
 
