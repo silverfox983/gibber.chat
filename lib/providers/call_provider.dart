@@ -10,6 +10,7 @@ import 'package:proximity_sensor/proximity_sensor.dart';
 import '../services/webrtc_manager.dart';
 import '../services/jingle_signaling_service.dart';
 import '../services/sip_service.dart';
+import '../services/sip_gateway_config.dart';
 import '../services/auth_service.dart';
 import '../services/call_history_service.dart';
 import '../services/sound_service.dart';
@@ -270,13 +271,14 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       final localpart = accountId.split('@').first;
       final password = await _authService?.getActiveAccountPassword();
       if (password != null && password.isNotEmpty) {
+        final gatewayJid = await SipGatewayConfig.getGatewayJid();
         _sipService!.start(
-          sipUri: '$localpart@cheogram.com',
-          wsUrl: 'wss://cheogram.com:10443',
+          sipUri: '$localpart@$gatewayJid',
+          wsUrl: 'wss://$gatewayJid:10443',
           password: password,
           displayName: localpart,
         );
-        debugPrint('CallProvider: SIP service started for $localpart@cheogram.com');
+        debugPrint('CallProvider: SIP service started for $localpart@$gatewayJid');
       } else {
         debugPrint('CallProvider: SIP service not started - no password available');
       }
@@ -329,7 +331,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     bool isVideo = false,
   }) async {
     debugPrint('CallProvider: === STARTING XMPP CALL FOR PHONE (forced) ===');
-    final gatewayJid = '$phoneNumber@cheogram.com';
+    final gatewayDomain = await SipGatewayConfig.getGatewayJid();
+    final gatewayJid = '$phoneNumber@$gatewayDomain';
     // Route through XMPP Jingle directly, skipping SIP detection
     await _startXmppCallInternal(
       gatewayJid,
@@ -1359,7 +1362,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     String effectiveJid = toJid;
     if (effectiveJid.startsWith('+') || RegExp(r'^\d+$').hasMatch(effectiveJid)) {
       if (!effectiveJid.contains('@')) {
-        effectiveJid = '$effectiveJid@cheogram.com';
+        final gatewayDomain = await SipGatewayConfig.getGatewayJid();
+        effectiveJid = '$effectiveJid@$gatewayDomain';
         debugPrint('CallProvider: Normalized phone JID to $effectiveJid');
       }
     }

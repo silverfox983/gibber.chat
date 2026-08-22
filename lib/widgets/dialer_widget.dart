@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
+import '../services/sip_gateway_config.dart';
 import '../services/call_history_service.dart';
 import '../providers/call_provider.dart';
 import '../models/call_log.dart';
@@ -18,6 +19,18 @@ class DialerWidget extends StatefulWidget {
 
 class _DialerWidgetState extends State<DialerWidget> {
   String _dialedNumber = '';
+  String _gatewayDomain = 'cheogram.com';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGatewayDomain();
+  }
+
+  Future<void> _loadGatewayDomain() async {
+    final domain = await SipGatewayConfig.getGatewayJid();
+    if (mounted) setState(() => _gatewayDomain = domain);
+  }
 
   String _formatDialedNumber(String number, {bool isSip = false}) {
     if (number.contains('@')) return number;
@@ -28,8 +41,7 @@ class _DialerWidgetState extends State<DialerWidget> {
       if (clean.startsWith('+1+1')) {
         clean = clean.replaceFirst('+1+1', '+1');
       }
-      final domain = widget.authService.activeXmppDomain ?? 'cheogram.com';
-      return '$clean@$domain';
+      return '$clean@$_gatewayDomain';
     }
     return clean;
   }

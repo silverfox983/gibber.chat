@@ -193,7 +193,8 @@ class SipService implements SipUaHelperListener {
     _callStateController.add(_state);
 
     final cleanNumber = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
-    final sipUri = 'sip:$cleanNumber@sip.cheogram.com';
+    final domain = _sipUri?.contains('@') == true ? _sipUri!.split('@').last : 'cheogram.com';
+    final sipUri = 'sip:$cleanNumber@sip.$domain';
 
     debugPrint('SipService: Calling $sipUri (video: $video)');
 

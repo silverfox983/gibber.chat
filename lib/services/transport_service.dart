@@ -410,4 +410,79 @@ class TransportService {
     if (_db == null) return [];
     return await _db!.getRegisteredTransports();
   }
+
+  Future<String?> translateGatewayAddress(String gatewayJid, String legacyAddress) async {
+    final iq = xmpp.IqStanza(
+      'gw_translate_${xmpp.AbstractStanza.getRandomId()}',
+      xmpp.IqStanzaType.SET,
+    );
+    iq.toJid = xmpp.Jid.fromFullJid(gatewayJid);
+
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:iq:gateway'));
+
+    final prompt = xmpp.XmppElement();
+    prompt.name = 'prompt';
+    prompt.textValue = legacyAddress;
+    query.addChild(prompt);
+    iq.addChild(query);
+
+    try {
+      final response = await _sendIq(iq);
+      if (response.type == xmpp.IqStanzaType.RESULT) {
+        final queryEl = response.getChild('query');
+        if (queryEl != null) {
+          return queryEl.getChild('prompt')?.textValue;
+        }
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error translating gateway address: $e');
+      return null;
+    }
+  }
+
+  Future<List<Map<String, String>>> searchGatewayContacts(
+    String gatewayJid,
+    String query,
+  ) async {
+    final iqId = 'gw_search_${DateTime.now().millisecondsSinceEpoch}';
+    final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(gatewayJid);
+
+    final search = xmpp.XmppElement();
+    search.name = 'query';
+    search.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:iq:search'));
+
+    search.addChild(
+      xmpp.XmppElement()..name = 'nick'..textValue = query,
+    );
+
+    iq.addChild(search);
+
+    try {
+      final response = await _sendIq(iq);
+      final results = <Map<String, String>>[];
+      if (response.type == xmpp.IqStanzaType.RESULT) {
+        final queryEl = response.getChild('query');
+        if (queryEl != null) {
+          for (var item in queryEl.children.where((c) => c.name == 'item')) {
+            final result = <String, String>{};
+            result['jid'] = item.getAttribute('jid')?.value ?? '';
+            for (var field in item.children.whereType<xmpp.XmppElement>()) {
+              if (field.name != null && field.textValue != null) {
+                result[field.name!] = field.textValue!;
+              }
+            }
+            results.add(result);
+          }
+        }
+      }
+      return results;
+    } catch (e) {
+      debugPrint('Error searching gateway contacts: $e');
+      return [];
+    }
+  }
 }

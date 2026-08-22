@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../core/breakpoints.dart';
 import '../core/design_tokens.dart';
 import '../core/app_colors.dart';
@@ -15,7 +16,9 @@ import '../services/transport_service.dart';
 import '../services/database_service.dart';
 import '../services/backend_config.dart';
 import '../services/jwt_token_service.dart';
+import '../services/sip_gateway_config.dart';
 import '../widgets/transport_registration_dialog.dart';
+import '../widgets/add_transport_contact_dialog.dart';
 
 enum _ConnectionsTab { bridges, discover }
 
@@ -36,6 +39,8 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
   String? _bridgesError;
   Timer? _statusPoller;
   late AnimationController _pulseController;
+  final Map<String, String> _previousGatewayStatuses = {};
+  String _sipGatewayDomain = 'cheogram.com';
 
   // ─── Discover tab state ─────────────────────────────────────────
   TransportService? _transportService;
@@ -73,6 +78,9 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
     final backendConfig = Provider.of<BackendConfig>(context, listen: false);
     await _jwtService.init(apiUrl: backendConfig.apiUrl);
     await _loadUserGateways();
+    await _loadRegisteredTransports();
+    final sipDomain = await SipGatewayConfig.getGatewayJid();
+    if (mounted) setState(() => _sipGatewayDomain = sipDomain);
     _startStatusPolling();
   }
 
@@ -88,6 +96,46 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
     final userId = auth.activeAccountId;
     if (userId == null) return;
     await _bridgeService.listUserGateways(userId);
+    if (!mounted) return;
+
+    final current = <String, String>{};
+    for (final g in _bridgeService.userGateways) {
+      current[g.gatewayType] = g.status;
+    }
+
+    for (final entry in current.entries) {
+      final type = entry.key;
+      final status = entry.value;
+      final previous = _previousGatewayStatuses[type];
+      final name = GatewayTypeInfo.available[type]?.name ?? type;
+
+      if (previous != null && previous != status) {
+        if (status == 'running') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$name bridge connected'), behavior: SnackBarBehavior.floating),
+          );
+        } else if (status == 'error') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$name bridge failed to start'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        } else if (previous == 'running' && status != 'running') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$name bridge stopped unexpectedly'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    }
+
+    _previousGatewayStatuses.clear();
+    _previousGatewayStatuses.addAll(current);
   }
 
   Future<void> _loadUserGateways() async {
@@ -104,6 +152,10 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
         _bridgesLoading = false;
         _bridgesError = _bridgeService.error;
       });
+      _previousGatewayStatuses.clear();
+      for (final g in _bridgeService.userGateways) {
+        _previousGatewayStatuses[g.gatewayType] = g.status;
+      }
     }
   }
 
@@ -335,17 +387,19 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
         else if (_bridgesError != null && _bridgeService.userGateways.isEmpty)
           SliverFillRemaining(child: _BridgesErrorState(error: _bridgesError!, onRetry: _loadUserGateways))
         else
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                _buildPlatformGrid(theme),
-                const SizedBox(height: DesignTokens.space32),
-                _buildInfoCard(theme),
-                const SizedBox(height: DesignTokens.space48),
-              ]),
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  _buildPlatformGrid(theme),
+                  const SizedBox(height: DesignTokens.space24),
+                  _buildSipCard(theme),
+                  const SizedBox(height: DesignTokens.space32),
+                  _buildInfoCard(theme),
+                  const SizedBox(height: DesignTokens.space48),
+                ]),
+              ),
             ),
-          ),
       ],
     );
   }
@@ -364,8 +418,33 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
             Text('Configure your platform bridges', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
           ],
         )),
+        IconButton.outlined(
+          icon: const Icon(Icons.person_add_alt_1_rounded),
+          tooltip: 'Add contact via transport',
+          onPressed: () => showAddTransportContactDialog(
+            context: context,
+            transportService: _transportService,
+            extraGateways: _runningBridgeGateways,
+          ),
+        ),
       ]),
     );
+  }
+
+  bool _isBridgeComponentRegistered(String? componentJid) {
+    if (componentJid == null) return false;
+    return _registeredJids.contains(componentJid.toLowerCase());
+  }
+
+  List<Map<String, String>> get _runningBridgeGateways {
+    return _bridgeService.userGateways
+        .where((g) => g.enabled && g.status == 'running' && g.componentJid != null)
+        .map((g) => {
+              'jid': g.componentJid!,
+              'name': GatewayTypeInfo.available[g.gatewayType]?.name ?? g.gatewayType,
+              'type': g.gatewayType,
+            })
+        .toList();
   }
 
   Widget _buildPlatformGrid(ThemeData theme) {
@@ -373,20 +452,98 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
     final platforms = ['telegram', 'discord', 'irc', 'matrix', 'whatsapp'];
 
     return Column(
-      children: platforms.map((p) => Padding(
-        padding: const EdgeInsets.only(bottom: DesignTokens.space12),
-        child: _PlatformCard(
-          platform: p,
-          gateway: _gatewayForType(p),
-          bridgeService: _bridgeService,
-          isLocked: !entitlement.isProtocolAllowed(p),
-          onConfigure: () => _showConfigDialog(context, p),
-          onEnable: () => _enableBridge(context, p),
-          onDisable: () => _disableBridge(context, p),
-          onRemove: () => _removeBridge(context, p),
-        ),
-      )).toList(),
+      children: platforms.map((p) {
+        final gateway = _gatewayForType(p);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: DesignTokens.space12),
+          child: _PlatformCard(
+            platform: p,
+            gateway: gateway,
+            bridgeService: _bridgeService,
+            isLocked: !entitlement.isProtocolAllowed(p),
+            isRegistered: _isBridgeComponentRegistered(gateway?.componentJid),
+            onConfigure: () => _showConfigDialog(context, p),
+            onEnable: () => _enableBridge(context, p),
+            onDisable: () => _disableBridge(context, p),
+            onRemove: () => _removeBridge(context, p),
+            onRegister: () => _registerBridgeComponent(gateway?.componentJid ?? '', GatewayTypeInfo.available[p]!.name),
+          ),
+        );
+      }).toList(),
     );
+  }
+
+  Widget _buildSipCard(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
+        border: Border.all(color: theme.colorScheme.outline),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
+        child: InkWell(
+          onTap: _showSipConfigDialog,
+          borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
+          child: Padding(
+            padding: const EdgeInsets.all(DesignTokens.space20),
+            child: Row(children: [
+              Container(width: 48, height: 48, decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(DesignTokens.radiusMd)), child: Icon(Icons.phone_forwarded_rounded, color: AppColors.primary, size: 24)),
+              const SizedBox(width: DesignTokens.space12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('SIP / Phone Calls', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
+                const SizedBox(height: 2),
+                Text('Gateway: $_sipGatewayDomain', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant, fontFamily: 'monospace')),
+              ])),
+              Icon(Icons.chevron_right_rounded, color: theme.colorScheme.onSurfaceVariant),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showSipConfigDialog() async {
+    final controller = TextEditingController(text: _sipGatewayDomain);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('SIP Gateway'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('PSTN gateway domain used for phone calls and SMS routing.'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Gateway domain',
+                hintText: 'cheogram.com',
+                prefixIcon: Icon(Icons.dns_rounded),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final domain = controller.text.trim().toLowerCase();
+      if (domain.isNotEmpty) {
+        await SipGatewayConfig.setGatewayJid(domain);
+        setState(() => _sipGatewayDomain = domain);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('SIP gateway set to $domain'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+    controller.dispose();
   }
 
   Future<void> _showConfigDialog(BuildContext context, String type) async {
@@ -396,13 +553,21 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
       return;
     }
     final info = GatewayTypeInfo.available[type]!;
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final existing = _gatewayForType(type);
     final result = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _BridgeConfigSheet(type: type, info: info, existingGateway: _gatewayForType(type)),
+      builder: (ctx) => _BridgeConfigSheet(
+        type: type,
+        info: info,
+        existingGateway: existing,
+        bridgeService: _bridgeService,
+        authService: auth,
+      ),
     );
-    if (result != null && mounted) await _saveConfig(type, result);
+    if (result != null && mounted) await _saveConfig(type, result, wasEnabled: existing?.enabled == true);
   }
 
   Future<void> _enableBridge(BuildContext context, String type) async {
@@ -416,11 +581,47 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${GatewayTypeInfo.available[type]!.name} connecting…'), behavior: SnackBarBehavior.floating),
       );
+      await _loadRegisteredTransports();
+      if (mounted && result.componentJid != null && !_registeredJids.contains(result.componentJid!.toLowerCase())) {
+        _showBridgeRegistrationPrompt(type, result.componentJid!);
+      }
     } else if (_bridgeService.error != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_bridgeService.error!), backgroundColor: Theme.of(context).colorScheme.error, behavior: SnackBarBehavior.floating),
       );
     }
+  }
+
+  void _showBridgeRegistrationPrompt(String type, String componentJid) {
+    final name = GatewayTypeInfo.available[type]?.name ?? type;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('$name bridge is running'),
+        content: Text('Register with $componentJid to start searching for $name contacts.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _registerBridgeComponent(componentJid, name);
+            },
+            child: const Text('Register'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _registerBridgeComponent(String componentJid, String name) async {
+    if (_transportService == null) return;
+    await showTransportRegistrationDialog(
+      context: context,
+      transportService: _transportService!,
+      gatewayJid: componentJid,
+      gatewayName: name,
+    );
+    await _loadRegisteredTransports();
   }
 
   Future<void> _disableBridge(BuildContext context, String type) async {
@@ -469,15 +670,24 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
     }
   }
 
-  Future<void> _saveConfig(String type, Map<String, dynamic> config) async {
+  Future<void> _saveConfig(String type, Map<String, dynamic> config, {bool wasEnabled = false}) async {
     final auth = Provider.of<AuthService>(context, listen: false);
     final userId = auth.activeAccountId;
     if (userId == null) return;
+
+    if (wasEnabled) {
+      await _bridgeService.disableGateway(userId, type);
+      if (!mounted) return;
+    }
+
     final result = await _bridgeService.configureGateway(userId: userId, type: type, config: config);
     if (result != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${GatewayTypeInfo.available[type]!.name} configured'), behavior: SnackBarBehavior.floating),
       );
+      if (wasEnabled) {
+        await _enableBridge(context, type);
+      }
     } else if (_bridgeService.error != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_bridgeService.error!), backgroundColor: Theme.of(context).colorScheme.error, behavior: SnackBarBehavior.floating),
@@ -792,15 +1002,18 @@ class _PlatformCard extends StatelessWidget {
   final UserGateway? gateway;
   final BridgeConfigService bridgeService;
   final bool isLocked;
+  final bool isRegistered;
   final VoidCallback onConfigure;
   final VoidCallback onEnable;
   final VoidCallback onDisable;
   final VoidCallback onRemove;
+  final VoidCallback onRegister;
 
   const _PlatformCard({
     required this.platform, required this.gateway, required this.bridgeService,
-    required this.isLocked, required this.onConfigure, required this.onEnable,
-    required this.onDisable, required this.onRemove,
+    required this.isLocked, required this.isRegistered, required this.onConfigure,
+    required this.onEnable, required this.onDisable, required this.onRemove,
+    required this.onRegister,
   });
 
   @override
@@ -858,6 +1071,10 @@ class _PlatformCard extends StatelessWidget {
                 ],
                 Row(children: [
                   if (isConnected) ...[
+                    if (!isRegistered) ...[
+                      Expanded(child: _ActionButton(label: 'Register', icon: Icons.app_registration_rounded, onPressed: onRegister, color: platformColor, filled: true)),
+                      const SizedBox(width: DesignTokens.space8),
+                    ],
                     Expanded(child: _ActionButton(label: 'Disconnect', icon: Icons.link_off_rounded, onPressed: onDisable, color: AppColors.danger, filled: false)),
                   ] else if (isLocked) ...[
                     Expanded(child: _ActionButton(label: 'Pro Required', icon: Icons.lock_rounded, onPressed: onConfigure, color: Colors.orange.shade700, filled: true)),
@@ -991,7 +1208,9 @@ class _BridgeConfigSheet extends StatefulWidget {
   final String type;
   final GatewayTypeInfo info;
   final UserGateway? existingGateway;
-  const _BridgeConfigSheet({required this.type, required this.info, this.existingGateway});
+  final BridgeConfigService bridgeService;
+  final AuthService authService;
+  const _BridgeConfigSheet({required this.type, required this.info, this.existingGateway, required this.bridgeService, required this.authService});
   @override
   State<_BridgeConfigSheet> createState() => _BridgeConfigSheetState();
 }
@@ -1000,6 +1219,9 @@ class _BridgeConfigSheetState extends State<_BridgeConfigSheet> {
   final _formKey = GlobalKey<FormState>();
   final Map<String, TextEditingController> _controllers = {};
   bool _isSaving = false;
+  bool _isTesting = false;
+  String? _testMessage;
+  bool? _testSuccess;
 
   @override
   void initState() {
@@ -1054,15 +1276,38 @@ class _BridgeConfigSheetState extends State<_BridgeConfigSheet> {
             const SizedBox(height: DesignTokens.space12),
             ...widget.info.optionalFields.map((f) => _buildField(f, required: false, isDark: isDark)),
           ],
+          if (_testMessage != null) ...[
+            const SizedBox(height: DesignTokens.space20),
+            Container(
+              padding: const EdgeInsets.all(DesignTokens.space12),
+              decoration: BoxDecoration(
+                color: (_testSuccess == true ? Colors.green : AppColors.danger).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(DesignTokens.radiusMd),
+              ),
+              child: Row(children: [
+                Icon(_testSuccess == true ? Icons.check_circle_rounded : Icons.error_rounded, color: _testSuccess == true ? Colors.green : AppColors.danger, size: 20),
+                const SizedBox(width: DesignTokens.space8),
+                Expanded(child: Text(_testMessage!, style: TextStyle(color: _testSuccess == true ? Colors.green : AppColors.danger, fontSize: 13))),
+              ]),
+            ),
+          ],
         ])))),
         const Divider(height: 1),
         Padding(padding: const EdgeInsets.all(DesignTokens.space20), child: Row(children: [
-          if (widget.existingGateway != null) Expanded(child: OutlinedButton(onPressed: _isSaving ? null : () => Navigator.of(context).pop(), style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd))), child: const Text('Cancel'))),
-          if (widget.existingGateway != null) const SizedBox(width: DesignTokens.space12),
+          Expanded(child: OutlinedButton(
+            onPressed: (_isSaving || _isTesting) ? null : _test,
+            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd))),
+            child: _isTesting
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('Test'),
+          )),
+          const SizedBox(width: DesignTokens.space12),
           Expanded(flex: 2, child: FilledButton(
-            onPressed: _isSaving ? null : _save,
+            onPressed: (_isSaving || _isTesting) ? null : _save,
             style: FilledButton.styleFrom(backgroundColor: platformColor, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd))),
-            child: _isSaving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Text(widget.existingGateway != null ? 'Save Changes' : 'Configure & Connect'),
+            child: _isSaving
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : Text(_saveButtonLabel),
           )),
         ])),
       ]),
@@ -1070,20 +1315,52 @@ class _BridgeConfigSheetState extends State<_BridgeConfigSheet> {
   }
 
   Widget _buildField(String field, {required bool required, required bool isDark}) {
-    return Padding(padding: const EdgeInsets.only(bottom: DesignTokens.space16), child: TextFormField(
-      controller: _controllers[field],
-      obscureText: _isSensitive(field),
-      decoration: InputDecoration(
-        labelText: _labelFor(field),
-        hintText: _hintFor(field),
-        filled: true,
-        fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd), borderSide: BorderSide.none),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd), borderSide: BorderSide(color: Theme.of(context).colorScheme.outline)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd), borderSide: BorderSide(color: AppColors.primary, width: 2)),
-      ),
-      validator: required ? (v) => v == null || v.isEmpty ? 'Required' : null : null,
+    final docUrl = _docUrlFor(field);
+    return Padding(padding: const EdgeInsets.only(bottom: DesignTokens.space16), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          controller: _controllers[field],
+          obscureText: _isSensitive(field),
+          decoration: InputDecoration(
+            labelText: _labelFor(field),
+            hintText: _hintFor(field),
+            filled: true,
+            fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd), borderSide: BorderSide.none),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd), borderSide: BorderSide(color: Theme.of(context).colorScheme.outline)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusMd), borderSide: BorderSide(color: AppColors.primary, width: 2)),
+          ),
+          validator: required ? (v) => v == null || v.isEmpty ? 'Required' : null : null,
+        ),
+        if (docUrl != null) ...[
+          const SizedBox(height: 6),
+          InkWell(
+            onTap: () async {
+              final uri = Uri.parse(docUrl);
+              if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.primary),
+                  const SizedBox(width: 6),
+                  Text(_docLabelFor(field), style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
     ));
+  }
+
+  String get _saveButtonLabel {
+    if (widget.existingGateway == null) return 'Configure & Connect';
+    if (widget.existingGateway!.enabled) return 'Save & Restart';
+    return 'Save Changes';
   }
 
   Future<void> _save() async {
@@ -1096,16 +1373,87 @@ class _BridgeConfigSheetState extends State<_BridgeConfigSheet> {
     Navigator.of(context).pop(config);
   }
 
+  Future<void> _test() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _isTesting = true;
+      _testMessage = null;
+      _testSuccess = null;
+    });
+
+    final config = <String, dynamic>{};
+    for (final entry in _controllers.entries) {
+      if (entry.value.text.isNotEmpty) config[entry.key] = entry.value.text;
+    }
+
+    try {
+      final result = await widget.bridgeService.testGateway(type: widget.type, config: config);
+      if (!mounted) return;
+      if (result != null && result['valid'] == true) {
+        setState(() {
+          _testSuccess = true;
+          _testMessage = result['message'] as String? ?? 'Configuration looks valid';
+        });
+      } else {
+        setState(() {
+          _testSuccess = false;
+          _testMessage = result?['error'] as String? ?? 'Configuration test failed';
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _testSuccess = false;
+        _testMessage = 'Test error: $e';
+      });
+    } finally {
+      if (mounted) setState(() => _isTesting = false);
+    }
+  }
+
   bool _isSensitive(String field) => field.contains('token') || field.contains('password') || field.contains('secret') || field.contains('hash') || field.contains('key');
   String _labelFor(String field) => field.replaceAll('_', ' ').split(' ').map((w) => w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1)}' : '').join(' ');
   String _hintFor(String field) {
     switch (field) {
-      case 'api_id': return 'From my.telegram.org';
-      case 'api_hash': return 'From my.telegram.org';
-      case 'bot_token': return 'From @BotFather';
+      case 'api_id': return 'e.g. 12345';
+      case 'api_hash': return 'e.g. a1b2c3d4e5f6...';
+      case 'bot_token': return 'Paste token from Discord Developer Portal';
       case 'homeserver_url': return 'https://matrix.org';
       case 'access_token': return 'Matrix access token';
+      case 'server_hostname': return 'e.g. irc.libera.chat';
+      case 'server_port': return 'e.g. 6697';
+      case 'phone_number': return 'E.164 format, e.g. +1234567890';
       default: return '';
+    }
+  }
+
+  String? _docUrlFor(String field) {
+    switch (field) {
+      case 'api_id':
+      case 'api_hash':
+        return 'https://my.telegram.org/apps';
+      case 'bot_token':
+        return 'https://discord.com/developers/applications';
+      case 'access_token':
+      case 'homeserver_url':
+        return 'https://matrix.org';
+      default:
+        return null;
+    }
+  }
+
+  String _docLabelFor(String field) {
+    switch (field) {
+      case 'api_id':
+      case 'api_hash':
+        return 'Get Telegram credentials';
+      case 'bot_token':
+        return 'Create Discord bot';
+      case 'access_token':
+      case 'homeserver_url':
+        return 'Matrix homeserver info';
+      default:
+        return '';
     }
   }
 

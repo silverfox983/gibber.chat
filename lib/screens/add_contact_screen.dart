@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
+import '../widgets/add_transport_contact_dialog.dart';
 
 class AddContactScreen extends StatefulWidget {
   const AddContactScreen({super.key});
@@ -223,6 +224,19 @@ class _AddContactScreenState extends State<AddContactScreen> {
                       icon: const Icon(Icons.send_rounded),
                       label: const Text('SEND FRIEND REQUEST', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                       onPressed: _isValidJid ? _submit : null,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      icon: const Icon(Icons.swap_horiz_rounded),
+                      label: const Text('ADD VIA TRANSPORT', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                      onPressed: () => showAddTransportContactDialog(context: context),
                     ),
                   ),
                   const SizedBox(height: 40),
