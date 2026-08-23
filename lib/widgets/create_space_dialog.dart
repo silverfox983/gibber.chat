@@ -224,23 +224,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
           accessModel: _accessModel,
         );
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Space "$title" created!'),
-            backgroundColor: Colors.green.shade700,
-            duration: const Duration(seconds: 3),
-            action: SnackBarAction(
-              label: 'OPEN',
-              textColor: Colors.white,
-              onPressed: () {
-                context.pushNamed('spaceDetail', extra: {
-                  'space': newSpace,
-                  'spacesService': widget.spacesService,
-                });
-              },
-            ),
-          ),
-        );
+        _showInviteKeyDialog(newSpace);
       }
       widget.onSuccess();
     } else {
@@ -272,6 +256,123 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
         );
       }
     }
+  }
+
+  void _showInviteKeyDialog(SpaceNode space) {
+    final inviteUri = 'xmpp:${space.domain}?;node=${space.node}';
+    final theme = Theme.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.all(20),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(32),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+            child: Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(32),
+                border: Border.all(color: theme.colorScheme.onSurface.withValues(alpha: 0.1)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.green.shade700.withValues(alpha: 0.2),
+                    ),
+                    child: Icon(Icons.check_circle_rounded, size: 36, color: Colors.green.shade700),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Space Created!',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurface),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Share this invite key with others to let them join.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Invite Key', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurfaceVariant)),
+                        const SizedBox(height: 4),
+                        Text(
+                          inviteUri,
+                          style: TextStyle(fontSize: 13, fontFamily: 'monospace', fontWeight: FontWeight.w500, color: theme.colorScheme.onSurface),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            await Clipboard.setData(ClipboardData(text: inviteUri));
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Invite key copied!'), duration: Duration(seconds: 2)),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.copy_rounded, size: 16),
+                          label: const Text('Copy'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            context.pushNamed('spaceDetail', extra: {
+                              'space': space,
+                              'spacesService': widget.spacesService,
+                            });
+                          },
+                          icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                          label: const Text('Open'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            backgroundColor: theme.colorScheme.primary,
+                            foregroundColor: theme.colorScheme.onPrimary,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            elevation: 0,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override

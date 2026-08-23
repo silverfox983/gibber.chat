@@ -23,6 +23,7 @@ import '../models/space_models.dart';
 import '../models/unified_community.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/create_space_dialog.dart';
+import '../widgets/join_space_dialog.dart';
 import '../widgets/space_invite_dialog.dart';
 import '../widgets/common/empty_state.dart';
 
@@ -1240,6 +1241,25 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                         builder: (context) => CreateSpaceDialog(
                           spacesService: svc ?? SpacesService(conn),
                           domain: conn.fullJid.domain,
+                          onSuccess: _refresh,
+                        ),
+                      );
+                    }
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.login_rounded),
+                  tooltip: 'Join Space',
+                  onPressed: () {
+                    final auth = Provider.of<AuthService>(context, listen: false);
+                    final conn = auth.activeXmppConnection;
+                    if (conn != null) {
+                      final svc = auth.spacesService;
+                      showDialog(
+                        context: context,
+                        builder: (context) => JoinSpaceDialog(
+                          spacesService: svc ?? SpacesService(conn),
+                          currentUserDomain: conn.fullJid.domain,
                           onSuccess: _refresh,
                         ),
                       );
