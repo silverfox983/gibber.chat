@@ -31,6 +31,8 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
   bool _isLoading = false;
   bool _hasChanges = false;
   List<SpaceMember>? _members;
+  List<SpaceMember> _pendingMembers = [];
+  bool _loadingPending = false;
   bool _uploadingAvatar = false;
   bool _uploadingCover = false;
   Uint8List? _avatarPreview;
@@ -83,6 +85,36 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
   Future<void> _loadMembers() async {
     final members = await widget.spacesService.fetchMembers(widget.space.domain, widget.space.node);
     if (mounted) setState(() => _members = members);
+    _loadPendingMembers();
+  }
+
+  Future<void> _loadPendingMembers() async {
+    setState(() => _loadingPending = true);
+    final pending = await widget.spacesService.fetchPendingSubscribers(widget.space.domain, widget.space.node);
+    if (mounted) setState(() { _pendingMembers = pending; _loadingPending = false; });
+  }
+
+  Future<void> _approveJoinRequest(SpaceMember member) async {
+    final ok = await widget.spacesService.setAffiliation(widget.space.domain, widget.space.node, member.jid, 'member');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ok ? '${member.jid} approved' : 'Failed to approve ${member.jid}')),
+      );
+      if (ok) {
+        _loadPendingMembers();
+        _loadMembers();
+      }
+    }
+  }
+
+  Future<void> _denyJoinRequest(SpaceMember member) async {
+    final ok = await widget.spacesService.setAffiliation(widget.space.domain, widget.space.node, member.jid, 'none');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ok ? '${member.jid} denied' : 'Failed to deny ${member.jid}')),
+      );
+      if (ok) _loadPendingMembers();
+    }
   }
 
   @override
@@ -400,6 +432,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
             items: const [
               DropdownMenuItem(value: 'open', child: Text('Public — Anyone can view')),
               DropdownMenuItem(value: 'authorize', child: Text('Private — Requires approval')),
+              DropdownMenuItem(value: 'whitelist', child: Text('Whitelist — Owner invites only')),
             ],
             onChanged: (val) {
               if (val != null) { setState(() { _accessModel = val; _hasChanges = true; }); }
@@ -461,7 +494,61 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
                subtitle: Text('Role: ${m.affiliation}'),
                trailing: const Icon(Icons.more_vert),
                onTap: () => _showMemberOptions(m),
-             )),
+              )),
+          if (_pendingMembers.isNotEmpty) ...[
+            const SizedBox(height: 32),
+            Row(
+              children: [
+                Text('JOIN REQUESTS', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange, letterSpacing: 1.2, fontSize: 12)),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(10)),
+                  child: Text('${_pendingMembers.length}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                ),
+                const Spacer(),
+                if (_loadingPending) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ..._pendingMembers.map((m) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: Colors.orange.withValues(alpha: 0.2),
+                    child: Text(m.jid[0].toUpperCase(), style: const TextStyle(color: Colors.orange)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(m.jid, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                        Text('Requested to join', style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.check_circle, color: Colors.green),
+                    tooltip: 'Approve',
+                    onPressed: () => _approveJoinRequest(m),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.cancel, color: Colors.red),
+                    tooltip: 'Deny',
+                    onPressed: () => _denyJoinRequest(m),
+                  ),
+                ],
+              ),
+            )),
+          ],
           const SizedBox(height: 32),
           Text('DANGER ZONE', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red, letterSpacing: 1.2, fontSize: 12)),
           const SizedBox(height: 16),

@@ -1008,6 +1008,51 @@ class SpacesService extends ChangeNotifier {
     return setAffiliation(domain, node, jid, role);
   }
 
+  Future<List<SpaceMember>> fetchPendingSubscribers(String domain, String node) async {
+    final iq = xmpp.IqStanza('get_pending_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
+
+    final pubsub = xmpp.XmppElement();
+    pubsub.name = 'pubsub';
+    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+
+    final subscriptions = xmpp.XmppElement();
+    subscriptions.name = 'subscriptions';
+    subscriptions.addAttribute(xmpp.XmppAttribute('node', node));
+
+    pubsub.addChild(subscriptions);
+    iq.addChild(pubsub);
+
+    try {
+      final response = await _sendIq(iq);
+      if (response.type == xmpp.IqStanzaType.ERROR) return [];
+
+      final pubsubChild = response.getChild('pubsub');
+      final subsEl = pubsubChild?.getChild('subscriptions');
+      if (subsEl == null) return [];
+
+      final pending = <SpaceMember>[];
+      for (final child in subsEl.children) {
+        if (child.name == 'subscription') {
+          final subJid = child.getAttribute('jid')?.value;
+          final subState = child.getAttribute('subscription')?.value;
+          final affiliation = child.getAttribute('affiliation')?.value;
+          if (subJid != null && subState == 'pending') {
+            pending.add(SpaceMember(
+              jid: subJid,
+              affiliation: affiliation ?? 'none',
+              subscriptionState: 'pending',
+            ));
+          }
+        }
+      }
+      return pending;
+    } catch (e) {
+      debugPrint('fetchPendingSubscribers error: $e');
+      return [];
+    }
+  }
+
   Future<String?> setSpaceAvatar(String domain, String node, String imageData, String contentType, String ownerJid) async {
     final iq = xmpp.IqStanza('set_avatar_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
     iq.toJid = xmpp.Jid.fromFullJid(domain);
