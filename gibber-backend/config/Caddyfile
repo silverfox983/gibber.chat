@@ -49,6 +49,9 @@ gibberapp.online {
     # Gateway endpoints
     reverse_proxy /gateways/* gibber-backend:8080
 
+    # User gateway endpoints
+    reverse_proxy /user/* gibber-backend:8080
+
     # Entitlement endpoints
     reverse_proxy /entitlements/* gibber-backend:8080
 

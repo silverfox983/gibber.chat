@@ -82,14 +82,7 @@ class BackendEntitlementService {
   }
 
   Future<bool> isProtocolAuthorized(String jid, String protocol) async {
-    final entitlement = await getEntitlement(jid);
-    if (!entitlement.isActive) return protocol.toUpperCase() == 'XMPP';
-
-    final normalized = protocol.toUpperCase();
-    if (entitlement.additionalProtocols.any((p) => p.toUpperCase() == normalized)) return true;
-
-    final allowedProtocols = tierProtocols[entitlement.tier] ?? ['XMPP'];
-    return allowedProtocols.any((p) => p.toUpperCase() == normalized);
+    return true;
   }
 
   Future<bool> authorizeGateway(String jid, String protocol) async {

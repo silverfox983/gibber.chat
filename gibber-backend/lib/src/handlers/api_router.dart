@@ -1605,7 +1605,7 @@ class ApiRouter {
       return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
     }
 
-    if (authenticatedJid != jid) {
+    if (authenticatedJid.toLowerCase() != jid.toLowerCase()) {
       return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
     }
 
@@ -1638,7 +1638,7 @@ class ApiRouter {
       return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
     }
 
-    if (authenticatedJid != jid) {
+    if (authenticatedJid.toLowerCase() != jid.toLowerCase()) {
       return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
     }
 
@@ -1671,7 +1671,7 @@ class ApiRouter {
       return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
     }
 
-    if (authenticatedJid != jid) {
+    if (authenticatedJid.toLowerCase() != jid.toLowerCase()) {
       return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
     }
 
@@ -1718,7 +1718,7 @@ class ApiRouter {
       return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
     }
 
-    if (authenticatedJid != jid) {
+    if (authenticatedJid.toLowerCase() != jid.toLowerCase()) {
       return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
     }
 
@@ -1751,7 +1751,7 @@ class ApiRouter {
       return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
     }
 
-    if (authenticatedJid != jid) {
+    if (authenticatedJid.toLowerCase() != jid.toLowerCase()) {
       return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
     }
 
@@ -1793,7 +1793,7 @@ class ApiRouter {
       return Response(401, body: jsonEncode({'error': 'Authentication required'}), headers: _jsonHeaders);
     }
 
-    if (authenticatedJid != jid) {
+    if (authenticatedJid.toLowerCase() != jid.toLowerCase()) {
       return Response(403, body: jsonEncode({'error': 'Access denied'}), headers: _jsonHeaders);
     }
 
