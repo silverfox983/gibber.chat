@@ -58,6 +58,7 @@ class SpacesService extends ChangeNotifier {
         String? newDescription = space.description;
         String? newName = space.name;
         String? newAvatarUrl = space.avatarUrl;
+        String? newCoverUrl = space.coverUrl;
         String? accessModel;
         String? publishModel;
         int? numSubscribers;
@@ -78,6 +79,8 @@ class SpacesService extends ChangeNotifier {
                 newDescription = val;
               } else if (varAttr == 'pubsub#node_avatar_url' || varAttr == 'muc#roomconfig_roomavatar' || varAttr == 'muc#roominfo_avatar') {
                 newAvatarUrl = val;
+              } else if (varAttr == 'pubsub#node_cover_url') {
+                newCoverUrl = val;
               } else if (varAttr == 'pubsub#access_model') {
                 accessModel = val;
               } else if (varAttr == 'pubsub#publish_model') {
@@ -95,6 +98,7 @@ class SpacesService extends ChangeNotifier {
           name: newName,
           description: newDescription,
           avatarUrl: newAvatarUrl,
+          coverUrl: newCoverUrl,
           accessModel: accessModel,
           publishModel: publishModel,
           numSubscribers: numSubscribers,
@@ -643,6 +647,7 @@ class SpacesService extends ChangeNotifier {
       String name = fallbackName ?? node;
       String? desc;
       String? avatar;
+      String? coverUrl;
       final List<String> features = [];
       String? nodeType;
       String? accessModel;
@@ -674,6 +679,7 @@ class SpacesService extends ChangeNotifier {
               final value = field.getChild('value')?.textValue;
               if (varAttr == 'pubsub#description' || varAttr == 'muc#roominfo_description') desc = value;
               if (varAttr == 'pubsub#node_avatar_url' || varAttr == 'muc#roomconfig_roomavatar') avatar = value;
+              if (varAttr == 'pubsub#node_cover_url') coverUrl = value;
               if (varAttr == 'pubsub#title' || varAttr == 'muc#roominfo_subject') name = value ?? name;
               if (varAttr == 'pubsub#access_model') accessModel = value;
               if (varAttr == 'pubsub#publish_model') publishModel = value;
@@ -702,6 +708,7 @@ class SpacesService extends ChangeNotifier {
         name: name,
         description: desc,
         avatarUrl: avatar,
+        coverUrl: coverUrl,
         features: features,
         type: nodeType,
         accessModel: accessModel,
@@ -718,7 +725,7 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
-  Future<String?> createSpace(String domain, String node, String name, {String? description, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true}) async {
+  Future<String?> createSpace(String domain, String node, String name, {String? description, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true, String? avatarUrl, String? coverUrl}) async {
     // Build the XEP-0060 node configuration form (Movim-style Space config).
     xmpp.XmppElement _buildConfigForm() {
       final x = xmpp.XmppElement();
@@ -743,6 +750,8 @@ class SpacesService extends ChangeNotifier {
       addField('FORM_TYPE', 'http://jabber.org/protocol/pubsub#node_config', type: 'hidden');
       addField('pubsub#title', name);
       if (description != null && description.isNotEmpty) addField('pubsub#description', description);
+      if (avatarUrl != null && avatarUrl.isNotEmpty) addField('pubsub#node_avatar_url', avatarUrl);
+      if (coverUrl != null && coverUrl.isNotEmpty) addField('pubsub#node_cover_url', coverUrl);
       addField('pubsub#access_model', accessModel);
       addField('pubsub#publish_model', publishModel);
       addField('pubsub#type', 'urn:xmpp:spaces:0');
@@ -1041,6 +1050,55 @@ class SpacesService extends ChangeNotifier {
       final response = await _sendIq(iq);
       if (response.type == xmpp.IqStanzaType.ERROR) {
         return 'Server rejected avatar update.';
+      }
+      return null;
+    } catch (e) {
+      return 'Network error: ${e.toString()}';
+    }
+  }
+
+  Future<String?> setSpaceBanner(String domain, String node, String imageUrl, String contentType, String ownerJid) async {
+    final iq = xmpp.IqStanza('set_banner_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
+
+    final pubsub = xmpp.XmppElement();
+    pubsub.name = 'pubsub';
+    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub#owner'));
+
+    final configure = xmpp.XmppElement();
+    configure.name = 'configure';
+    configure.addAttribute(xmpp.XmppAttribute('node', node));
+
+    final x = xmpp.XmppElement();
+    x.name = 'x';
+    x.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
+    x.addAttribute(xmpp.XmppAttribute('type', 'submit'));
+
+    void addField(String fieldName, String value, {String? type}) {
+      final field = xmpp.XmppElement();
+      field.name = 'field';
+      field.addAttribute(xmpp.XmppAttribute('var', fieldName));
+      if (type != null) {
+        field.addAttribute(xmpp.XmppAttribute('type', type));
+      }
+      final val = xmpp.XmppElement();
+      val.name = 'value';
+      val.textValue = value;
+      field.addChild(val);
+      x.addChild(field);
+    }
+
+    addField('FORM_TYPE', 'http://jabber.org/protocol/pubsub#node_config', type: 'hidden');
+    addField('pubsub#node_cover_url', imageUrl);
+
+    configure.addChild(x);
+    pubsub.addChild(configure);
+    iq.addChild(pubsub);
+
+    try {
+      final response = await _sendIq(iq);
+      if (response.type == xmpp.IqStanzaType.ERROR) {
+        return 'Server rejected banner update.';
       }
       return null;
     } catch (e) {
