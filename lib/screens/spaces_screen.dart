@@ -2580,13 +2580,27 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               ),
             )
           else
-            ...channels.map((ch) => _buildEnhancedRoomTile(theme, ch, space)),
+            ...channels.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final ch = entry.value;
+              final isOwner = space.affiliation == 'owner';
+              return _buildEnhancedRoomTile(theme, ch, space,
+                onMoveUp: isOwner && idx > 0 ? () => _moveRoom(channels, idx, idx - 1) : null,
+                onMoveDown: isOwner && idx < channels.length - 1 ? () => _moveRoom(channels, idx, idx + 1) : null,
+              );
+            }),
         ],
       ),
     );
   }
 
-  Widget _buildEnhancedRoomTile(ThemeData theme, SpaceItem ch, SpaceNode space) {
+  void _moveRoom(List<SpaceItem> channels, int from, int to) {
+    final item = channels.removeAt(from);
+    channels.insert(to, item);
+    setState(() {});
+  }
+
+  Widget _buildEnhancedRoomTile(ThemeData theme, SpaceItem ch, SpaceNode space, {VoidCallback? onMoveUp, VoidCallback? onMoveDown}) {
     final roomJid = ch.jid ?? ch.id;
     final isOwner = space.affiliation == 'owner';
 
@@ -2647,9 +2661,13 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               PopupMenuButton<String>(
                 icon: Icon(Icons.more_vert_rounded, size: 18, color: theme.colorScheme.onSurfaceVariant),
                 itemBuilder: (_) => [
+                  if (onMoveUp != null) const PopupMenuItem(value: 'moveUp', child: Text('Move Up')),
+                  if (onMoveDown != null) const PopupMenuItem(value: 'moveDown', child: Text('Move Down')),
                   const PopupMenuItem(value: 'remove', child: Text('Remove from Space')),
                 ],
                 onSelected: (val) async {
+                  if (val == 'moveUp') { onMoveUp?.call(); return; }
+                  if (val == 'moveDown') { onMoveDown?.call(); return; }
                   if (val == 'remove') {
                     final confirm = await showDialog<bool>(
                       context: context,
