@@ -29,7 +29,7 @@ class DatabaseService {
     }
     return await openDatabase(
       path,
-      version: 18,
+      version: 19,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -55,7 +55,10 @@ class DatabaseService {
             reactions_json TEXT,
             reply_preview TEXT,
             forwarded_from TEXT,
-            encryption_type TEXT
+            encryption_type TEXT,
+            latitude REAL,
+            longitude REAL,
+            location_label TEXT
           )
         ''');
         await db.execute(
@@ -410,6 +413,11 @@ class DatabaseService {
           await db.execute(
             'ALTER TABLE conversations ADD COLUMN omemo_enabled INTEGER DEFAULT 0',
           );
+        }
+        if (oldVersion < 19) {
+          try { await db.execute('ALTER TABLE messages ADD COLUMN latitude REAL'); } catch (_) {}
+          try { await db.execute('ALTER TABLE messages ADD COLUMN longitude REAL'); } catch (_) {}
+          try { await db.execute('ALTER TABLE messages ADD COLUMN location_label TEXT'); } catch (_) {}
         }
       },
     );
