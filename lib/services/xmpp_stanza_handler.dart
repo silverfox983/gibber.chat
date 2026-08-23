@@ -430,6 +430,11 @@ class XmppStanzaHandler {
                 body = '🔒 [Decryption Failed - Rebuilding Session...]';
                 _d.refreshOmemoDevices(bareJid);
               }
+            } else if (body == null) {
+              final ciphertext = innerMessage.getChild('body')?.textValue;
+              if (ciphertext != null && ciphertext.isNotEmpty) {
+                body = ciphertext;
+              }
             }
 
             if (body != null) {

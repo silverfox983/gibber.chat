@@ -56,12 +56,7 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
             },
             onPanEnd: (_) => setState(() => _isDragging = false),
             onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  settings: const RouteSettings(name: '/call_screen'),
-                  builder: (context) => const CallScreen(),
-                ),
-              );
+              context.pushNamed('call_screen');
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),

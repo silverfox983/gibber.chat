@@ -135,6 +135,27 @@ class AuthService with ChangeNotifier {
   // XEP-0359: Track sent message origin-Ids for carbon deduplication
   // Maps originId -> accountId, so carbon echoes can update existing messages
   final Map<String, String> _sentOriginIds = {};
+  final Map<String, DateTime> _sentOriginIdTimestamps = {};
+
+  void _pruneSentOriginIds() {
+    final cutoff = DateTime.now().subtract(const Duration(hours: 24));
+    _sentOriginIds.removeWhere((key, _) {
+      final ts = _sentOriginIdTimestamps[key];
+      if (ts == null || ts.isBefore(cutoff)) {
+        _sentOriginIdTimestamps.remove(key);
+        return true;
+      }
+      return false;
+    });
+    // Also cap at 10,000 entries max
+    while (_sentOriginIds.length > 10000) {
+      final oldest = _sentOriginIdTimestamps.keys.firstOrNull;
+      if (oldest != null) {
+        _sentOriginIds.remove(oldest);
+        _sentOriginIdTimestamps.remove(oldest);
+      }
+    }
+  }
 
   final StreamController<List<SpaceNode>> _joinedSpacesStreamController =
       StreamController<List<SpaceNode>>.broadcast();
@@ -1487,25 +1508,25 @@ class AuthService with ChangeNotifier {
                             }
                           }
                         }
-                      }
-                    }
-                  } else if (node == 'urn:xmpp:bookmarks:1') {
-                    for (var item in items.children) {
-                      final conf = item.getChild('conference');
-                      if (conf != null &&
-                          conf.getAttribute('xmlns')?.value ==
-                              'urn:xmpp:bookmarks:1') {
-                        final jid =
-                            item.getAttribute('id')?.value ??
-                            conf.getAttribute('jid')?.value;
-                        if (jid != null) {
-                          final parts = jid.split('@');
-                          if (parts.length == 2) {
-                            _roomService.setNickname(id, jid, parts[0]);
-                            joinXmppRoom(jid, parts[0]);
-                            debugPrint(
-                              'SYNC: Synced bookmark room $jid (Modern)',
-                            );
+                      } else if (node == 'urn:xmpp:bookmarks:1') {
+                        for (var item in items.children) {
+                          final conf = item.getChild('conference');
+                          if (conf != null &&
+                              conf.getAttribute('xmlns')?.value ==
+                                  'urn:xmpp:bookmarks:1') {
+                            final jid =
+                                item.getAttribute('id')?.value ??
+                                conf.getAttribute('jid')?.value;
+                            if (jid != null) {
+                              final parts = jid.split('@');
+                              if (parts.length == 2) {
+                                _roomService.setNickname(id, jid, parts[0]);
+                                joinXmppRoom(jid, parts[0]);
+                                debugPrint(
+                                  'SYNC: Synced bookmark room $jid (Modern)',
+                                );
+                              }
+                            }
                           }
                         }
                       }
@@ -2254,6 +2275,13 @@ class AuthService with ChangeNotifier {
     _fetchAllVCards(accId);
   }
 
+  /// Track a sent message originId for carbon deduplication (with automatic pruning)
+  void trackSentOriginId(String originId, String accountId) {
+    _pruneSentOriginIds();
+    _sentOriginIds[originId] = accountId;
+    _sentOriginIdTimestamps[originId] = DateTime.now();
+  }
+
   /// Accepts an incoming friend request (XEP-0163)
   void acceptSubscription(String jid, {String? accountId}) =>
       _contactService.acceptSubscription(jid, accountId: accountId);
@@ -2356,6 +2384,7 @@ class _AuthMessageDeps implements AuthServiceMessageDeps {
   StreamController<ChatMessage> get messageStreamController => _auth._messageStreamController;
   StreamController<JingleEvent> get jingleEventController => _auth._jingleEventController;
   Map<String, String> get sentOriginIds => _auth._sentOriginIds;
+  void trackSentOriginId(String originId, String accountId) => _auth.trackSentOriginId(originId, accountId);
   DatabaseService get databaseService => DatabaseService();
   bool get sendReadReceipts => _auth.sendReadReceipts;
   bool get sendTypingIndicators => _auth.sendTypingIndicators;
@@ -2375,6 +2404,7 @@ class _AuthStanzaDeps implements AuthServiceStanzaDeps {
   XmppRoomService get roomService => _auth._roomService;
   UserProfile? get currentProfile => _auth._currentProfile;
   Map<String, String> get sentOriginIds => _auth._sentOriginIds;
+  void trackSentOriginId(String originId, String accountId) => _auth.trackSentOriginId(originId, accountId);
   void notifyListeners() => _auth.notifyListeners();
   Future<void> refreshOmemoDevices(String chatId, {String? accountId}) => _auth.refreshOmemoDevices(chatId, accountId: accountId);
   bool get sendReadReceipts => _auth.sendReadReceipts;

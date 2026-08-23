@@ -73,6 +73,7 @@ abstract class AuthServiceMessageDeps {
   StreamController<ChatMessage> get messageStreamController;
   StreamController<JingleEvent> get jingleEventController;
   Map<String, String> get sentOriginIds;
+  void trackSentOriginId(String originId, String accountId);
   DatabaseService get databaseService;
   bool get sendReadReceipts;
   bool get sendTypingIndicators;
@@ -89,6 +90,7 @@ abstract class AuthServiceStanzaDeps {
   XmppRoomService get roomService;
   UserProfile? get currentProfile;
   Map<String, String> get sentOriginIds;
+  void trackSentOriginId(String originId, String accountId);
   void notifyListeners();
   Future<void> refreshOmemoDevices(String chatId, {String? accountId});
   bool get sendReadReceipts;

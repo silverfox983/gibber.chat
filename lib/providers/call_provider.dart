@@ -893,12 +893,17 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           debugPrint('CallProvider: Ignoring self-echo propose for session ${event.sessionId}');
           break;
         }
-        receiveCall(
+        final signaling = _authService?.getJingleService(event.accountId ?? '') ?? _authService?.jingleSignaling;
+        await receiveCall(
           event.fromJid,
           event.sessionId,
-          null, // Proposal doesn't have SDP yet
+          null,
           accountId: event.accountId,
         );
+        // XEP-0353: Send ringing to let the caller know we received the proposal
+        if (signaling != null) {
+          signaling.sendRinging(event.fromJid, event.sessionId);
+        }
         break;
       case JingleAction.ringing:
         if (_state == CallState.outgoing) {
@@ -1026,9 +1031,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _displayedError = null;
     _lastError = null;
 
-    // HARDENING: Ignore calls from ourselves
-    final myJid = _authService?.activeAccountId;
-    if (myJid != null && fromJid.contains(myJid)) {
+    // HARDENING: Ignore calls from ourselves (compare bare JIDs exactly)
+    final myJid = _authService?.activeAccountId?.split('/').first.toLowerCase();
+    final fromBareJid = fromJid.split('/').first.toLowerCase();
+    if (myJid != null && fromBareJid == myJid) {
       debugPrint('CallProvider: Ignoring incoming call from ourselves ($fromJid)');
       return;
     }
@@ -1562,6 +1568,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     await _soundService.setCallAudioContext(isVideo: _isVideo);
     _applyDefaultSpeakerRoute(isVideo: _isVideo, source: 'accept_call');
     debugPrint('CallProvider: Audio context set, speakerphone: $_isSpeakerOn');
+
+    // CRITICAL: Re-initialize renderers if they were disposed from a previous call
+    await initRenderers();
 
     try {
       if (_authService != null && _callAccountId != null) {

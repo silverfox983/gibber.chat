@@ -95,14 +95,15 @@ class JingleSignalingService {
     debugPrint('Jingle: Initialized for ${connection.fullJid.fullJid}');
   }
 
-  void _writeStanza(xmpp.AbstractStanza stanza) {
+  bool _writeStanza(xmpp.AbstractStanza stanza) {
     if (connection.state != xmpp.XmppConnectionState.Ready) {
       debugPrint(
-        'Jingle: ERROR - Attempted to send stanza while XMPP is not Ready (State: ${connection.state})',
+        'Jingle: WARNING - Attempted to send stanza while XMPP is not Ready (State: ${connection.state})',
       );
-      throw Exception('XMPP Connection is not ready. Please reconnect.');
+      return false;
     }
     connection.writeStanza(stanza);
+    return true;
   }
 
   void dispose() {
@@ -583,6 +584,33 @@ class JingleSignalingService {
   }
 
   /// XEP-0353: Send proceed message as a responder
+  /// XEP-0353: Send <ringing/> to indicate the call is ringing
+  void sendRinging(String toJid, String sessionId) {
+    final message = xmpp.MessageStanza(
+      DateTime.now().millisecondsSinceEpoch.toString(),
+      xmpp.MessageStanzaType.CHAT,
+    );
+    message.addAttribute(XmppAttribute('to', toJid));
+
+    final jingle = xmpp.XmppElement();
+    jingle.name = 'jingle';
+    jingle.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
+    jingle.addAttribute(XmppAttribute('action', 'session-info'));
+    jingle.addAttribute(XmppAttribute('sid', sessionId));
+
+    final ringing = xmpp.XmppElement();
+    ringing.name = 'ringing';
+    ringing.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
+    jingle.addChild(ringing);
+
+    message.addChild(jingle);
+
+    debugPrint(
+      'Jingle: [XEP-0353] Sending <ringing/> to $toJid, sid: $sessionId',
+    );
+    _writeStanza(message);
+  }
+
   void sendProceed(String toJid, String sessionId) {
     final message = xmpp.MessageStanza(
       DateTime.now().millisecondsSinceEpoch.toString(),

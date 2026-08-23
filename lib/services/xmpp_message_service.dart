@@ -131,9 +131,14 @@ class XmppMessageService {
     originIdEl.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:sid:0'));
     originIdEl.addAttribute(xmpp.XmppAttribute('id', originId));
     msg.addChild(originIdEl);
-    _d.sentOriginIds[originId] = id ?? _d.activeAccountId ?? '';
+    _d.trackSentOriginId(originId, id ?? _d.activeAccountId ?? '');
 
-    if (isOmemo) {
+    // NOTE: OMEMO for MUC/group chat is not yet supported - proper implementation
+    // requires resolving all room participants and encrypting for each device.
+    // For now, fall back to plaintext for group chats with OMEMO enabled.
+    final encryptForGroup = isOmemo && !isGroup;
+
+    if (encryptForGroup) {
       final encryptedList = await _d.omemoService.encryptMessage(
         targetJid,
         text,

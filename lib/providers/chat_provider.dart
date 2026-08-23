@@ -850,7 +850,7 @@ class ChatProvider with ChangeNotifier {
               message.id,
               'displayed',
               accountId: message.accountId,
-              isGroup: detectedGroup,
+              isGroup: _conversations[index].isGroup,
             );
           }
 
@@ -875,7 +875,6 @@ class ChatProvider with ChangeNotifier {
         }
 
         _batchQueue.clear();
-        _pendingIds.clear();
         _batchTimer = null; // Reset for next batch
         notifyListeners();
 
@@ -883,9 +882,12 @@ class ChatProvider with ChangeNotifier {
         if (_toPersist.isNotEmpty) {
           final messages = List<ChatMessage>.from(_toPersist);
           _toPersist.clear();
+          _pendingIds.clear(); // Clear after DB write starts, not before
           DatabaseService().insertMessagesBatch(messages).catchError((e) {
             debugPrint('DB BATCH INSERT ERROR: $e');
           });
+        } else {
+          _pendingIds.clear();
         }
       });
     }
