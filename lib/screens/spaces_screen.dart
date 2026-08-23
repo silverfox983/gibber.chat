@@ -1434,7 +1434,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(length: 7, vsync: this);
     if (widget.onCreated != null) {
       widget.onCreated!();
     }
@@ -1520,6 +1520,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             Tab(icon: Icon(Icons.info_outline_rounded), text: 'Info'),
             Tab(icon: Icon(Icons.timeline_rounded), text: 'Activity'),
             Tab(icon: Icon(Icons.group_outlined), text: 'Members'),
+            Tab(icon: Icon(Icons.forum_rounded), text: 'Rooms'),
             Tab(icon: Icon(Icons.article_outlined), text: 'Posts'),
             Tab(icon: Icon(Icons.photo_library_outlined), text: 'Media'),
             Tab(icon: Icon(Icons.person_search_rounded), text: 'People'),
@@ -1532,6 +1533,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               _buildInfoTab(theme, space),
               _buildActivityTab(theme),
               _buildMembersTab(theme),
+              _buildRoomsTab(theme),
               _buildPostsTab(theme),
               _buildMediaTab(theme),
               _buildPeopleTab(theme),
@@ -2417,6 +2419,267 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
     );
   }
 
+  // ── ROOMS TAB ─────────────────────────────────────────────
+  Widget _buildRoomsTab(ThemeData theme) {
+    final channels = (_items ?? []).where((i) => i.type == 'room').toList();
+    final space = _details ?? widget.space;
+
+    return RefreshIndicator(
+      onRefresh: _reload,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Row(
+            children: [
+              Icon(Icons.forum_rounded, color: theme.colorScheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Text('ROOMS', style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.4,
+                  color: theme.colorScheme.primary)),
+              const Spacer(),
+              Text('${channels.length}', style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurfaceVariant)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Action buttons
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _showCreateChannelDialog(),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Create Room'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _showBrowseRoomsDialog(theme),
+                  icon: const Icon(Icons.explore_rounded, size: 18),
+                  label: const Text('Browse'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (channels.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.forum_outlined, size: 48, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
+                  const SizedBox(height: 12),
+                  Text('No rooms yet', style: TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 15,
+                      color: theme.colorScheme.onSurface)),
+                  const SizedBox(height: 4),
+                  Text('Create a chat room or browse existing rooms to add them to this space.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
+                ],
+              ),
+            )
+          else
+            ...channels.map((ch) => _buildEnhancedRoomTile(theme, ch, space)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEnhancedRoomTile(ThemeData theme, SpaceItem ch, SpaceNode space) {
+    final roomJid = ch.jid ?? ch.id;
+    final isOwner = space.affiliation == 'owner';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.5)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.tag_rounded, color: theme.colorScheme.onPrimaryContainer, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(ch.name ?? ch.id, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                  if (ch.description != null && ch.description!.isNotEmpty)
+                    Text(ch.description!, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+                  const SizedBox(height: 2),
+                  Text(roomJid, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7))),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonal(
+              onPressed: () {
+                final auth = Provider.of<AuthService>(context, listen: false);
+                if (auth.activeAccountId != null && roomJid.contains('@')) {
+                  auth.joinXmppRoom(roomJid,
+                      auth.getResolvedNickname(auth.activeAccountId!),
+                      accountId: auth.activeAccountId!);
+                  Provider.of<ChatProvider>(context, listen: false)
+                      .setActiveConversation(roomJid);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Joined ${ch.name ?? roomJid}')),
+                  );
+                }
+              },
+              child: const Text('JOIN', style: TextStyle(fontSize: 12)),
+            ),
+            if (isOwner) ...[
+              const SizedBox(width: 4),
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert_rounded, size: 18, color: theme.colorScheme.onSurfaceVariant),
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'remove', child: Text('Remove from Space')),
+                ],
+                onSelected: (val) async {
+                  if (val == 'remove') {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Remove Room?'),
+                        content: Text('Remove "${ch.name ?? ch.id}" from this space?'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                          FilledButton(
+                            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Remove'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      await widget.spacesService.retractItem(space.domain, space.node, ch.id);
+                      _reload();
+                    }
+                  }
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showBrowseRoomsDialog(ThemeData theme) {
+    final searchController = TextEditingController();
+    List<SpaceNode>? _browseResults;
+    bool _browsing = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Browse Rooms'),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search rooms on this server...',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.search_rounded, size: 20),
+                      onPressed: () async {
+                        setDialogState(() => _browsing = true);
+                        final space = _details ?? widget.space;
+                        final baseDomain = space.domain.startsWith('pubsub.') || space.domain.startsWith('spaces.')
+                            ? space.domain.substring(space.domain.indexOf('.') + 1)
+                            : space.domain;
+                        final results = await widget.spacesService.discoverMucRoomsAsSpaces(
+                          'conference.$baseDomain',
+                        );
+                        setDialogState(() { _browseResults = results; _browsing = false; });
+                      },
+                    ),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_browsing)
+                  const Center(child: CircularProgressIndicator())
+                else if (_browseResults != null)
+                  Flexible(
+                    child: _browseResults!.isEmpty
+                        ? const Text('No rooms found.')
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: _browseResults!.length,
+                            itemBuilder: (_, i) {
+                              final room = _browseResults![i];
+                              return ListTile(
+                                dense: true,
+                                leading: const Icon(Icons.tag_rounded),
+                                title: Text(room.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                subtitle: Text(room.domain, style: const TextStyle(fontSize: 11)),
+                                trailing: TextButton(
+                                  onPressed: () async {
+                                    final space = _details ?? widget.space;
+                                    final baseDomain = space.domain.startsWith('pubsub.') || space.domain.startsWith('spaces.')
+                                        ? space.domain.substring(space.domain.indexOf('.') + 1)
+                                        : space.domain;
+                                    final channelJid = '${room.name}@conference.$baseDomain';
+                                    await widget.spacesService.createSpaceChannel(
+                                      space.domain, space.node, room.name, channelJid,
+                                    );
+                                    if (ctx.mounted) Navigator.pop(ctx);
+                                    _reload();
+                                  },
+                                  child: const Text('Add'),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── POSTS TAB ─────────────────────────────────────────────
   Widget _buildPostsTab(ThemeData theme) {
     if (_loadingItems) {
@@ -2426,7 +2689,6 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
       );
     }
     final allPosts = (_items ?? []).where((i) => i.type == 'entry').toList();
-    final channels = (_items ?? []).where((i) => i.type == 'room').toList();
 
     // Apply search filter
     final posts = _searchQuery.isEmpty
@@ -2493,38 +2755,6 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             ),
           ),
         ),
-        // Channels
-        if (channels.isNotEmpty) ...[
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('CHANNELS', style: TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.4,
-                      color: theme.colorScheme.primary)),
-                  TextButton.icon(
-                    onPressed: () => _showCreateChannelDialog(),
-                    icon: const Icon(Icons.add_rounded, size: 16),
-                    label: const Text('Create Channel', style: TextStyle(fontSize: 12)),
-                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (ctx, i) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: _buildChannelTile(theme, channels[i]),
-              ),
-              childCount: channels.length,
-            ),
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 16)),
-        ],
         // Posts header
         if (orderedPosts.isNotEmpty)
           SliverToBoxAdapter(
@@ -2546,7 +2776,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             ),
           ),
         ),
-        if (orderedPosts.isEmpty && channels.isEmpty)
+        if (orderedPosts.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
             child: _searchQuery.isNotEmpty
@@ -3269,40 +3499,143 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   }
 
   void _showCreateChannelDialog() {
-    final controller = TextEditingController();
+    final nameController = TextEditingController();
+    final jidController = TextEditingController();
+    bool _linkExisting = false;
+    final theme = Theme.of(context);
+    final space = _details ?? widget.space;
+    final baseDomain = space.domain.startsWith('pubsub.') || space.domain.startsWith('spaces.')
+        ? space.domain.substring(space.domain.indexOf('.') + 1)
+        : space.domain;
+
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Create Channel'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'Channel Name', hintText: 'e.g. General'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              final name = controller.text.trim();
-              if (name.isEmpty) return;
-              Navigator.pop(dialogContext);
-              // Only use alphanumeric, dash, underscore for the local part per XMPP XEP-0045
-              final cleanLocal = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\-_]'), '').replaceAll(RegExp(r'-+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
-              if (cleanLocal.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Channel name must contain letters or numbers')),
-                );
-                return;
-              }
-              final conferenceDomain = 'conference.${widget.space.domain}';
-              final channelJid = '$cleanLocal@$conferenceDomain';
-              final success = await widget.spacesService.createSpaceChannel(widget.space.domain, widget.space.node, name, channelJid);
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success ? 'Channel created!' : 'Failed to create channel. Check permissions.')));
-              if (success) _reload();
-            },
-            child: const Text('Create'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add Room'),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setDialogState(() => _linkExisting = false),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: !_linkExisting ? theme.colorScheme.primary.withValues(alpha: 0.1) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: !_linkExisting ? theme.colorScheme.primary : theme.colorScheme.outline.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Center(child: Text('Create New', style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: !_linkExisting ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+                          ))),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setDialogState(() => _linkExisting = true),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _linkExisting ? theme.colorScheme.primary.withValues(alpha: 0.1) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: _linkExisting ? theme.colorScheme.primary : theme.colorScheme.outline.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Center(child: Text('Link Existing', style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: _linkExisting ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+                          ))),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                if (!_linkExisting) ...[
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Room Name', hintText: 'e.g. General'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Room JID: ${nameController.text.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\-_]'), '')}@conference.$baseDomain',
+                    style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                ] else ...[
+                  TextField(
+                    controller: jidController,
+                    decoration: InputDecoration(
+                      labelText: 'Room JID',
+                      hintText: 'room@conference.example.com',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Paste the full JID of an existing MUC room to link it to this space.',
+                    style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                ],
+              ],
+            ),
           ),
-        ],
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () async {
+                if (_linkExisting) {
+                  final jid = jidController.text.trim();
+                  if (jid.isEmpty || !jid.contains('@')) return;
+                  Navigator.pop(dialogContext);
+                  final name = jid.split('@').first;
+                  final success = await widget.spacesService.createSpaceChannel(
+                    widget.space.domain, widget.space.node, name, jid,
+                  );
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(success ? 'Room linked!' : 'Failed to link room')),
+                  );
+                  if (success) _reload();
+                } else {
+                  final name = nameController.text.trim();
+                  if (name.isEmpty) return;
+                  Navigator.pop(dialogContext);
+                  final cleanLocal = name.toLowerCase()
+                      .replaceAll(RegExp(r'[^a-z0-9\-_]'), '')
+                      .replaceAll(RegExp(r'-+'), '-')
+                      .replaceAll(RegExp(r'^-+|-+$'), '');
+                  if (cleanLocal.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Room name must contain letters or numbers')),
+                    );
+                    return;
+                  }
+                  final channelJid = '$cleanLocal@conference.$baseDomain';
+                  final success = await widget.spacesService.createSpaceChannel(
+                    widget.space.domain, widget.space.node, name, channelJid,
+                  );
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(success ? 'Room created!' : 'Failed to create room')),
+                  );
+                  if (success) _reload();
+                }
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
       ),
     );
   }
