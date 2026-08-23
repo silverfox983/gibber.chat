@@ -1199,11 +1199,18 @@ class SpacesService extends ChangeNotifier {
   }
 
   Future<bool> createSpaceChannel(String spaceDomain, String spaceNode, String channelName, String channelJid) async {
+    bool mucJoined;
     try {
       final myJid = _connection.account.fullJid.userAtDomain;
-      await _joinMucRoom(channelJid, myJid);
+      mucJoined = await _joinMucRoom(channelJid, myJid);
     } catch (e) {
-      debugPrint('SpacesService: Channel MUC creation failed (non-fatal): $e');
+      debugPrint('SpacesService: Channel MUC creation failed: $e');
+      mucJoined = false;
+    }
+
+    if (!mucJoined) {
+      debugPrint('SpacesService: MUC join returned false, skipping bookmark publish for $channelJid');
+      return false;
     }
 
     final conference = xmpp.XmppElement();

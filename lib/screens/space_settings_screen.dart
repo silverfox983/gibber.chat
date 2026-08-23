@@ -312,7 +312,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
 
       final imageUrl = slot['get']!;
       final ownerJid = auth.activeXmppConnection?.fullJid.userAtDomain ?? '';
-      final error = await widget.spacesService.setSpaceAvatar(
+      final error = await widget.spacesService.setSpaceBanner(
         widget.space.domain, widget.space.node, imageUrl, contentType, ownerJid,
       );
 

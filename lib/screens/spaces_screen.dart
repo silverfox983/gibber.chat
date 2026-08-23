@@ -3696,9 +3696,16 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
             FilledButton(
               onPressed: () async {
+                final existingJids = (_items ?? []).map((i) => i.node).toSet();
                 if (_linkExisting) {
                   final jid = jidController.text.trim();
                   if (jid.isEmpty || !jid.contains('@')) return;
+                  if (existingJids.contains(jid)) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('This room is already linked to the space')),
+                    );
+                    return;
+                  }
                   Navigator.pop(dialogContext);
                   final name = jid.split('@').first;
                   final success = await widget.spacesService.createSpaceChannel(
@@ -3712,7 +3719,6 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 } else {
                   final name = nameController.text.trim();
                   if (name.isEmpty) return;
-                  Navigator.pop(dialogContext);
                   final cleanLocal = name.toLowerCase()
                       .replaceAll(RegExp(r'[^a-z0-9\-_]'), '')
                       .replaceAll(RegExp(r'-+'), '-')
@@ -3724,6 +3730,13 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                     return;
                   }
                   final channelJid = '$cleanLocal@conference.$baseDomain';
+                  if (existingJids.contains(channelJid)) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('A room with this name already exists in the space')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(dialogContext);
                   final success = await widget.spacesService.createSpaceChannel(
                     widget.space.domain, widget.space.node, name, channelJid,
                   );

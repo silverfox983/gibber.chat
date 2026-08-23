@@ -176,8 +176,11 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
       final url = slot['get']!;
       if (mounted) {
         setState(() {
-          if (isAvatar) _avatarUrl = url;
-          _bannerUrl = url;
+          if (isAvatar) {
+            _avatarUrl = url;
+          } else {
+            _bannerUrl = url;
+          }
           _isUploading = false;
         });
       }
