@@ -708,6 +708,9 @@ class AuthService with ChangeNotifier {
           // Flush offline message queue now that we're connected
           _flushPendingMessages(id);
 
+          // XEP-0357: Enable push notifications so Prosody triggers mod_http_push
+          _enablePushNotifications(conn, id);
+
           onAuthenticated?.call(bareJid);
 
           // Services are initialized on Ready state above.
@@ -1641,6 +1644,25 @@ class AuthService with ChangeNotifier {
 
   Future<void> _flushPendingMessages(String accountId) =>
       _messageService.flushPendingMessages(accountId);
+
+  void _enablePushNotifications(xmpp.Connection conn, String accountId) {
+    try {
+      final iq = xmpp.IqStanza(
+        'push-enable-${DateTime.now().millisecondsSinceEpoch}',
+        xmpp.IqStanzaType.SET,
+      );
+      final enable = xmpp.XmppElement();
+      enable.name = 'enable';
+      enable.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:push:0'));
+      enable.addAttribute(xmpp.XmppAttribute('jid', 'gibberapp.online'));
+      enable.addAttribute(xmpp.XmppAttribute('node', 'gibber-push'));
+      iq.addChild(enable);
+      conn.writeStanza(iq);
+      debugPrint('XEP-0357: Push notifications enabled for $accountId');
+    } catch (e) {
+      debugPrint('XEP-0357: Failed to enable push: $e');
+    }
+  }
 
   Future<void> sendEditedMessage(
     String targetJid,

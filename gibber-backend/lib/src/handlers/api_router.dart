@@ -18,6 +18,7 @@ import 'package:gibber_backend/src/services/user_gateway_service.dart';
 import 'package:gibber_backend/src/services/slidge_process_manager.dart';
 import 'package:gibber_backend/src/services/prosody_component_manager.dart';
 import 'package:uuid/uuid.dart';
+import 'package:xml/xml.dart';
 import 'package:gibber_backend/src/services/push_service.dart';
 
 extension _RequestIp on Request {
@@ -146,6 +147,7 @@ class ApiRouter {
     _router.post('/push/subscribe', _handlePushSubscribe);
     _router.delete('/push/subscribe/<jid>', _handlePushUnsubscribe);
     _router.post('/push/send', _handlePushSend);
+    _router.post('/push/trigger', _handlePushTrigger);
   }
 
   // XMPP Registration
@@ -1932,6 +1934,80 @@ class ApiRouter {
         body: jsonEncode({'error': e.toString()}),
         headers: _jsonHeaders,
       );
+    }
+  }
+
+  Future<Response> _handlePushTrigger(Request request) async {
+    if (_pushService == null || !_pushService!.isConfigured) {
+      return Response(503, body: jsonEncode({'error': 'Push not configured'}), headers: _jsonHeaders);
+    }
+    try {
+      final body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final secret = body['secret'] as String?;
+      final expectedSecret = Platform.environment['GIBBER_PUSH_SECRET'] ?? 'gibber-push-trigger-secret-change-in-production';
+      if (secret != expectedSecret) {
+        return Response(403, body: jsonEncode({'error': 'Invalid secret'}), headers: _jsonHeaders);
+      }
+
+      final jid = body['jid'] as String?;
+      if (jid == null) {
+        return Response.badRequest(body: jsonEncode({'error': 'jid required'}), headers: _jsonHeaders);
+      }
+
+      final sub = db.getPushSubscription(jid);
+      if (sub == null) {
+        return Response.ok(jsonEncode({'sent': 0, 'reason': 'no_subscription'}), headers: _jsonHeaders);
+      }
+
+      String senderName = 'Someone';
+      String messageBody = '';
+      String? senderJid;
+      final messageXml = body['message'] as String?;
+      if (messageXml != null && messageXml.isNotEmpty) {
+        try {
+          final doc = XmlDocument.parse(messageXml);
+          final fromAttr = doc.rootElement.getAttribute('from');
+          if (fromAttr != null) {
+            senderJid = fromAttr;
+            senderName = fromAttr.split('@').first;
+            if (senderName.contains('/')) {
+              senderName = senderName.split('/').first;
+            }
+            senderName = senderName[0].toUpperCase() + senderName.substring(1);
+          }
+          final bodyEl = doc.rootElement.findAllElements('body');
+          if (bodyEl.isNotEmpty) {
+            messageBody = bodyEl.first.innerText;
+          }
+        } catch (_) {}
+      }
+
+      if (messageBody.length > 200) {
+        messageBody = '${messageBody.substring(0, 200)}...';
+      }
+
+      try {
+        await _pushService!.sendPush(
+          endpoint: sub['endpoint'] as String,
+          p256dh: sub['p256dh'] as String? ?? '',
+          auth: sub['auth'] as String? ?? '',
+          title: senderName,
+          body: messageBody,
+          tag: 'message-$jid',
+          url: senderJid != null ? '/#/chat?jid=${Uri.encodeComponent(senderJid.split('/').first)}' : '/',
+          conversationId: senderJid?.split('/').first,
+        );
+        return Response.ok(jsonEncode({'sent': 1}), headers: _jsonHeaders);
+      } catch (e) {
+        final errorStr = e.toString();
+        if (errorStr.contains('410') || errorStr.contains('404') || errorStr.contains('expired')) {
+          db.deletePushSubscription(jid);
+          print('PushTrigger: cleaned stale subscription for $jid');
+        }
+        return Response.ok(jsonEncode({'sent': 0, 'error': errorStr}), headers: _jsonHeaders);
+      }
+    } catch (e) {
+      return Response.internalServerError(body: jsonEncode({'error': e.toString()}), headers: _jsonHeaders);
     }
   }
 }

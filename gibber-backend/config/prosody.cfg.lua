@@ -74,8 +74,13 @@ modules_enabled = {
     "websocket";
     "smacks";
     "http_file_share";
+    "http_push";
     -- "extdisco"; -- Disabled: mod_extdisco not available in monolith; ICE servers from /config
 }
+
+-- Push Notifications (XEP-0357): Trigger HTTP POST to backend when offline users receive messages
+http_push_endpoint = "http://127.0.0.1:8080/push/trigger"
+http_push_secret = "gibber-push-trigger-secret-change-in-production"
 
 -- MAM (XEP-0313): Archive messages for offline retrieval
 mam_max_archived_messages = 500
