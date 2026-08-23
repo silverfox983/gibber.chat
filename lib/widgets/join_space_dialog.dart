@@ -34,6 +34,24 @@ class _JoinSpaceDialogState extends State<JoinSpaceDialog> {
   SpaceNode? _discoveredSpace;
 
   @override
+  void initState() {
+    super.initState();
+    _autoDetectClipboard();
+  }
+
+  Future<void> _autoDetectClipboard() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text?.trim() ?? '';
+      if (text.isEmpty) return;
+      if (text.startsWith('xmpp:') || RegExp(r'^[^@]+@[^/]+/.+$').hasMatch(text) || (text.contains('/') && text.split('/').length == 2 && text.split('/').every((p) => p.contains('.')))) {
+        _keyController.text = text;
+        _parseKey(text);
+      }
+    } catch (_) {}
+  }
+
+  @override
   void dispose() {
     _keyController.dispose();
     super.dispose();

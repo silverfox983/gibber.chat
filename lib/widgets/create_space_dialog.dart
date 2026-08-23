@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../models/space_models.dart';
 import '../services/spaces_service.dart';
 import '../services/auth_service.dart';
@@ -320,6 +321,16 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                           style: TextStyle(fontSize: 13, fontFamily: 'monospace', fontWeight: FontWeight.w500, color: theme.colorScheme.onSurface),
                         ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: QrImageView(
+                      data: inviteUri,
+                      version: QrVersions.auto,
+                      size: 140,
+                      backgroundColor: Colors.white,
+                      foregroundColor: theme.colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 16),

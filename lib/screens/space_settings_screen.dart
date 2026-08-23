@@ -1,7 +1,10 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/space_models.dart';
 import '../services/auth_service.dart';
@@ -452,6 +455,10 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
             },
           ),
           const SizedBox(height: 24),
+          Text('INVITE', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
+          const SizedBox(height: 16),
+          _buildInviteKeySection(theme),
+          const SizedBox(height: 24),
           Text('NOTIFICATIONS', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, letterSpacing: 1.2, fontSize: 12)),
           const SizedBox(height: 16),
           _notifTile(Icons.notifications_active_rounded, 'All Notifications', 'Get notified for every new post', 'all', theme),
@@ -611,6 +618,95 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
                 }
               }
             },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInviteKeySection(ThemeData theme) {
+    final inviteUri = 'xmpp:${widget.space.domain}?;node=${widget.space.node}';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.qr_code_rounded, color: theme.colorScheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Text('Invite Key', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: theme.colorScheme.onSurface)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+            ),
+            child: Text(
+              inviteUri,
+              style: TextStyle(fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.w500, color: theme.colorScheme.onSurface),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: QrImageView(
+              data: inviteUri,
+              version: QrVersions.auto,
+              size: 160,
+              backgroundColor: Colors.white,
+              foregroundColor: theme.colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: inviteUri));
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Invite key copied!'), duration: Duration(seconds: 2)),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 16),
+                  label: const Text('Copy'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Share.shareUri(Uri.parse(inviteUri));
+                  },
+                  icon: const Icon(Icons.share_rounded, size: 16),
+                  label: const Text('Share'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: theme.colorScheme.onPrimary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

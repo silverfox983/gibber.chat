@@ -1237,6 +1237,28 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
+  Future<bool> purgeNode(String domain, String node) async {
+    final iq = xmpp.IqStanza('purge_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(domain);
+
+    final pubsub = xmpp.XmppElement();
+    pubsub.name = 'pubsub';
+    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub#owner'));
+
+    final purge = xmpp.XmppElement();
+    purge.name = 'purge';
+    purge.addAttribute(xmpp.XmppAttribute('node', node));
+    pubsub.addChild(purge);
+    iq.addChild(pubsub);
+
+    try {
+      final response = await _sendIq(iq);
+      return response.type != xmpp.IqStanzaType.ERROR;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<bool> publishItem(String domain, String node, xmpp.XmppElement payload, {String? itemId, bool autoCreateNode = false}) async {
     final iq = xmpp.IqStanza('publish_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
     iq.toJid = xmpp.Jid.fromFullJid(domain);

@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1610,9 +1612,8 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 }
               }, theme),
               const SizedBox(height: 6),
-                _iconBtn(Icons.adaptive.share, () {
-                final text = '${space.name}\n${space.description ?? ''}\n\n${space.domain}/${space.node}';
-                Share.share(text, subject: space.name);
+              _iconBtn(Icons.adaptive.share, () {
+                _showInviteKeyDialog(space);
               }, theme),
               const SizedBox(height: 6),
               _iconBtn(
@@ -1679,6 +1680,85 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
           label: const Text('Subscribe', style: TextStyle(fontSize: 13)),
           style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6)),
         );
+  }
+
+  void _showInviteKeyDialog(SpaceNode space) {
+    final inviteUri = 'xmpp:${space.domain}?;node=${space.node}';
+    final theme = Theme.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.all(20),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: theme.colorScheme.onSurface.withValues(alpha: 0.1)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Invite to ${space.name}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurface)),
+                  const SizedBox(height: 8),
+                  Text('Share this key or QR code', style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
+                  const SizedBox(height: 16),
+                  QrImageView(
+                    data: inviteUri,
+                    version: QrVersions.auto,
+                    size: 180,
+                    backgroundColor: Colors.white,
+                    foregroundColor: theme.colorScheme.onSurface,
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+                    ),
+                    child: Text(inviteUri, style: TextStyle(fontSize: 11, fontFamily: 'monospace', fontWeight: FontWeight.w500, color: theme.colorScheme.onSurface), textAlign: TextAlign.center),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            await Clipboard.setData(ClipboardData(text: inviteUri));
+                            if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Copied!')));
+                          },
+                          icon: const Icon(Icons.copy_rounded, size: 16),
+                          label: const Text('Copy'),
+                          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () { Share.shareUri(Uri.parse(inviteUri)); },
+                          icon: const Icon(Icons.share_rounded, size: 16),
+                          label: const Text('Share'),
+                          style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12), backgroundColor: theme.colorScheme.primary, foregroundColor: theme.colorScheme.onPrimary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _showNotificationSheet(SpaceNode space) {
@@ -1830,8 +1910,12 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
           _sectionLabel(theme, 'ABOUT'),
           const SizedBox(height: 8),
           GlassMorphicContainer(
-            child: Text(space.description!,
-                style: TextStyle(fontSize: 15, height: 1.6)),
+            child: MarkdownBody(
+              data: space.description!,
+              styleSheet: MarkdownStyleSheet(
+                p: TextStyle(fontSize: 15, height: 1.6, color: theme.colorScheme.onSurface),
+              ),
+            ),
           ),
           const SizedBox(height: 20),
         ],
