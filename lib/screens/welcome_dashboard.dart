@@ -669,7 +669,6 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
         Provider.of<ChatProvider>(context, listen: false).setSidebarTab(3);
       }));
     }
-    tips.add(_OnboardingTip(Icons.workspace_premium_rounded, 'Unlock more features', 'Protocol bridging and larger group calls are available with Pro and Ultimate plans.', () => context.goNamed('tier')));
     tips.add(_OnboardingTip(Icons.edit_rounded, 'Set your status', 'Let contacts know your availability.', null));
 
     if (tips.isEmpty) return const SizedBox.shrink();

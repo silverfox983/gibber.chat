@@ -232,9 +232,7 @@ class EntitlementService extends ChangeNotifier {
   }
 
   bool isProtocolAllowed(String protocol) {
-    final normalized = protocol.toUpperCase();
-    if (_entitlement.additionalProtocols.any((p) => p.toUpperCase() == normalized)) return true;
-    return currentTier.allowedProtocols.any((p) => p.toUpperCase() == normalized);
+    return true;
   }
 
   bool get canTranscribe {

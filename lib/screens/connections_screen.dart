@@ -547,11 +547,6 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
   }
 
   Future<void> _showConfigDialog(BuildContext context, String type) async {
-    final entitlement = Provider.of<EntitlementService>(context, listen: false);
-    if (!entitlement.isProtocolAllowed(type)) {
-      _showUpgradeDialog(context, type);
-      return;
-    }
     final info = GatewayTypeInfo.available[type]!;
     final auth = Provider.of<AuthService>(context, listen: false);
     final existing = _gatewayForType(type);
@@ -571,8 +566,6 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
   }
 
   Future<void> _enableBridge(BuildContext context, String type) async {
-    final entitlement = Provider.of<EntitlementService>(context, listen: false);
-    if (!entitlement.isProtocolAllowed(type)) { _showUpgradeDialog(context, type); return; }
     final auth = Provider.of<AuthService>(context, listen: false);
     final userId = auth.activeAccountId;
     if (userId == null) return;
@@ -810,10 +803,6 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
   Widget _buildTransportCard(ThemeData theme, TransportNode gw) {
     final meta = _transportMeta(gw.type);
     final cardColor = meta.color.withValues(alpha: 0.10);
-    final entitlement = Provider.of<EntitlementService>(context);
-    final protocol = gw.type.isNotEmpty ? gw.type[0].toUpperCase() + gw.type.substring(1).toLowerCase() : '';
-    final isLocked = !entitlement.isProtocolAllowed(protocol);
-    final neededTier = protocol == 'Slack' || protocol == 'Discord' || protocol == 'Irc' ? UserTier.pro : UserTier.ultimate;
     final bareJid = gw.jid.split('/').first.toLowerCase();
     final isRegistered = _registeredJids.contains(bareJid);
 
@@ -822,7 +811,7 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isLocked ? Colors.orange.withValues(alpha: 0.5) : meta.color.withValues(alpha: 0.3), width: 1.5),
+        border: Border.all(color: meta.color.withValues(alpha: 0.3), width: 1.5),
       ),
       child: Material(
         color: Colors.transparent,
@@ -838,18 +827,13 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
                 decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(12)),
                 child: Stack(alignment: Alignment.center, children: [
                   Icon(meta.icon, color: meta.color, size: 22),
-                  if (isLocked) Positioned(bottom: 2, right: 2, child: Icon(Icons.lock_rounded, size: 12, color: Colors.orange)),
                 ]),
               ),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
                   Text(gw.name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
-                  if (isLocked) ...[
-                    const SizedBox(width: 6),
-                    Container(padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1), decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(4)),
-                        child: Text('${neededTier.label} only', style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: Colors.orange))),
-                  ] else if (isRegistered) ...[
+                  if (isRegistered) ...[
                     const SizedBox(width: 6),
                     Container(padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1), decoration: BoxDecoration(color: Colors.green.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(4)),
                         child: const Text('Registered', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: Colors.green))),
@@ -865,10 +849,10 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: isLocked ? Colors.orange : (isRegistered ? Colors.green : meta.color),
+                  color: isRegistered ? Colors.green : meta.color,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Text(isLocked ? 'Upgrade' : (isRegistered ? 'Connected' : 'Connect'),
+                child: Text(isRegistered ? 'Connected' : 'Connect',
                     style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
               ),
             ]),
@@ -881,19 +865,6 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
   Future<void> _showTransportRegistration(TransportNode gateway) async {
     if (_transportService == null) return;
     final entitlement = Provider.of<EntitlementService>(context, listen: false);
-    final protocol = gateway.type.isNotEmpty ? gateway.type[0].toUpperCase() + gateway.type.substring(1).toLowerCase() : '';
-    if (!entitlement.isProtocolAllowed(protocol)) {
-      final neededTier = protocol == 'Slack' || protocol == 'Discord' || protocol == 'Irc' ? UserTier.pro : UserTier.ultimate;
-      showDialog(context: context, builder: (ctx) => AlertDialog(
-        title: const Text('Upgrade Required'),
-        content: Text('$protocol is available on the ${neededTier.label} tier.\nYou are currently on the ${entitlement.currentTier.label} tier.\n\nUpgrade your plan, or enter a redemption code.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
-          FilledButton(onPressed: () { Navigator.of(ctx).pop(); context.goNamed('tier'); }, child: const Text('Upgrade')),
-        ],
-      ));
-      return;
-    }
     final success = await showTransportRegistrationDialog(
       context: context,
       transportService: _transportService!,
