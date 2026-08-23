@@ -83,14 +83,19 @@ gibberapp.online {
     }
 
     # Static web frontend (Flutter web build)
-    @jsFiles {
-        file *.js
-    }
-    handle @jsFiles {
-        header Content-Type "application/javascript"
-    }
     root * /srv/gibber-web
     try_files {path} /index.html
+
+    @jsFiles {
+        path *.js
+    }
+    header @jsFiles Content-Type "application/javascript"
+
+    @wasmFiles {
+        path *.wasm
+    }
+    header @wasmFiles Content-Type "application/wasm"
+
     file_server
 
     # Upload size limit (for HTTP File Upload)

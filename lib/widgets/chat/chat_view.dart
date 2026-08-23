@@ -4,8 +4,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import '../../utils/call_permissions.dart';
 import 'package:record/record.dart';
 import '../../core/app_colors.dart';
 import '../../models/chat_models.dart';
@@ -216,34 +216,8 @@ class _ChatViewState extends State<ChatView> {
   }
 
   Future<void> _startCall(BuildContext context, Conversation conv, bool isVideo) async {
-    final messenger = ScaffoldMessenger.of(context);
     final callProvider = Provider.of<CallProvider>(context, listen: false);
-    final statuses = await [
-      Permission.microphone,
-      if (isVideo) Permission.camera,
-    ].request();
-
-    if (statuses[Permission.microphone] != PermissionStatus.granted) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(isVideo
-              ? 'Camera and microphone permissions are required for video calls.'
-              : 'Microphone permission is required for voice calls.'),
-          action: SnackBarAction(
-            label: 'Settings',
-            onPressed: () => openAppSettings(),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (isVideo && statuses[Permission.camera] != PermissionStatus.granted) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Camera permission is required for video calls.')),
-      );
-      return;
-    }
+    if (!await requestCallPermissions(context, isVideo: isVideo)) return;
 
     callProvider.startCall(
       conv.id,

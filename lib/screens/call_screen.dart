@@ -8,7 +8,6 @@ import 'dart:math' as math;
 import '../providers/call_provider.dart';
 import '../models/group_call_models.dart';
 import '../services/transcription_service.dart';
-import '../services/assistant_service.dart';
 import '../widgets/live_captions_panel.dart';
 
 class CallScreen extends StatefulWidget {
@@ -86,11 +85,11 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
       _dismissed = true;
       if (error != null && error.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error), duration: const Duration(seconds: 3)),
+          SnackBar(content: Text(error), duration: const Duration(seconds: 4)),
         );
       }
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        if (mounted) {
+      Future.delayed(const Duration(milliseconds: 2000), () {
+        if (mounted && Navigator.of(context).canPop()) {
           Navigator.of(context).maybePop();
         }
       });
@@ -131,11 +130,13 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     final theme = Theme.of(context);
 
     if (_dismissed) {
+      final error = call.lastError;
+      final hasError = error != null && error.isNotEmpty;
       return Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
         body: Center(
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
             decoration: BoxDecoration(
               color: theme.colorScheme.surface.withValues(alpha: 0.9),
               borderRadius: BorderRadius.circular(16),
@@ -147,26 +148,60 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  Icons.call_end_rounded,
+                  hasError ? Icons.error_outline_rounded : Icons.call_end_rounded,
                   size: 32,
-                  color: theme.colorScheme.error,
+                  color: hasError ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant,
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Call Ended',
+                  hasError ? 'Call Failed' : 'Call Ended',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: theme.colorScheme.onSurface,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Returning...',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: theme.colorScheme.onSurfaceVariant,
+                if (hasError) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    error,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: theme.colorScheme.error,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
+                ],
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (call.remoteJid != null) ...[
+                      FilledButton.icon(
+                        onPressed: () {
+                          _dismissed = false;
+                          call.startCall(
+                            call.remoteJid!,
+                            accountId: call.accountId,
+                            isVideo: call.isVideo,
+                          );
+                        },
+                        icon: const Icon(Icons.call_rounded, size: 18),
+                        label: const Text('Call Back'),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    TextButton(
+                      onPressed: () {
+                        if (Navigator.of(context).canPop()) {
+                          Navigator.of(context).maybePop();
+                        }
+                      },
+                      child: const Text('Close'),
+                    ),
+                  ],
                 ),
               ],
             ),

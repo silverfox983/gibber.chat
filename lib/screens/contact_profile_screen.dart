@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../services/avatar_cache_service.dart';
 import '../providers/chat_provider.dart';
 import '../providers/call_provider.dart';
+import '../utils/call_permissions.dart';
 import 'dart:ui';
 
 class ContactProfileScreen extends StatelessWidget {
@@ -225,7 +226,8 @@ class ContactProfileScreen extends StatelessWidget {
             icon: Icons.call_rounded,
             label: 'Voice',
             color: Colors.green,
-            onTap: () {
+            onTap: () async {
+              if (!await requestCallPermissions(context, isVideo: false)) return;
               final callProvider = Provider.of<CallProvider>(context, listen: false);
               callProvider.startCall(contact.id, isVideo: false, protocol: contact.protocol);
             },
@@ -234,7 +236,8 @@ class ContactProfileScreen extends StatelessWidget {
             icon: Icons.videocam_rounded,
             label: 'Video',
             color: Colors.blue,
-            onTap: () {
+            onTap: () async {
+              if (!await requestCallPermissions(context, isVideo: true)) return;
               final callProvider = Provider.of<CallProvider>(context, listen: false);
               callProvider.startCall(contact.id, isVideo: true, protocol: contact.protocol);
             },

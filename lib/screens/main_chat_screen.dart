@@ -30,9 +30,8 @@ import '../providers/chat_provider.dart';
 import '../widgets/group_invite_dialog.dart';
 import '../providers/call_provider.dart';
 import '../services/database_service.dart';
-import './call_screen.dart';
 import '../services/call_history_service.dart';
-import '../models/call_log.dart';
+import '../utils/call_permissions.dart';
 import '../widgets/omemo_trust_dialog.dart';
 import '../widgets/room_participants_dialog.dart';
 import '../providers/theme_provider.dart';
@@ -290,9 +289,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
       _signalingListener!();
       _authService.addListener(_signalingListener!);
 
-      // Automated Call Navigation: Show call screen when state changes
-      _callProvider.addListener(_onCallStateChanged);
-
       // Auto-create profile if missing
       if (_authService.currentProfile == null) {
         _authService.createProfile('Master User');
@@ -336,7 +332,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
   @override
   void dispose() {
     debugPrint('LIFECYCLE: MainChatScreen DISPOSED');
-    _callProvider.removeListener(_onCallStateChanged);
     if (_signalingListener != null) {
       _authService.removeListener(_signalingListener!);
     }
@@ -389,26 +384,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
         ),
       ),
     );
-  }
-
-  void _onCallStateChanged() {
-    if (!mounted) return;
-    if (_callProvider.state != CallState.idle) {
-      final currentRoute = ModalRoute.of(context)?.settings.name;
-      if (currentRoute != '/call_screen') {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            settings: const RouteSettings(name: '/call_screen'),
-            builder: (context) => const CallScreen(),
-          ),
-        );
-      }
-    } else {
-      final currentRoute = ModalRoute.of(context)?.settings.name;
-      if (currentRoute == '/call_screen') {
-        Navigator.of(context).maybePop();
-      }
-    }
   }
 
   void _scrollToBottom() {
@@ -1312,7 +1287,8 @@ class _MainChatScreenState extends State<MainChatScreen> {
                   color: Theme.of(context).colorScheme.primary,
                 ),
                 tooltip: 'Start Audio Call',
-                onPressed: () {
+                onPressed: () async {
+                  if (!await requestCallPermissions(context, isVideo: false)) return;
                   final cp = Provider.of<CallProvider>(context, listen: false);
                   cp.startCall(
                     activeChat.id,
@@ -1422,7 +1398,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 Icons.more_vert_rounded,
                 color: Theme.of(context).colorScheme.onSurface,
               ),
-              onSelected: (val) {
+              onSelected: (val) async {
                 final cp = Provider.of<ChatProvider>(context, listen: false);
                 if (val == 'clear') {
                   cp.clearHistory(activeChat.id);
@@ -1452,6 +1428,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                 } else if (val == 'settings') {
                   context.goNamed('roomSettings', extra: {'room': activeChat});
                 } else if (val == 'call') {
+                  if (!await requestCallPermissions(context, isVideo: false)) return;
                   Provider.of<CallProvider>(context, listen: false).startCall(
                     activeChat.id,
                     accountId: activeChat.accountId,
@@ -1459,6 +1436,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     protocol: activeChat.protocol,
                   );
                 } else if (val == 'video') {
+                  if (!await requestCallPermissions(context, isVideo: true)) return;
                   Provider.of<CallProvider>(context, listen: false).startCall(
                     activeChat.id,
                     accountId: activeChat.accountId,
@@ -2349,7 +2327,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
                     context,
                   ).colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
                 ),
-                onSelected: (val) {
+              onSelected: (val) async {
                   if (val == 'image') _pickImage(activeChat);
                   if (val == 'file') _pickFile(activeChat);
                   if (val == 'gif') _pickGif(activeChat);

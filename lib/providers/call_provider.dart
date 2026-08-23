@@ -127,6 +127,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   RTCVideoRenderer get remoteRenderer => _remoteRenderer;
   String? get permissionError => _permissionError;
   String? get lastError => _displayedError ?? _lastError;
+  String? get accountId => _authService?.activeAccountId;
   String? get lastDisplayName => _lastDisplayName;
   RTCIceConnectionState get iceState => _iceState;
   bool get isAccepted => _isAccepted;
@@ -292,6 +293,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         case SipCallState.ringing:
           if (_state == CallState.idle) {
             _state = CallState.incoming;
+            HapticFeedback.heavyImpact();
             _isSipCall = true;
             _remoteJid = _sipService!.remoteNumber ?? 'Unknown';
             _lastDisplayName = _remoteJid;
@@ -1056,6 +1058,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
 
     _state = CallState.incoming;
+    HapticFeedback.heavyImpact();
     _remoteJid = fromJid;
     _lastDisplayName = fromJid;
     _sessionId = sessionId;

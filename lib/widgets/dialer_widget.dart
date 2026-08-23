@@ -7,6 +7,7 @@ import '../providers/call_provider.dart';
 import '../models/call_log.dart';
 import 'dart:ui';
 import 'package:flutter/services.dart';
+import '../utils/call_permissions.dart';
 
 class DialerWidget extends StatefulWidget {
   final AuthService authService;
@@ -244,8 +245,9 @@ class _DialerWidgetState extends State<DialerWidget> {
                         _circleButton(
                           icon: Icons.video_call_rounded,
                           color: Colors.blueAccent,
-                          onPressed: () {
+                          onPressed: () async {
                             if (_dialedNumber.isNotEmpty) {
+                              if (!await requestCallPermissions(context, isVideo: true)) return;
                               final isSip = callProvider.isSipRegistered;
                               callProvider.startCall(
                                 _formatDialedNumber(_dialedNumber, isSip: isSip),
@@ -457,8 +459,9 @@ class _DialerWidgetState extends State<DialerWidget> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () {
+          onTap: () async {
             if (_dialedNumber.isNotEmpty) {
+              if (!await requestCallPermissions(context, isVideo: false)) return;
               final isSip = callProvider.isSipRegistered;
               callProvider.startCall(
                 _formatDialedNumber(_dialedNumber, isSip: isSip),
