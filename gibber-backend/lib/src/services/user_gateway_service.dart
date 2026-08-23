@@ -110,6 +110,15 @@ class UserGatewayService {
       'slidgeImage': 'ghcr.io/regretfulswan/slidge-whatsapp:latest',
       'perUserInstance': true,
     },
+    'steam': {
+      'name': 'Steam',
+      'description': 'Bridge to Steam Chat',
+      'requiresConfig': [],
+      'optionalConfig': ['username', 'password'],
+      'componentJid': 'steam',
+      'slidgeImage': 'codeberg.org/slidge/sleamdge:latest',
+      'perUserInstance': true,
+    },
   };
 
   UserGatewayService(this._db, this._processManager, this._prosodyManager);

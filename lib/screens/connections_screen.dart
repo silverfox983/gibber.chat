@@ -447,7 +447,7 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
   }
 
   Widget _buildPlatformGrid(ThemeData theme) {
-    final platforms = ['telegram', 'discord', 'irc', 'matrix', 'whatsapp'];
+    final platforms = ['telegram', 'discord', 'irc', 'matrix', 'whatsapp', 'steam'];
 
     return Column(
       children: platforms.map((p) {
@@ -862,6 +862,7 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
       case 'mattermost': return _TransportMeta(Icons.grid_view_rounded, const Color(0xFF0058CC), 'Mattermost');
       case 'slack': return _TransportMeta(Icons.grid_on_rounded, const Color(0xFF4A154B), 'Slack');
       case 'matrix': return _TransportMeta(Icons.dns_rounded, const Color(0xFF0DBD8B), 'Matrix');
+      case 'steam': return _TransportMeta(Icons.games_rounded, const Color(0xFF1B2838), 'Steam');
       default: return _TransportMeta(Icons.compare_arrows_rounded, const Color(0xFF9E9E9E), type.isNotEmpty ? type[0].toUpperCase() + type.substring(1) : 'Gateway');
     }
   }

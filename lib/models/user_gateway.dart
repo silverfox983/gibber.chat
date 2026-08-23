@@ -135,5 +135,13 @@ class GatewayTypeInfo {
       requiredFields: ['phone_number'],
       optionalFields: ['device_name'],
     ),
+    'steam': GatewayTypeInfo(
+      type: 'steam',
+      name: 'Steam',
+      description: 'Bridge to Steam Chat',
+      icon: 'steam',
+      requiredFields: [],
+      optionalFields: ['username', 'password'],
+    ),
   };
 }
