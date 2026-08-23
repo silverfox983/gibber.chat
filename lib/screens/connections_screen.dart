@@ -10,7 +10,6 @@ import '../models/user_gateway.dart';
 import '../models/transport_models.dart';
 import '../services/auth_service.dart';
 import '../services/bridge_config_service.dart';
-import '../services/entitlement_service.dart';
 import '../services/gateway_service.dart';
 import '../services/transport_service.dart';
 import '../services/database_service.dart';
@@ -448,7 +447,6 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
   }
 
   Widget _buildPlatformGrid(ThemeData theme) {
-    final entitlement = Provider.of<EntitlementService>(context, listen: false);
     final platforms = ['telegram', 'discord', 'irc', 'matrix', 'whatsapp'];
 
     return Column(
@@ -460,7 +458,6 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
             platform: p,
             gateway: gateway,
             bridgeService: _bridgeService,
-            isLocked: !entitlement.isProtocolAllowed(p),
             isRegistered: _isBridgeComponentRegistered(gateway?.componentJid),
             onConfigure: () => _showConfigDialog(context, p),
             onEnable: () => _enableBridge(context, p),
@@ -688,25 +685,6 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
     }
   }
 
-  void _showUpgradeDialog(BuildContext context, String type) {
-    final info = GatewayTypeInfo.available[type]!;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Row(children: [
-          Icon(Icons.lock_rounded, color: Colors.orange.shade700),
-          const SizedBox(width: 10),
-          Text('${info.name} requires Pro'),
-        ]),
-        content: Text('${info.name} bridges are available for Pro and Ultimate subscribers. Upgrade your plan to connect your ${info.name} account.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
-          FilledButton(onPressed: () { Navigator.pop(ctx); context.goNamed('tier'); }, child: const Text('Upgrade')),
-        ],
-      ),
-    );
-  }
-
   Widget _buildInfoCard(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.all(DesignTokens.space20),
@@ -864,7 +842,6 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
 
   Future<void> _showTransportRegistration(TransportNode gateway) async {
     if (_transportService == null) return;
-    final entitlement = Provider.of<EntitlementService>(context, listen: false);
     final success = await showTransportRegistrationDialog(
       context: context,
       transportService: _transportService!,
@@ -972,7 +949,6 @@ class _PlatformCard extends StatelessWidget {
   final String platform;
   final UserGateway? gateway;
   final BridgeConfigService bridgeService;
-  final bool isLocked;
   final bool isRegistered;
   final VoidCallback onConfigure;
   final VoidCallback onEnable;
@@ -982,7 +958,7 @@ class _PlatformCard extends StatelessWidget {
 
   const _PlatformCard({
     required this.platform, required this.gateway, required this.bridgeService,
-    required this.isLocked, required this.isRegistered, required this.onConfigure,
+    required this.isRegistered, required this.onConfigure,
     required this.onEnable, required this.onDisable, required this.onRemove,
     required this.onRegister,
   });
@@ -992,8 +968,8 @@ class _PlatformCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final info = GatewayTypeInfo.available[platform]!;
-    final isConnected = !isLocked && gateway?.enabled == true && gateway?.status == 'running';
-    final isConfigured = !isLocked && gateway != null;
+    final isConnected = gateway?.enabled == true && gateway?.status == 'running';
+    final isConfigured = gateway != null;
     final isStarting = gateway?.status == 'starting' || gateway?.status == 'configuring';
     final platformColor = _platformColor(platform);
 
@@ -1001,18 +977,16 @@ class _PlatformCard extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: isConnected
             ? LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [platformColor.withValues(alpha: 0.15), platformColor.withValues(alpha: 0.05)])
-            : isLocked
-                ? LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Colors.orange.withValues(alpha: 0.05), Colors.orange.withValues(alpha: 0.02)])
-                : null,
+            : null,
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
         border: Border.all(
-          color: isConnected ? platformColor.withValues(alpha: 0.5) : isLocked ? Colors.orange.withValues(alpha: 0.4) : theme.colorScheme.outline,
-          width: isConnected || isLocked ? 2 : 1,
+          color: isConnected ? platformColor.withValues(alpha: 0.5) : theme.colorScheme.outline,
+          width: isConnected ? 2 : 1,
         ),
         boxShadow: isConnected
             ? [BoxShadow(color: platformColor.withValues(alpha: 0.2), blurRadius: 16, spreadRadius: 0)]
-            : isLocked ? [BoxShadow(color: Colors.orange.withValues(alpha: 0.08), blurRadius: 12, spreadRadius: 0)] : null,
+            : null,
       ),
       child: Material(
         color: Colors.transparent,
@@ -1026,12 +1000,12 @@ class _PlatformCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
-                  _PlatformIcon(platform: platform, color: platformColor, isConnected: isConnected, isLocked: isLocked),
+                  _PlatformIcon(platform: platform, color: platformColor, isConnected: isConnected),
                   const SizedBox(width: DesignTokens.space12),
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(info.name, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
                     const SizedBox(height: 2),
-                    _StatusBadge(isConnected: isConnected, isConfigured: isConfigured, isStarting: isStarting, isLocked: isLocked, platformColor: platformColor),
+                    _StatusBadge(isConnected: isConnected, isConfigured: isConfigured, isStarting: isStarting, platformColor: platformColor),
                   ])),
                   _StatusIndicator(isConnected: isConnected, isStarting: isStarting, color: platformColor),
                 ]),
@@ -1047,8 +1021,6 @@ class _PlatformCard extends StatelessWidget {
                       const SizedBox(width: DesignTokens.space8),
                     ],
                     Expanded(child: _ActionButton(label: 'Disconnect', icon: Icons.link_off_rounded, onPressed: onDisable, color: AppColors.danger, filled: false)),
-                  ] else if (isLocked) ...[
-                    Expanded(child: _ActionButton(label: 'Pro Required', icon: Icons.lock_rounded, onPressed: onConfigure, color: Colors.orange.shade700, filled: true)),
                   ] else if (isConfigured) ...[
                     Expanded(child: _ActionButton(label: 'Connect', icon: Icons.play_arrow_rounded, onPressed: isStarting ? null : onEnable, color: platformColor, filled: true)),
                     const SizedBox(width: DesignTokens.space8),
@@ -1090,27 +1062,19 @@ class _PlatformIcon extends StatelessWidget {
   final String platform;
   final Color color;
   final bool isConnected;
-  final bool isLocked;
-  const _PlatformIcon({required this.platform, required this.color, required this.isConnected, this.isLocked = false});
+  const _PlatformIcon({required this.platform, required this.color, required this.isConnected});
 
   @override
   Widget build(BuildContext context) {
-    return Stack(children: [
-      Container(
-        width: 48, height: 48,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: isConnected ? 0.2 : 0.1),
-          borderRadius: BorderRadius.circular(DesignTokens.radiusMd),
-          border: Border.all(color: color.withValues(alpha: isConnected ? 0.5 : 0.2)),
-        ),
-        child: Icon(_iconForPlatform(platform), color: isLocked ? Colors.grey : color, size: 24),
+    return Container(
+      width: 48, height: 48,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: isConnected ? 0.2 : 0.1),
+        borderRadius: BorderRadius.circular(DesignTokens.radiusMd),
+        border: Border.all(color: color.withValues(alpha: isConnected ? 0.5 : 0.2)),
       ),
-      if (isLocked) Positioned(right: 0, bottom: 0, child: Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(color: Colors.orange.shade700, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)),
-        child: const Icon(Icons.lock_rounded, size: 10, color: Colors.white),
-      )),
-    ]);
+      child: Icon(_iconForPlatform(platform), color: color, size: 24),
+    );
   }
 
   IconData _iconForPlatform(String platform) {
@@ -1126,16 +1090,15 @@ class _PlatformIcon extends StatelessWidget {
 }
 
 class _StatusBadge extends StatelessWidget {
-  final bool isConnected, isConfigured, isStarting, isLocked;
+  final bool isConnected, isConfigured, isStarting;
   final Color platformColor;
-  const _StatusBadge({required this.isConnected, required this.isConfigured, required this.isStarting, required this.isLocked, required this.platformColor});
+  const _StatusBadge({required this.isConnected, required this.isConfigured, required this.isStarting, required this.platformColor});
 
   @override
   Widget build(BuildContext context) {
     late final String label;
     late final Color color;
-    if (isLocked) { label = 'Pro required'; color = Colors.orange.shade700; }
-    else if (isStarting) { label = 'Connecting…'; color = Colors.orange; }
+    if (isStarting) { label = 'Connecting…'; color = Colors.orange; }
     else if (isConnected) { label = 'Connected'; color = platformColor; }
     else if (isConfigured) { label = 'Configured'; color = Colors.grey; }
     else { label = 'Not configured'; color = Colors.grey; }
