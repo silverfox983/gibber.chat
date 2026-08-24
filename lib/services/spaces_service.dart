@@ -891,7 +891,7 @@ class SpacesService extends ChangeNotifier {
                 : targetDomain;
             final mucJid = '$node@conference.$baseDomain';
             try {
-              await _joinMucRoom(mucJid, myJid).timeout(
+              final mucJoined = await _joinMucRoom(mucJid, myJid).timeout(
                 const Duration(seconds: 5),
                 onTimeout: () {
                   debugPrint('SpacesService: MUC join timed out after 5s for $mucJid');
@@ -899,6 +899,22 @@ class SpacesService extends ChangeNotifier {
                 },
               );
               debugPrint('SpacesService: MUC room joined/created at $mucJid');
+              if (mucJoined && _roomService != null) {
+                final accountId = _getAccountIdForConnection(_connection);
+                final configError = await _roomService!.configureXmppRoom(
+                  mucJid,
+                  accountId: accountId,
+                  name: name,
+                  isPublic: true,
+                  isPersistent: true,
+                  isMembersOnly: false,
+                  allowMemberInvites: true,
+                  changeSubject: true,
+                );
+                if (configError != null) {
+                  debugPrint('SpacesService: MUC configuration failed for $mucJid: $configError');
+                }
+              }
             } catch (e) {
               debugPrint('SpacesService: MUC room creation failed: $e');
             }
@@ -1223,18 +1239,22 @@ class SpacesService extends ChangeNotifier {
 
     if (_roomService != null) {
       final accountId = _getAccountIdForConnection(_connection);
-      final configError = await _roomService!.configureXmppRoom(
-        channelJid,
-        accountId: accountId,
-        name: channelName,
-        isPublic: true,
-        isPersistent: true,
-        isMembersOnly: false,
-        allowMemberInvites: true,
-        changeSubject: true,
-      );
-      if (configError != null) {
-        debugPrint('SpacesService: Channel configuration failed: $configError');
+      if (accountId == null) {
+        debugPrint('SpacesService: Cannot configure channel $channelJid — no accountId for connection');
+      } else {
+        final configError = await _roomService!.configureXmppRoom(
+          channelJid,
+          accountId: accountId,
+          name: channelName,
+          isPublic: true,
+          isPersistent: true,
+          isMembersOnly: false,
+          allowMemberInvites: true,
+          changeSubject: true,
+        );
+        if (configError != null) {
+          debugPrint('SpacesService: Channel configuration failed: $configError');
+        }
       }
     }
 

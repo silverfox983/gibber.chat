@@ -114,6 +114,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     final conn = auth.activeXmppConnection;
     if (conn != null) {
       final userDomain = conn.fullJid.domain;
+      if (userDomain == null || userDomain.isEmpty) return;
       final pubsubDomain = 'pubsub.$userDomain';
       if (!_exploreSources.contains(pubsubDomain) && !_exploreSources.contains(userDomain)) {
         _exploreSources.insert(0, pubsubDomain);
@@ -126,6 +127,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     final conn = auth.activeXmppConnection;
     if (conn != null) {
       final userDomain = conn.fullJid.domain;
+      if (userDomain == null || userDomain.isEmpty) return;
       final likelyMucService = 'conference.$userDomain';
       if (!_mucServices.contains(likelyMucService)) {
         _mucServices.insert(0, likelyMucService);
@@ -1255,10 +1257,20 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                     final conn = auth.activeXmppConnection;
                     if (conn != null) {
                       final svc = auth.spacesService;
+                      final effectiveSvc = svc ?? (() {
+                        final s = SpacesService(conn, roomService: auth.roomService);
+                        s.setAccountIdMapper((c) {
+                          for (var entry in auth.connectionMap.entries) {
+                            if (entry.value == c) return entry.key;
+                          }
+                          return null;
+                        });
+                        return s;
+                      })();
                       showDialog(
                         context: context,
                         builder: (context) => CreateSpaceDialog(
-                          spacesService: svc ?? SpacesService(conn, roomService: auth.roomService),
+                          spacesService: effectiveSvc,
                           domain: conn.fullJid.domain,
                           onSuccess: _refresh,
                         ),
@@ -1274,10 +1286,20 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                     final conn = auth.activeXmppConnection;
                     if (conn != null) {
                       final svc = auth.spacesService;
+                      final effectiveSvc = svc ?? (() {
+                        final s = SpacesService(conn, roomService: auth.roomService);
+                        s.setAccountIdMapper((c) {
+                          for (var entry in auth.connectionMap.entries) {
+                            if (entry.value == c) return entry.key;
+                          }
+                          return null;
+                        });
+                        return s;
+                      })();
                       showDialog(
                         context: context,
                         builder: (context) => JoinSpaceDialog(
-                          spacesService: svc ?? SpacesService(conn, roomService: auth.roomService),
+                          spacesService: effectiveSvc,
                           currentUserDomain: conn.fullJid.domain,
                           onSuccess: _refresh,
                         ),

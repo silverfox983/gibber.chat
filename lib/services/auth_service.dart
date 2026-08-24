@@ -341,6 +341,7 @@ class AuthService with ChangeNotifier {
 
   String? _activeAccountId;
   String? get activeAccountId => _activeAccountId;
+  Map<String, xmpp.Connection> get connectionMap => Map.unmodifiable(_xmppConnections);
 
   Future<void> switchAccount(String accountId) async {
     if (_xmppConnections.containsKey(accountId)) {

@@ -558,6 +558,7 @@ class XmppRoomService with ChangeNotifier {
     int historyLength = 50,
   }) async {
     final id = accountId ?? _activeAccountId;
+    if (id == null) return 'No active account';
     final conn = _connections[id];
     if (conn == null) return 'No connection';
 
@@ -614,7 +615,7 @@ class XmppRoomService with ChangeNotifier {
       final response = await completer.future.timeout(const Duration(seconds: 10));
       if (response.type == xmpp.IqStanzaType.ERROR) {
         final error = response.getChild('error');
-        return error?.textValue ?? 'Room configuration failed';
+        return error?.getChild('text')?.textValue ?? error?.textValue ?? 'Room configuration failed';
       }
       return null;
     } catch (e) {
@@ -643,6 +644,7 @@ class XmppRoomService with ChangeNotifier {
     String? password,
   }) async {
     final id = accountId ?? _activeAccountId;
+    if (id == null) return 'No active account';
     final conn = _connections[id];
     if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
       return 'XMPP not connected';
