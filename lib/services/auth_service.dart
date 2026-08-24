@@ -256,6 +256,14 @@ class AuthService with ChangeNotifier {
 
   final Map<String, String?> _uploadServiceJids = {};
 
+  final Map<String, List<String>> _discoveredPubsubServices = {};
+  List<String> getPubsubServices(String accountId) =>
+      List.unmodifiable(_discoveredPubsubServices[accountId] ?? []);
+
+  final Map<String, List<String>> _discoveredMucServices = {};
+  List<String> getMucServices(String accountId) =>
+      List.unmodifiable(_discoveredMucServices[accountId] ?? []);
+
   final OtrService _otr = OtrService();
   OtrService get otrService => _otr;
 
@@ -688,6 +696,8 @@ class AuthService with ChangeNotifier {
 
       _xmppConnections[id] = conn;
       _xmppJids[id] = jid.fullJid ?? fullJidStr; // Store JID
+      _discoveredPubsubServices[id] = [];
+      _discoveredMucServices[id] = [];
       ConnectionLifecycleService.instance.registerConnection(id, conn);
 
       _connectionStateSubs[id]?.cancel();
@@ -725,7 +735,7 @@ class AuthService with ChangeNotifier {
           _uploadServices[id] = uploadService;
 
           // Trigger Service Discovery
-          _discoverServiceFeatures(id, domain);
+          await _discoverServiceFeatures(id, domain);
 
           // Auto-Join Persistence
           _autoJoinRooms(id);
@@ -1290,6 +1300,8 @@ class AuthService with ChangeNotifier {
                 for (var item in items.children) {
                   final jid = item.getAttribute('jid')?.value;
                   final name = item.getAttribute('name')?.value;
+                  final category = item.getAttribute('category')?.value;
+                  final type = item.getAttribute('type')?.value;
                   if (jid != null &&
                       (name?.toLowerCase().contains('upload') == true ||
                           name?.toLowerCase().contains('share') == true ||
@@ -1299,6 +1311,16 @@ class AuthService with ChangeNotifier {
                     _uploadServiceJids[id] = jid;
                     _uploadServices[id]?.uploadServiceJid = jid;
                     debugPrint('DISCO: Found HTTP Upload service: $jid');
+                  } else if (category == 'pubsub' || category == 'collaboration' || category == 'service') {
+                    if (jid != null && !_discoveredPubsubServices[id]!.contains(jid)) {
+                      _discoveredPubsubServices[id]!.add(jid);
+                      debugPrint('DISCO: Found PubSub service: $jid');
+                    }
+                  } else if (category == 'conference' && type == 'text') {
+                    if (jid != null && !_discoveredMucServices[id]!.contains(jid)) {
+                      _discoveredMucServices[id]!.add(jid);
+                      debugPrint('DISCO: Found MUC service: $jid');
+                    }
                   } else if (jid != null && name != null) {
                     discoveredRooms.add({'jid': jid, 'name': name});
                   }
@@ -2154,8 +2176,18 @@ class AuthService with ChangeNotifier {
   // --- ROSTER & CONTACT MANAGEMENT (XEP-0164, XEP-0191) ---
 
   // XEP-0030: Service Discovery (XEP-0030)
-  Future<void> _discoverServiceFeatures(String accountId, String domain) =>
-      _syncService.discoverServiceFeatures(accountId, domain);
+  Future<void> _discoverServiceFeatures(String accountId, String domain) async {
+    final result = await _syncService.discoverServiceFeatures(accountId, domain);
+    _discoveredPubsubServices[accountId] = result.pubsubServices;
+    _discoveredMucServices[accountId] = result.mucServices;
+    if (result.pubsubServices.isNotEmpty) {
+      debugPrint('DISCO: Discovered PubSub services for $accountId: ${result.pubsubServices}');
+    }
+    if (result.mucServices.isNotEmpty) {
+      debugPrint('DISCO: Discovered MUC services for $accountId: ${result.mucServices}');
+    }
+    notifyListeners();
+  }
 
   // --- Space Management (Bookmarks / Persistence) ---
 

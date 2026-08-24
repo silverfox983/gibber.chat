@@ -561,6 +561,21 @@ class SpacesService extends ChangeNotifier {
     return finalResult;
   }
 
+  Future<List<SpaceNode>> fetchSpacesByTag(String tag, List<String> pubsubServices) async {
+    final results = <SpaceNode>[];
+    for (final svc in pubsubServices) {
+      final all = await fetchSpaces(svc);
+      final q = tag.toLowerCase();
+      results.addAll(all.where((s) =>
+        s.name.toLowerCase().contains(q) ||
+        s.node.toLowerCase().contains(q) ||
+        (s.description?.toLowerCase().contains(q) ?? false) ||
+        (s.features.any((f) => f.toLowerCase().contains(q)))));
+    }
+    results.sort((a, b) => (b.memberCount ?? 0).compareTo(a.memberCount ?? 0));
+    return results;
+  }
+
   Future<List<SpaceNode>> fetchSpaces(String pubsubDomain) async {
     final iq = xmpp.IqStanza('fetch_spaces_${xmpp.AbstractStanza.getRandomId()}', xmpp.IqStanzaType.GET);
     iq.toJid = xmpp.Jid.fromFullJid(pubsubDomain);
@@ -1028,6 +1043,18 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, bool>> setAffiliationsBatch(String domain, String node, List<Map<String, String>> affiliations) async {
+    final results = <String, bool>{};
+
+    for (final aff in affiliations) {
+      final jid = aff['jid']!;
+      final affiliation = aff['affiliation']!;
+      results[jid] = await setAffiliation(domain, node, jid, affiliation);
+    }
+
+    return results;
+  }
+
   Future<bool> inviteMember(String domain, String node, String jid, String role) async {
     return setAffiliation(domain, node, jid, role);
   }
@@ -1075,6 +1102,69 @@ class SpacesService extends ChangeNotifier {
       debugPrint('fetchPendingSubscribers error: $e');
       return [];
     }
+  }
+
+  Future<List<SpaceNode>> fetchMySubscriptions(List<String> pubsubServices) async {
+    final myJid = _connection.account.fullJid.userAtDomain;
+    final results = <SpaceNode>[];
+
+    for (final svc in pubsubServices) {
+      try {
+        final iq = xmpp.IqStanza('my_subs_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.GET);
+        iq.toJid = xmpp.Jid.fromFullJid(svc);
+
+        final pubsub = xmpp.XmppElement();
+        pubsub.name = 'pubsub';
+        pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+
+        final subs = xmpp.XmppElement();
+        subs.name = 'subscriptions';
+        pubsub.addChild(subs);
+        iq.addChild(pubsub);
+
+        final response = await _sendIq(iq).timeout(const Duration(seconds: 10));
+        if (response.type == xmpp.IqStanzaType.ERROR) continue;
+
+        final pubsubEl = response.getChild('pubsub');
+        final subsEl = pubsubEl?.getChild('subscriptions');
+        if (subsEl == null) continue;
+
+        for (final child in subsEl.children) {
+          if (child.name == 'subscription') {
+            final jid = child.getAttribute('jid')?.value;
+            final subState = child.getAttribute('subscription')?.value;
+            if (jid == null) continue;
+            if (jid.toLowerCase() != myJid.toLowerCase() && !jid.toLowerCase().startsWith(myJid.toLowerCase().split('@').first)) continue;
+
+            final node = child.getAttribute('node')?.value;
+            if (node == null) continue;
+
+            final space = SpaceNode(
+              domain: svc,
+              node: node,
+              name: node,
+              isSubscribed: subState == 'subscribed',
+              affiliation: child.getAttribute('affiliation')?.value,
+            );
+            results.add(space);
+          }
+        }
+      } catch (e) {
+        debugPrint('fetchMySubscriptions error for $svc: $e');
+      }
+    }
+
+    for (final result in results) {
+      try {
+        final enriched = await fetchSpaceMetadata(result.domain, result.node, fallbackName: result.name);
+        if (enriched != null) {
+          final idx = results.indexWhere((r) => r.domain == result.domain && r.node == result.node);
+          if (idx != -1) results[idx] = enriched;
+        }
+      } catch (_) {}
+    }
+
+    return results;
   }
 
   Future<String?> setSpaceAvatar(String domain, String node, String imageData, String contentType, String ownerJid) async {

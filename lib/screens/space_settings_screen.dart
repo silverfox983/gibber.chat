@@ -120,6 +120,121 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
     }
   }
 
+  Future<void> _showBulkPendingDialog() async {
+    final selected = Set<String>.from(_pendingMembers.map((m) => m.jid));
+    final selectedAffiliations = Map<String, String>.fromIterables(
+      _pendingMembers.map((m) => m.jid),
+      _pendingMembers.map((_) => 'member'),
+    );
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text('Manage ${_pendingMembers.length} Requests'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Select which requests to approve or deny:'),
+                const SizedBox(height: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 300),
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: _pendingMembers.map((m) {
+                      final isSelected = selected.contains(m.jid);
+                      final action = selectedAffiliations[m.jid]!;
+                      return CheckboxListTile(
+                        value: isSelected,
+                        title: Text(m.jid, style: const TextStyle(fontSize: 13)),
+                        subtitle: Text(action == 'member' ? 'Approve' : 'Deny', style: TextStyle(
+                          fontSize: 11,
+                          color: action == 'member' ? Colors.green : Colors.red,
+                        )),
+                        onChanged: (val) {
+                          setDialogState(() {
+                            if (val == true) {
+                              selected.add(m.jid);
+                              selectedAffiliations[m.jid] = 'member';
+                            } else {
+                              selected.add(m.jid);
+                              selectedAffiliations[m.jid] = 'none';
+                            }
+                          });
+                        },
+                        secondary: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                              tooltip: 'Approve',
+                              onPressed: () {
+                                setDialogState(() {
+                                  selected.add(m.jid);
+                                  selectedAffiliations[m.jid] = 'member';
+                                });
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.cancel, color: Colors.red, size: 20),
+                              tooltip: 'Deny',
+                              onPressed: () {
+                                setDialogState(() {
+                                  selected.add(m.jid);
+                                  selectedAffiliations[m.jid] = 'none';
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text('${selected.length} selected', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: selected.isEmpty ? null : () => Navigator.pop(ctx, selectedAffiliations),
+              child: Text('Apply (${selected.length})'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != null && result.isNotEmpty && mounted) {
+      final toApply = result.entries.where((e) => selected.contains(e.key)).toList();
+      int approved = 0;
+      int denied = 0;
+
+      for (final entry in toApply) {
+        final ok = await widget.spacesService.setAffiliation(widget.space.domain, widget.space.node, entry.key, entry.value);
+        if (ok) {
+          if (entry.value == 'member') approved++;
+          else denied++;
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Approved $approved, denied $denied')),
+        );
+        _loadPendingMembers();
+        _loadMembers();
+      }
+    }
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -514,11 +629,17 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
                   child: Text('${_pendingMembers.length}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                 ),
                 const Spacer(),
-                if (_loadingPending) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                if (_loadingPending) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                else ...[
+                  TextButton(
+                    onPressed: () => _showBulkPendingDialog(),
+                    child: const Text('Manage'),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 8),
-            ..._pendingMembers.map((m) => Container(
+            ..._pendingMembers.take(3).map((m) => Container(
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -555,6 +676,14 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
                 ],
               ),
             )),
+            if (_pendingMembers.length > 3)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: TextButton(
+                  onPressed: () => _showBulkPendingDialog(),
+                  child: Text('View all ${_pendingMembers.length} requests'),
+                ),
+              ),
           ],
           const SizedBox(height: 32),
           Text('DANGER ZONE', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red, letterSpacing: 1.2, fontSize: 12)),

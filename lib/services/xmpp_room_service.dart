@@ -545,6 +545,69 @@ class XmppRoomService with ChangeNotifier {
     }
   }
 
+  Future<xmpp.IqStanza?> fetchRoomConfigForm(String roomJid, {String? accountId}) async {
+    final id = accountId ?? _activeAccountId;
+    if (id == null) return null;
+    final conn = _connections[id];
+    if (conn == null) return null;
+
+    final iqId = 'mucConfigFetch_${DateTime.now().millisecondsSinceEpoch}';
+    final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.GET);
+    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'));
+    iq.addChild(query);
+
+    final completer = Completer<xmpp.IqStanza>();
+    _pendingIqs[iqId] = completer;
+    conn.writeStanza(iq);
+
+    try {
+      final response = await completer.future.timeout(const Duration(seconds: 10));
+      _pendingIqs.remove(iqId);
+      return response;
+    } catch (e) {
+      _pendingIqs.remove(iqId);
+      debugPrint('Failed to fetch room config form: $e');
+      return null;
+    }
+  }
+
+  Future<String?> submitRoomConfigForm(String roomJid, xmpp.XmppElement formElement, {String? accountId}) async {
+    final id = accountId ?? _activeAccountId;
+    if (id == null) return 'No active account';
+    final conn = _connections[id];
+    if (conn == null) return 'No connection';
+
+    final iqId = 'mucConfigSubmit_${DateTime.now().millisecondsSinceEpoch}';
+    final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'));
+    query.addChild(formElement);
+    iq.addChild(query);
+
+    final completer = Completer<xmpp.IqStanza>();
+    _pendingIqs[iqId] = completer;
+    conn.writeStanza(iq);
+
+    try {
+      final response = await completer.future.timeout(const Duration(seconds: 10));
+      if (response.type == xmpp.IqStanzaType.ERROR) {
+        final error = response.getChild('error');
+        return error?.getChild('text')?.textValue ?? error?.textValue ?? 'Room configuration failed';
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Room configuration error: $e');
+      return e.toString();
+    } finally {
+      _pendingIqs.remove(iqId);
+    }
+  }
+
   Future<String?> configureXmppRoom(
     String roomJid, {
     String? accountId,

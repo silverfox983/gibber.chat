@@ -23,6 +23,7 @@ import '../services/spaces_service.dart';
 
 import '../models/space_models.dart';
 import '../models/unified_community.dart';
+import '../models/chat_models.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/create_space_dialog.dart';
 import '../widgets/join_space_dialog.dart';
@@ -115,6 +116,28 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     if (conn != null) {
       final userDomain = conn.fullJid.domain;
       if (userDomain == null || userDomain.isEmpty) return;
+
+      // Add user's own server PubSub services (discovered via disco)
+      final accountId = auth.activeAccountId;
+      if (accountId != null) {
+        final pubsubServices = auth.getPubsubServices(accountId);
+        for (final svc in pubsubServices) {
+          if (!_exploreSources.contains(svc)) {
+            _exploreSources.add(svc);
+          }
+        }
+        final mucServices = auth.getMucServices(accountId);
+        for (final svc in mucServices) {
+          if (!_mucServices.contains(svc)) {
+            _mucServices.add(svc);
+          }
+        }
+        if (pubsubServices.isNotEmpty || mucServices.isNotEmpty) {
+          debugPrint('SpacesScreen: Loaded ${pubsubServices.length} PubSub and ${mucServices.length} MUC services from server discovery');
+        }
+      }
+
+      // Fallback: add pubsub.$userDomain if no disco services found yet
       final pubsubDomain = 'pubsub.$userDomain';
       if (!_exploreSources.contains(pubsubDomain) && !_exploreSources.contains(userDomain)) {
         _exploreSources.insert(0, pubsubDomain);
@@ -389,23 +412,14 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                 });
               }
             } else {
-              // Keyword search across known spaces using searchPosts
-              final searchResults = <UnifiedCommunity>[];
+              // Tag-based discovery: find spaces matching the keyword across pubsub services
               final searchTargets = _exploreSources.where((d) => d.contains('.')).toList();
-              for (final domain in searchTargets.take(5)) {
-                try {
-                  final items = await _spacesService!.searchPosts(domain, '', query);
-                  for (final item in items) {
-                    if (item.sourceSpace != null) {
-                      searchResults.add(UnifiedCommunity.fromSpaceNode(item.sourceSpace!));
-                    }
-                  }
-                } catch (_) {}
-              }
+              final spaces = await _spacesService!.fetchSpacesByTag(query, searchTargets.take(5).toList());
+              final communities = spaces.map((s) => UnifiedCommunity.fromSpaceNode(s)).toList();
               if (mounted) {
                 setState(() {
                   _exploreResults.clear();
-                  _exploreResults.addAll(searchResults);
+                  _exploreResults.addAll(communities);
                   _exploreLoading = false;
                 });
               }
@@ -1307,6 +1321,13 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                     }
                   },
                 ),
+                IconButton(
+                  icon: const Icon(Icons.rss_feed_rounded),
+                  tooltip: 'My Subscriptions',
+                  onPressed: () {
+                    context.push('/app/subscriptions');
+                  },
+                ),
               ],
             ),
       body: _selectedSpace != null
@@ -1650,6 +1671,10 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                   _reload();
                 }
               }, theme),
+              if (space.affiliation == 'owner' || space.affiliation == 'publisher') ...[
+                const SizedBox(height: 6),
+                _iconBtn(Icons.edit_rounded, () => _showInlineEditDialog(space), theme),
+              ],
               const SizedBox(height: 6),
               _iconBtn(Icons.adaptive.share, () {
                 _showInviteKeyDialog(space);
@@ -1869,6 +1894,62 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         },
       ),
     );
+  }
+
+  Future<void> _showInlineEditDialog(SpaceNode space) async {
+    final nameController = TextEditingController(text: space.name);
+    final descController = TextEditingController(text: space.description ?? '');
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit Space'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: 'Name'),
+              autofocus: true,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: descController,
+              decoration: const InputDecoration(labelText: 'Description'),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true && mounted) {
+      final newName = nameController.text.trim();
+      final newDesc = descController.text.trim();
+      if (newName.isNotEmpty && (newName != space.name || newDesc != (space.description ?? ''))) {
+        final ok = await widget.spacesService.updateSpaceConfig(
+          space.domain, space.node,
+          name: newName,
+          description: newDesc.isNotEmpty ? newDesc : null,
+        );
+        if (ok != null) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Space updated')));
+          _reload();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to update space')));
+        }
+      }
+    }
+
+    nameController.dispose();
+    descController.dispose();
   }
 
   Widget _badge(IconData icon, String label, Color color) {
@@ -2700,11 +2781,34 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
               PopupMenuButton<String>(
                 icon: Icon(Icons.more_vert_rounded, size: 18, color: theme.colorScheme.onSurfaceVariant),
                 itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'settings', child: Text('Room Settings')),
                   if (onMoveUp != null) const PopupMenuItem(value: 'moveUp', child: Text('Move Up')),
                   if (onMoveDown != null) const PopupMenuItem(value: 'moveDown', child: Text('Move Down')),
                   const PopupMenuItem(value: 'remove', child: Text('Remove from Space')),
                 ],
                 onSelected: (val) async {
+                  if (val == 'settings') {
+                    final auth = Provider.of<AuthService>(context, listen: false);
+                    final accountId = auth.activeAccountId;
+                    if (accountId != null && roomJid.contains('@')) {
+                      final nick = auth.getResolvedNickname(accountId);
+                      await auth.joinXmppRoom(roomJid, nick, accountId: accountId);
+                      final room = Room(
+                        id: roomJid,
+                        name: ch.name ?? roomJid.split('@').first,
+                        topic: ch.description,
+                        participants: [],
+                        protocol: 'XMPP',
+                        isGroup: true,
+                        accountId: accountId,
+                      );
+                      final result = await context.pushNamed('roomSettings', extra: {'room': room});
+                      if (result == 'left') {
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Left ${ch.name ?? roomJid}')));
+                      }
+                    }
+                    return;
+                  }
                   if (val == 'moveUp') { onMoveUp?.call(); return; }
                   if (val == 'moveDown') { onMoveDown?.call(); return; }
                   if (val == 'remove') {

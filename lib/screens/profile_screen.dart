@@ -24,8 +24,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late TextEditingController _nickController;
   bool _isSaving = false;
   Uint8List? _avatarBytes;
-  
+
   late TextEditingController _bioController;
+  late TextEditingController _emailController;
+  late TextEditingController _phoneController;
+  late TextEditingController _urlController;
+  late TextEditingController _orgController;
+  late TextEditingController _titleController;
+  late TextEditingController _roleController;
+  late TextEditingController _birthdayController;
   String? _selectedAccountId;
   
   // Presence Local State
@@ -45,6 +52,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _nameController = TextEditingController(text: profile?.displayName ?? '');
     _nickController = TextEditingController(text: profile?.nickName ?? '');
     _bioController = TextEditingController(text: profile?.bio ?? '');
+    _emailController = TextEditingController(text: profile?.email ?? '');
+    _phoneController = TextEditingController(text: profile?.phone ?? '');
+    _urlController = TextEditingController(text: profile?.url ?? '');
+    _orgController = TextEditingController(text: profile?.organization ?? '');
+    _titleController = TextEditingController(text: profile?.title ?? '');
+    _roleController = TextEditingController(text: profile?.role ?? '');
+    _birthdayController = TextEditingController(text: profile?.birthday ?? '');
     _localStatus = authService.myStatus;
     _statusMsgController = TextEditingController(text: authService.myStatusMessage ?? '');
     
@@ -59,6 +73,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _nameController.dispose();
     _nickController.dispose();
     _bioController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    _urlController.dispose();
+    _orgController.dispose();
+    _titleController.dispose();
+    _roleController.dispose();
+    _birthdayController.dispose();
     _statusMsgController.dispose();
     super.dispose();
   }
@@ -147,6 +168,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         fullName: _nameController.text,
         nickName: _nickController.text,
         description: _bioController.text,
+        email: _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
+        phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
+        url: _urlController.text.trim().isEmpty ? null : _urlController.text.trim(),
+        organization: _orgController.text.trim().isEmpty ? null : _orgController.text.trim(),
+        title: _titleController.text.trim().isEmpty ? null : _titleController.text.trim(),
+        role: _roleController.text.trim().isEmpty ? null : _roleController.text.trim(),
+        birthday: _birthdayController.text.trim().isEmpty ? null : _birthdayController.text.trim(),
       );
       
       if (mounted) {
@@ -326,6 +354,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _buildTextField('Nickname', _nickController, Icons.alternate_email_rounded),
                   const SizedBox(height: 16),
                   _buildTextField('Biography', _bioController, Icons.info_outline_rounded, maxLines: 3),
+
+                  const SizedBox(height: 32),
+                  Text('CONTACT DETAILS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+                  const SizedBox(height: 16),
+                  _buildTextField('Email', _emailController, Icons.email_rounded, keyboardType: TextInputType.emailAddress),
+                  const SizedBox(height: 12),
+                  _buildTextField('Phone', _phoneController, Icons.phone_rounded, keyboardType: TextInputType.phone),
+                  const SizedBox(height: 12),
+                  _buildTextField('Website', _urlController, Icons.link_rounded, keyboardType: TextInputType.url),
+                  const SizedBox(height: 32),
+                  Text('WORK INFORMATION', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+                  const SizedBox(height: 16),
+                  _buildTextField('Organization', _orgController, Icons.business_rounded),
+                  const SizedBox(height: 12),
+                  _buildTextField('Job Title', _titleController, Icons.work_rounded),
+                  const SizedBox(height: 12),
+                  _buildTextField('Role / Department', _roleController, Icons.engineering_rounded),
+                  const SizedBox(height: 32),
+                  Text('PERSONAL', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+                  const SizedBox(height: 16),
+                  _buildTextField('Birthday', _birthdayController, Icons.cake_rounded, keyboardType: TextInputType.datetime),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Your full vCard profile — synced with your XMPP server',
+                    style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant, fontStyle: FontStyle.italic),
+                  ),
                   
                   const SizedBox(height: 32),
                   Text('AVAILABILITY', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
@@ -560,7 +614,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, IconData icon, {int maxLines = 1}) {
+  Widget _buildTextField(String label, TextEditingController controller, IconData icon, {int maxLines = 1, TextInputType? keyboardType}) {
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
@@ -570,6 +624,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: TextField(
         controller: controller,
         maxLines: maxLines,
+        keyboardType: keyboardType,
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon, color: Theme.of(context).colorScheme.secondary),

@@ -81,6 +81,8 @@ class ChatInfoScreen extends StatelessWidget {
             subtitle: Text((conversation.encryptionType?.isNotEmpty ?? false)
                 ? 'End-to-end encrypted'
                 : 'Not encrypted'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => _showSecurityInfo(context, conversation),
           ),
           if (!isGroup) ...[
             ListTile(
@@ -155,6 +157,96 @@ class ChatInfoScreen extends StatelessWidget {
             child: const Text('BLOCK', style: TextStyle(color: Colors.red)),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showSecurityInfo(BuildContext context, Conversation conversation) async {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final isOmemo = conversation.encryptionType == 'omemo';
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)))),
+            Row(
+              children: [
+                Icon(Icons.lock_rounded, color: isOmemo ? Colors.green : Colors.grey, size: 28),
+                const SizedBox(width: 12),
+                Text('Security Details', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: (isOmemo ? Colors.green : Colors.grey).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: (isOmemo ? Colors.green : Colors.grey).withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isOmemo ? 'End-to-End Encrypted' : 'No Encryption',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15,
+                      color: isOmemo ? Colors.green.shade700 : Colors.grey.shade700),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    isOmemo
+                      ? 'Messages in this conversation are encrypted using the OMEMO protocol (AxOLOTL). Only you and the recipient(s) can read them.'
+                      : 'Messages are NOT encrypted. They are sent in plain text over the network.',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (isOmemo) ...[
+              ListTile(
+                leading: const Icon(Icons.key_rounded, size: 20),
+                title: const Text('Fingerprints', style: TextStyle(fontSize: 14)),
+                subtitle: Text(
+                  conversation.id,
+                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  context.pushNamed('identityTrust', extra: {'jid': conversation.id});
+                },
+              ),
+            ] else ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_rounded, color: Colors.orange.shade700, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'This conversation is not encrypted. Consider enabling OMEMO in settings.',
+                        style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

@@ -29,7 +29,7 @@ class DatabaseService {
     }
     return await openDatabase(
       path,
-      version: 19,
+      version: 20,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -78,7 +78,10 @@ class DatabaseService {
             mute_notifications INTEGER DEFAULT 0,
             message_preview INTEGER DEFAULT 1,
             notification_sound TEXT DEFAULT 'Default',
-            omemo_enabled INTEGER DEFAULT 0
+            omemo_enabled INTEGER DEFAULT 0,
+            pinned INTEGER DEFAULT 0,
+            archived INTEGER DEFAULT 0,
+            last_activity INTEGER
           )
         ''');
 
@@ -419,6 +422,12 @@ class DatabaseService {
           try { await db.execute('ALTER TABLE messages ADD COLUMN longitude REAL'); } catch (_) {}
           try { await db.execute('ALTER TABLE messages ADD COLUMN location_label TEXT'); } catch (_) {}
         }
+        if (oldVersion < 20) {
+          try { await db.execute('ALTER TABLE conversations ADD COLUMN pinned INTEGER DEFAULT 0'); } catch (_) {}
+          try { await db.execute('ALTER TABLE conversations ADD COLUMN archived INTEGER DEFAULT 0'); } catch (_) {}
+          try { await db.execute('ALTER TABLE conversations ADD COLUMN last_activity INTEGER'); } catch (_) {}
+          try { await db.execute('ALTER TABLE messages ADD COLUMN mentioned INTEGER DEFAULT 0'); } catch (_) {}
+        }
       },
     );
   }
@@ -507,7 +516,7 @@ class DatabaseService {
 
     await db.update(
       'conversations',
-      {'last_message_id': message.id},
+      {'last_message_id': message.id, 'last_activity': DateTime.now().millisecondsSinceEpoch},
       where: 'LOWER(id) = LOWER(?)',
       whereArgs: [message.conversationId],
     );
@@ -654,7 +663,7 @@ class DatabaseService {
 
       batch.update(
         'conversations',
-        {'last_message_id': msgId},
+        {'last_message_id': msgId, 'last_activity': DateTime.now().millisecondsSinceEpoch},
         where: 'LOWER(id) = LOWER(?)',
         whereArgs: [convId],
       );
@@ -670,13 +679,13 @@ class DatabaseService {
         sender_id, sender_name, account_id, protocol, conversation_id,
         is_group, status, reply_to_id, replaces_id, is_edited,
         edit_timestamp, reactions, reactions_json, reply_preview,
-        forwarded_from, encryption_type, latitude, longitude, location_label
+        forwarded_from, encryption_type, latitude, longitude, location_label, mentioned
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, ?
+        ?, ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         status = CASE
@@ -691,6 +700,7 @@ class DatabaseService {
         map['edit_timestamp'], map['reactions'], map['reactions_json'],
         map['reply_preview'], map['forwarded_from'], map['encryption_type'],
         map['latitude'], map['longitude'], map['location_label'],
+        map['mentioned'],
       ],
     );
   }

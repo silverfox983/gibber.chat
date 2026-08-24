@@ -29,6 +29,7 @@ import '../screens/room_affiliation_screen.dart';
 import '../screens/feed_screen.dart';
 import '../screens/spaces_screen.dart';
 import '../screens/space_settings_screen.dart';
+import '../screens/subscriptions_screen.dart';
 import '../screens/post_detail_screen.dart';
 import '../screens/post_thread_screen.dart';
 import '../screens/article_view_screen.dart';
@@ -258,6 +259,11 @@ GoRouter createAppRouter({
                 path: 'spaces',
                 name: 'spaces',
                 pageBuilder: (context, state) => _fadePage(state: state, child: const SpacesScreen()),
+              ),
+              GoRoute(
+                path: 'subscriptions',
+                name: 'subscriptions',
+                pageBuilder: (context, state) => _fadePage(state: state, child: const SubscriptionsScreen()),
               ),
               GoRoute(
                 path: 'space-settings',

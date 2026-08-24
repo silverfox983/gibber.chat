@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/chat_models.dart';
+import '../models/xdata_form_model.dart';
 import '../services/auth_service.dart';
+import '../widgets/xdata/xdata_form_widget.dart';
 
 class RoomSettingsScreen extends StatefulWidget {
   final Conversation room;
@@ -14,20 +16,14 @@ class RoomSettingsScreen extends StatefulWidget {
 }
 
 class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
-  final _nameController = TextEditingController();
-  final _descController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _isPersistent = true;
-  bool _isPublic = true;
-  bool _isMembersOnly = false;
-  bool _isModerated = false;
   bool _isLoading = false;
   bool _isFetching = true;
+  String? _fetchError;
+  XdataForm? _configForm;
 
   @override
   void initState() {
     super.initState();
-    _nameController.text = widget.room.name;
     _fetchCurrentConfig();
   }
 
@@ -35,33 +31,35 @@ class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
     final authService = Provider.of<AuthService>(context, listen: false);
     final accountId = widget.room.accountId ?? authService.activeAccountId;
     if (accountId == null) {
-      if (mounted) setState(() => _isFetching = false);
+      if (mounted) setState(() { _isFetching = false; _fetchError = 'No active account'; });
       return;
     }
 
-    final config = await authService.fetchRoomConfig(accountId, widget.room.id);
-    if (mounted) {
-      if (config != null) {
-        _nameController.text = config['muc#roomconfig_roomname'] ?? widget.room.name;
-        _descController.text = config['muc#roomconfig_roomdesc'] ?? '';
-        _isPersistent = config['muc#roomconfig_persistentroom'] == '1';
-        _isPublic = config['muc#roomconfig_publicroom'] == '1';
-        _isMembersOnly = config['muc#roomconfig_membersonly'] == '1';
-        _isModerated = config['muc#roomconfig_moderatedroom'] == '1';
-      }
-      setState(() => _isFetching = false);
+    final roomService = authService.roomService;
+    if (roomService == null) {
+      if (mounted) setState(() { _isFetching = false; _fetchError = 'Room service not available'; });
+      return;
     }
+
+    final response = await roomService.fetchRoomConfigForm(widget.room.id, accountId: accountId);
+    if (!mounted) return;
+
+    if (response == null) {
+      setState(() { _isFetching = false; _fetchError = 'Failed to fetch room configuration'; });
+      return;
+    }
+
+    final query = response.getChild('query');
+    final x = query?.getChild('x');
+    final form = XdataForm.parse(x);
+    setState(() {
+      _isFetching = false;
+      _configForm = form;
+      if (form == null) _fetchError = 'Could not parse room configuration form';
+    });
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _descController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _saveSettings() async {
+  Future<void> _submitForm(XdataForm form) async {
     setState(() => _isLoading = true);
 
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -72,42 +70,27 @@ class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
       return;
     }
 
-    // XEP-0045 Standard variables
-    final Map<String, String> fields = {
-      'FORM_TYPE': 'http://jabber.org/protocol/muc#roomconfig',
-      'muc#roomconfig_roomname': _nameController.text.trim(),
-      'muc#roomconfig_roomdesc': _descController.text.trim(),
-      'muc#roomconfig_persistentroom': _isPersistent ? '1' : '0',
-      'muc#roomconfig_publicroom': _isPublic ? '1' : '0',
-      'muc#roomconfig_membersonly': _isMembersOnly ? '1' : '0',
-      'muc#roomconfig_moderatedroom': _isModerated ? '1' : '0',
-    };
-
-    if (_passwordController.text.isNotEmpty) {
-      fields['muc#roomconfig_passwordprotectedroom'] = '1';
-      fields['muc#roomconfig_roomsecret'] = _passwordController.text;
-    } else {
-      fields['muc#roomconfig_passwordprotectedroom'] = '0';
-      fields['muc#roomconfig_roomsecret'] = '';
-    }
-
-    await authService.submitRoomConfig(accountId, widget.room.id, fields);
-
-    // Also update the room subject via message stanza to update the topic immediately
-    final subject = _descController.text.trim();
-    if (subject.isNotEmpty) {
-      authService.sendXmppSubject(
-        widget.room.id,
-        subject,
-        accountId: accountId,
-      );
-    }
-
-    if (mounted) {
+    final roomService = authService.roomService;
+    if (roomService == null) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Room settings updated.')));
+      return;
+    }
+
+    final formElement = form.toSubmitElement();
+    final error = await roomService.submitRoomConfigForm(widget.room.id, formElement, accountId: accountId);
+
+    if (!mounted) return;
+
+    setState(() => _isLoading = false);
+
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save: $error'), backgroundColor: Colors.red),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Room settings updated.')),
+      );
       Navigator.pop(context);
     }
   }
@@ -134,101 +117,80 @@ class _RoomSettingsScreenState extends State<RoomSettingsScreen> {
                 ),
               ),
             )
-          else
-            IconButton(icon: const Icon(Icons.check), onPressed: _saveSettings),
+          else if (_configForm != null)
+            IconButton(
+              icon: const Icon(Icons.check),
+              onPressed: () => _submitForm(_configForm!),
+            ),
         ],
       ),
-      body: _isFetching 
+      body: _isFetching
         ? const Center(child: CircularProgressIndicator())
-        : ListView(
-        padding: const EdgeInsets.all(24),
-        children: [
-          const Text(
-            'Configuration is only applied if you are a Room Owner.',
-            style: TextStyle(
-              color: Colors.redAccent,
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 24),
-          TextField(
-            controller: _nameController,
-            decoration: const InputDecoration(
-              labelText: 'Room Name',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _descController,
-            decoration: const InputDecoration(
-              labelText: 'Topic / Description',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _passwordController,
-            decoration: const InputDecoration(
-              labelText: 'Room Password (Optional)',
-              border: OutlineInputBorder(),
-              helperText: 'Leave empty to disable password.',
-            ),
-            obscureText: true,
-          ),
-          const SizedBox(height: 24),
-          SwitchListTile(
-            title: const Text('Persistent Room'),
-            subtitle: const Text('Room remains active when empty'),
-            value: _isPersistent,
-            onChanged: (val) => setState(() => _isPersistent = val),
-          ),
-          SwitchListTile(
-            title: const Text('Publicly Discoverable'),
-            subtitle: const Text('Room appears in server directories'),
-            value: _isPublic,
-            onChanged: (val) => setState(() => _isPublic = val),
-          ),
-          SwitchListTile(
-            title: const Text('Members Only'),
-            subtitle: const Text('Only approved members can join'),
-            value: _isMembersOnly,
-            onChanged: (val) => setState(() => _isMembersOnly = val),
-          ),
-          SwitchListTile(
-            title: const Text('Moderated Room'),
-            subtitle: const Text('Only participants with voice can speak'),
-            value: _isModerated,
-            onChanged: (val) => setState(() => _isModerated = val),
-          ),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.people_alt_rounded),
-            label: const Text('MANAGE BANS & MEMBERS'),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              side: BorderSide(color: theme.colorScheme.primary),
-            ),
-            onPressed: () {
-               context.goNamed('roomAffiliation', extra: {'room': widget.room});
-            },
-          ),
-          const SizedBox(height: 32),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              backgroundColor: theme.colorScheme.primary,
-              foregroundColor: theme.colorScheme.onPrimary,
-            ),
-            onPressed: _isLoading ? null : _saveSettings,
-            child: const Text(
-              'SAVE SETTINGS',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
+        : _fetchError != null
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
+                  const SizedBox(height: 16),
+                  Text(_fetchError!, style: TextStyle(color: theme.colorScheme.error)),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => setState(() { _isFetching = true; _fetchError = null; _fetchCurrentConfig(); }),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            )
+          : _configForm != null
+            ? Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.redAccent, size: 18),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Configuration changes only apply if you are a Room Owner.',
+                              style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: XdataFormWidget(
+                        form: _configForm!,
+                        onSubmit: _submitForm,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.people_alt_rounded),
+                      label: const Text('MANAGE BANS & MEMBERS'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        side: BorderSide(color: theme.colorScheme.primary),
+                      ),
+                      onPressed: () {
+                        context.goNamed('roomAffiliation', extra: {'room': widget.room});
+                      },
+                    ),
+                  ],
+                ),
+              )
+            : const Center(child: Text('No configuration form available')),
     );
   }
 }

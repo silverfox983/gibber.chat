@@ -3,6 +3,12 @@ import 'package:flutter/foundation.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import 'auth_service_deps.dart';
 
+class ServiceDiscoveryResult {
+  final List<String> pubsubServices;
+  final List<String> mucServices;
+  ServiceDiscoveryResult({required this.pubsubServices, required this.mucServices});
+}
+
 class XmppSyncService {
   final AuthServiceSyncDeps _d;
 
@@ -176,9 +182,11 @@ class XmppSyncService {
     }
   }
 
-  Future<void> discoverServiceFeatures(String accountId, String domain) async {
+  Future<ServiceDiscoveryResult> discoverServiceFeatures(String accountId, String domain) async {
     final conn = _d.xmppConnections[accountId];
-    if (conn == null) return;
+    if (conn == null) {
+      return ServiceDiscoveryResult(pubsubServices: [], mucServices: []);
+    }
 
     debugPrint('DISCO: Starting discovery for $domain');
 
@@ -202,7 +210,112 @@ class XmppSyncService {
     );
     itemsIq.addChild(itemsQuery);
 
+    final result = ServiceDiscoveryResult(pubsubServices: [], mucServices: []);
+
+    final completer = Completer<ServiceDiscoveryResult>();
+    final subscriptions = <StreamSubscription>[];
+    final pendingInfoQueries = <String, String>{};
+    var itemsProcessed = false;
+    var infoProcessed = false;
+
+    void checkComplete() {
+      if (itemsProcessed && infoProcessed && pendingInfoQueries.isEmpty && !completer.isCompleted) {
+        completer.complete(result);
+      }
+    }
+
+    subscriptions.add(conn.inStanzasStream.listen((stanza) {
+      if (stanza is! xmpp.IqStanza) return;
+
+      if (stanza.id == itemsId && stanza.type == xmpp.IqStanzaType.RESULT) {
+        itemsProcessed = true;
+        final query = stanza.getChild('query');
+        if (query != null) {
+          for (var item in query.children) {
+            if (item.name != 'item') continue;
+            final jid = item.getAttribute('jid')?.value;
+            if (jid == null) continue;
+            pendingInfoQueries[jid] = jid;
+          }
+        }
+        checkComplete();
+
+        for (final subServiceJid in pendingInfoQueries.keys.toList()) {
+          final infoReqId = 'disco_info_sub_${DateTime.now().millisecondsSinceEpoch}_${pendingInfoQueries.length}';
+          pendingInfoQueries[subServiceJid] = infoReqId;
+          final subInfoIq = xmpp.IqStanza(infoReqId, xmpp.IqStanzaType.GET);
+          subInfoIq.toJid = xmpp.Jid.fromFullJid(subServiceJid);
+          final subInfoQuery = xmpp.XmppElement();
+          subInfoQuery.name = 'query';
+          subInfoQuery.addAttribute(
+            xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#info'),
+          );
+          subInfoIq.addChild(subInfoQuery);
+          conn.writeStanza(subInfoIq);
+        }
+        return;
+      }
+
+      if (stanza.id == infoId && stanza.type == xmpp.IqStanzaType.RESULT) {
+        infoProcessed = true;
+        checkComplete();
+        return;
+      }
+
+      final rid = stanza.id;
+      if (rid != null && pendingInfoQueries.containsValue(rid)) {
+        final subServiceJid = pendingInfoQueries.entries.firstWhere((e) => e.value == rid).key;
+        pendingInfoQueries.remove(subServiceJid);
+        if (stanza.type == xmpp.IqStanzaType.RESULT) {
+          final query = stanza.getChild('query');
+          if (query != null) {
+            var hasPubsub = false;
+            var hasMuc = false;
+            var category = '';
+            var type = '';
+            for (var child in query.children) {
+              if (child.name == 'identity') {
+                category = child.getAttribute('category')?.value ?? '';
+                type = child.getAttribute('type')?.value ?? '';
+              }
+              if (child.name == 'feature') {
+                final varAttr = child.getAttribute('var')?.value;
+                if (varAttr == 'http://jabber.org/protocol/pubsub' ||
+                    varAttr == 'http://jabber.org/protocol/pubsub#publish') {
+                  hasPubsub = true;
+                }
+              }
+            }
+            if (category == 'conference' && type == 'text') {
+              hasMuc = true;
+            }
+            if (hasPubsub) {
+              result.pubsubServices.add(subServiceJid);
+              debugPrint('DISCO: Found PubSub service: $subServiceJid');
+            }
+            if (hasMuc) {
+              result.mucServices.add(subServiceJid);
+              debugPrint('DISCO: Found MUC service: $subServiceJid');
+            }
+          }
+        }
+        checkComplete();
+      }
+    }));
+
     conn.writeStanza(infoIq);
     conn.writeStanza(itemsIq);
+
+    try {
+      return await completer.future.timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          for (var s in subscriptions) s.cancel();
+          return result;
+        },
+      );
+    } finally {
+      for (var s in subscriptions) s.cancel();
+    }
   }
 }

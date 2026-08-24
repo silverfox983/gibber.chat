@@ -112,6 +112,7 @@ class ChatMessage {
   final double? latitude;
   final double? longitude;
   final String? locationLabel;
+  final bool mentioned;
 
   ChatMessage({
     required this.id,
@@ -139,6 +140,7 @@ class ChatMessage {
     this.latitude,
     this.longitude,
     this.locationLabel,
+    this.mentioned = false,
   }) : conversationId = conversationId?.split('/').first.toLowerCase(),
        reactions = _dedupeReactionMap(reactions ?? const {});
 
@@ -170,6 +172,7 @@ class ChatMessage {
       'latitude': latitude,
       'longitude': longitude,
       'location_label': locationLabel,
+      'mentioned': mentioned ? 1 : 0,
     };
   }
 
@@ -258,6 +261,7 @@ class ChatMessage {
       latitude: map['latitude'] != null ? (map['latitude'] as num).toDouble() : null,
       longitude: map['longitude'] != null ? (map['longitude'] as num).toDouble() : null,
       locationLabel: map['location_label'],
+      mentioned: (map['mentioned'] ?? 0) == 1,
     );
   }
 }
@@ -295,6 +299,9 @@ class Conversation {
   bool messagePreview;
   String notificationSound;
   bool omemoEnabled;
+  bool pinned;
+  bool archived;
+  DateTime? lastActivity;
 
   Conversation({
     required this.id,
@@ -322,6 +329,9 @@ class Conversation {
     this.messagePreview = true,
     this.notificationSound = 'Default',
     this.omemoEnabled = false,
+    this.pinned = false,
+    this.archived = false,
+    this.lastActivity,
   });
 
   bool isGroup;

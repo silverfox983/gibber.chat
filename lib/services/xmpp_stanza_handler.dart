@@ -305,6 +305,18 @@ class XmppStanzaHandler {
         }
       }
 
+      bool mentioned = false;
+      if (finalBody != null && !isMe) {
+        final myBareJid = _d.xmppJids[accountId]?.split('/').first.toLowerCase() ?? '';
+        final myUsername2 = myBareJid.split('@').first;
+        final bodyLower = finalBody.toLowerCase();
+        if (myNick != null && bodyLower.contains('@${myNick.toLowerCase()}')) {
+          mentioned = true;
+        } else if (bodyLower.contains('@$myUsername2') || bodyLower.contains(myBareJid)) {
+          mentioned = true;
+        }
+      }
+
       if (finalBody != null) {
         final msgType = _classifyMessage(finalBody, stanza);
         final oobUrl = _extractOobUrl(stanza);
@@ -324,6 +336,7 @@ class XmppStanzaHandler {
             type: msgType,
             isGroup: true,
             fileName: fileName,
+            mentioned: mentioned,
           ),
         );
       }
