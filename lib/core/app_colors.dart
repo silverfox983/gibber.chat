@@ -37,6 +37,14 @@ class AppColors {
   static const Color irc = Color(0xFF7B68EE);
   static const Color matrix = Color(0xFF0DBD8B);
   static const Color whatsapp = Color(0xFF25D366);
+  static const Color steam = Color(0xFF1B2838);
+
+  // Preset seed colors (used in appearance settings)
+  static const Color presetEmerald = Color(0xFF10B981);
+  static const Color presetSunsetOrange = Color(0xFFF97316);
+  static const Color presetOceanTeal = Color(0xFF06B6D4);
+  static const Color presetRose = Color(0xFFF43F5E);
+  static const Color presetIndigo = Color(0xFF6366F1);
 
   // Legacy theme colors (for auth_layout compatibility)
   static const Color eclipseMidnight = Color(0xFF0F172A);

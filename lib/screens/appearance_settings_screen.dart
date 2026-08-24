@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../core/app_colors.dart';
 import '../providers/theme_provider.dart';
 import '../theme/app_theme.dart';
 
@@ -185,13 +186,13 @@ class _ColorSchemeSection extends StatelessWidget {
   const _ColorSchemeSection({required this.tp, this.effectiveScheme});
 
   static const List<_ColorPreset> _presets = [
-    _ColorPreset('Midnight Purple', Color(0xFF8B5CF6)),
-    _ColorPreset('Arctic Blue', Color(0xFF3B82F6)),
-    _ColorPreset('Emerald', Color(0xFF10B981)),
-    _ColorPreset('Sunset Orange', Color(0xFFF97316)),
-    _ColorPreset('Ocean Teal', Color(0xFF06B6D4)),
-    _ColorPreset('Rose', Color(0xFFF43F5E)),
-    _ColorPreset('Indigo', Color(0xFF6366F1)),
+    _ColorPreset('Midnight Purple', AppColors.primary),
+    _ColorPreset('Arctic Blue', AppColors.arcticBlue),
+    _ColorPreset('Emerald', AppColors.presetEmerald),
+    _ColorPreset('Sunset Orange', AppColors.presetSunsetOrange),
+    _ColorPreset('Ocean Teal', AppColors.presetOceanTeal),
+    _ColorPreset('Rose', AppColors.presetRose),
+    _ColorPreset('Indigo', AppColors.presetIndigo),
   ];
 
   @override
