@@ -54,16 +54,17 @@ class _RoomDiscoveryScreenState extends State<RoomDiscoveryScreen> {
       
       // Asynchronously fetch extended room info
       for (var i = 0; i < results.length; i++) {
-        authService.getMucRoomInfo(accountId, results[i]['jid']!).then((info) {
-          if (mounted) {
+        final index = i;
+        authService.getMucRoomInfo(accountId, results[index]['jid']!).then((info) {
+          if (mounted && index < _rooms.length) {
             setState(() {
-              _rooms[i]['users'] = info['users'] ?? _rooms[i]['users'];
-              _rooms[i]['topic'] = info['topic'] ?? _rooms[i]['topic'];
-              _rooms[i]['description'] = info['description'] ?? _rooms[i]['description'];
-              _rooms[i]['password_protected'] = info['password_protected'] ?? false;
+              _rooms[index]['users'] = info['users'] ?? _rooms[index]['users'];
+              _rooms[index]['topic'] = info['topic'] ?? _rooms[index]['topic'];
+              _rooms[index]['description'] = info['description'] ?? _rooms[index]['description'];
+              _rooms[index]['password_protected'] = info['password_protected'] ?? false;
             });
           }
-        }).catchError((_) {}); // Ignore errors silently to not disrupt the UI
+        }).catchError((_) {});
       }
     } catch (e) {
       setState(() {

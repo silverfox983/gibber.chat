@@ -104,6 +104,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
   Future<void> _init() async {
     await _loadMyCommunities();
     _addOwnServerToExploreSources();
+    _addOwnMucService();
     _loadExplore();
     _loadRooms();
   }
@@ -117,6 +118,19 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
       if (!_exploreSources.contains(pubsubDomain) && !_exploreSources.contains(userDomain)) {
         _exploreSources.insert(0, pubsubDomain);
       }
+    }
+  }
+
+  void _addOwnMucService() {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final conn = auth.activeXmppConnection;
+    if (conn != null) {
+      final userDomain = conn.fullJid.domain;
+      final likelyMucService = 'conference.$userDomain';
+      if (!_mucServices.contains(likelyMucService)) {
+        _mucServices.insert(0, likelyMucService);
+      }
+      _selectedMucService = likelyMucService;
     }
   }
 
@@ -254,23 +268,18 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
             }
           }
 
-          final batchResults = <UnifiedCommunity>[];
           for (final s in enriched) {
             final key = '${s.domain}|${s.node}';
             if (!seen.contains(key)) {
               seen.add(key);
-              batchResults.add(UnifiedCommunity.fromSpaceNode(s));
+              allCommunities.add(UnifiedCommunity.fromSpaceNode(s));
             }
           }
 
           if (mounted) {
-            allCommunities.addAll(batchResults);
-            allCommunities.sort((a, b) => b.memberCount.compareTo(a.memberCount));
             setState(() {
               _exploreDomainLoading[domain] = false;
               _exploreDomainErrors[domain] = null;
-              _exploreResults.clear();
-              _exploreResults.addAll(allCommunities);
             });
           }
         } catch (e) {
@@ -284,7 +293,15 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
       }));
     }
 
-    if (mounted) setState(() => _exploreLoading = false);
+    // Sort and update UI only once at the end to prevent flicker
+    allCommunities.sort((a, b) => b.memberCount.compareTo(a.memberCount));
+    if (mounted) {
+      setState(() {
+        _exploreResults.clear();
+        _exploreResults.addAll(allCommunities);
+        _exploreLoading = false;
+      });
+    }
   }
 
   Future<void> _loadRooms() async {
@@ -1241,7 +1258,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                       showDialog(
                         context: context,
                         builder: (context) => CreateSpaceDialog(
-                          spacesService: svc ?? SpacesService(conn),
+                          spacesService: svc ?? SpacesService(conn, roomService: auth.roomService),
                           domain: conn.fullJid.domain,
                           onSuccess: _refresh,
                         ),
@@ -1260,7 +1277,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                       showDialog(
                         context: context,
                         builder: (context) => JoinSpaceDialog(
-                          spacesService: svc ?? SpacesService(conn),
+                          spacesService: svc ?? SpacesService(conn, roomService: auth.roomService),
                           currentUserDomain: conn.fullJid.domain,
                           onSuccess: _refresh,
                         ),

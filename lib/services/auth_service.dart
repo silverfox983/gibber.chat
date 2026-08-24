@@ -274,7 +274,13 @@ class AuthService with ChangeNotifier {
     }
     final conn = _xmppConnections[accountId];
     if (conn != null) {
-      final service = SpacesService(conn);
+      final service = SpacesService(conn, roomService: _roomService);
+      service.setAccountIdMapper((c) {
+        for (var entry in _xmppConnections.entries) {
+          if (entry.value == c) return entry.key;
+        }
+        return null;
+      });
       _spacesServices[accountId] = service;
       return service;
     }

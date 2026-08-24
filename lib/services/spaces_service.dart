@@ -4,9 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/space_models.dart';
+import 'xmpp_room_service.dart';
 
 class SpacesService extends ChangeNotifier {
   final xmpp.Connection _connection;
+  final XmppRoomService? _roomService;
+  String? Function(xmpp.Connection)? _accountIdForConnection;
   xmpp.Connection get connection => _connection;
   
   final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
@@ -23,8 +26,13 @@ class SpacesService extends ChangeNotifier {
 
   late StreamSubscription<xmpp.AbstractStanza?> _subscription;
 
-  SpacesService(this._connection) {
+  SpacesService(this._connection, {XmppRoomService? roomService})
+      : _roomService = roomService {
     _subscription = _connection.inStanzasStream.listen(_handleStanza);
+  }
+
+  void setAccountIdMapper(String? Function(xmpp.Connection)? mapper) {
+    _accountIdForConnection = mapper;
   }
 
   Future<SpaceNode> fetchSpaceDetails(SpaceNode space, {bool forceRefresh = false}) async {
@@ -298,7 +306,7 @@ class SpacesService extends ChangeNotifier {
     // 1. Query the domain itself
     final domainSpaces = await fetchSpaces(domain);
     allSpaces.addAll(domainSpaces);
-    checkedJids.add(domain);
+    checkedJids.add(domain.toLowerCase());
 
     // 2. Query items of the domain to find sub-services (like pubsub.domain.com)
     final iq = xmpp.IqStanza('disco_items_${xmpp.AbstractStanza.getRandomId()}', xmpp.IqStanzaType.GET);
@@ -318,7 +326,7 @@ class SpacesService extends ChangeNotifier {
           // Only follow JIDs that look like valid domains (contain a dot) 
           // or are subdomains of the target domain.
           // Filter out internal system components (non-FQDN) or exact matches
-          if (jid != null && !checkedJids.contains(jid)) {
+          if (jid != null && !checkedJids.contains(jid.toLowerCase())) {
             final isQualified = jid.contains('.');
             final lowerJid = jid.toLowerCase();
             
@@ -331,7 +339,7 @@ class SpacesService extends ChangeNotifier {
 
             if (isQualified && !isSystemComponent) {
               subServices.add(jid);
-              checkedJids.add(jid); // Mark as checked immediately to prevent parallel duplicates
+              checkedJids.add(lowerJid); // Mark as checked immediately to prevent parallel duplicates
             }
           }
         }
@@ -456,8 +464,8 @@ class SpacesService extends ChangeNotifier {
                   final List<Future<void>> l2InfoFutures = [];
                   for (var item in chunk) {
                     final jid = item.getAttribute('jid')?.value;
-                    if (jid != null && jid.contains('.') && !checkedJids.contains(jid)) {
-                      checkedJids.add(jid);
+                    if (jid != null && jid.contains('.') && !checkedJids.contains(jid.toLowerCase())) {
+                      checkedJids.add(jid.toLowerCase());
                       l2InfoFutures.add(() async {
                         try {
                           final infoIq = xmpp.IqStanza('disco_info_spaces_${xmpp.AbstractStanza.getRandomId()}', xmpp.IqStanzaType.GET);
@@ -545,7 +553,7 @@ class SpacesService extends ChangeNotifier {
     // Deduplicate by domain|node
     final Map<String, SpaceNode> uniqueSpaces = {};
     for (var s in allSpaces) {
-      uniqueSpaces['${s.domain}|${s.node}'] = s;
+      uniqueSpaces['${s.domain.toLowerCase()}|${s.node.toLowerCase()}'] = s;
     }
     
     final finalResult = uniqueSpaces.values.toList();
@@ -1509,9 +1517,24 @@ class SpacesService extends ChangeNotifier {
   }
 
   /// Join a MUC room via XEP-0045 presence stanza.
+  /// When _roomService is available, delegates to joinXmppRoom for proper
+  /// tracking, persistence, and auto-rejoin support.
   Future<bool> _joinMucRoom(String roomJid, String bareJid) async {
     try {
       final nick = bareJid.split('@').first;
+
+      // Use XmppRoomService for proper tracking and persistence when available
+      if (_roomService != null) {
+        final accountId = _getAccountIdForConnection(_connection);
+        final error = await _roomService!.joinXmppRoom(
+          roomJid,
+          nick,
+          accountId: accountId,
+        );
+        return error == null;
+      }
+
+      // Fallback: bare presence send (no tracking)
       final presence = xmpp.PresenceStanza();
       presence.toJid = xmpp.Jid.fromFullJid('$roomJid/$nick');
       final x = xmpp.XmppElement();
@@ -1524,6 +1547,17 @@ class SpacesService extends ChangeNotifier {
       debugPrint('MUC join error: $e');
       return false;
     }
+  }
+
+  String? _getAccountIdForConnection(xmpp.Connection conn) {
+    // This is a heuristic - in practice, _roomService.joinXmppRoom uses
+    // _activeAccountId if accountId is null, so we can pass null.
+    // The _roomService stores rooms by (accountId|roomJid) so we need the accountId.
+    // We find it by matching the connection object.
+    if (_accountIdForConnection != null) {
+      return _accountIdForConnection!(conn);
+    }
+    return null;
   }
 
   /// Leave a MUC room via presence unavailable.
