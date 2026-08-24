@@ -1919,7 +1919,7 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  Future<void> joinRoom(String accountId, String roomJid, String nickname) async =>
+  Future<String?> joinRoom(String accountId, String roomJid, String nickname) async =>
       _roomService.joinRoom(accountId, roomJid, nickname);
 
   Future<void> inviteToRoom(String accountId, String roomJid, String userJid, {String? reason}) async =>
@@ -1928,7 +1928,7 @@ class AuthService with ChangeNotifier {
   Future<void> inviteToRoomDirect(String accountId, String roomJid, String userJid, {String? reason, String? password}) async =>
       _roomService.inviteToRoomDirect(accountId, roomJid, userJid, reason: reason, password: password);
 
-  Future<void> createRoom(String accountId, String roomJid, String nickname) async =>
+  Future<String?> createRoom(String accountId, String roomJid, String nickname) async =>
       _roomService.createRoom(accountId, roomJid, nickname);
 
   Future<void> leaveRoom(String accountId, String roomJid) async =>
@@ -2033,7 +2033,7 @@ class AuthService with ChangeNotifier {
   Future<String?> createXmppRoom(String roomJid, String nick, {String? accountId}) async =>
       _roomService.createXmppRoom(roomJid, nick, accountId: accountId);
 
-  Future<void> configureXmppRoom(
+  Future<String?> configureXmppRoom(
     String roomJid, {
     String? accountId,
     String? name,

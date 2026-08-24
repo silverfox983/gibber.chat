@@ -50,8 +50,8 @@ class XmppRoomService with ChangeNotifier {
 
   // --- Room joining / leaving ---
 
-  Future<void> joinRoom(String accountId, String roomJid, String nickname) async {
-    await joinXmppRoom(roomJid, nickname, accountId: accountId);
+  Future<String?> joinRoom(String accountId, String roomJid, String nickname) async {
+    return await joinXmppRoom(roomJid, nickname, accountId: accountId);
   }
 
   Future<void> leaveRoom(String accountId, String roomJid) async {
@@ -109,8 +109,20 @@ class XmppRoomService with ChangeNotifier {
     );
   }
 
-  Future<void> createRoom(String accountId, String roomJid, String nickname) async {
-    await joinRoom(accountId, roomJid, nickname);
+  Future<String?> createRoom(String accountId, String roomJid, String nickname) async {
+    final error = await createXmppRoom(roomJid, nickname, accountId: accountId);
+    if (error != null) return error;
+
+    final configError = await configureXmppRoom(
+      roomJid,
+      accountId: accountId,
+      isPublic: true,
+      isPersistent: true,
+      isMembersOnly: false,
+      allowMemberInvites: true,
+      changeSubject: true,
+    );
+    return configError;
   }
 
   // --- MUC Invitations (XEP-0045, XEP-0249) ---
@@ -507,27 +519,25 @@ class XmppRoomService with ChangeNotifier {
 
       conn.writeStanza(presence);
 
-      final iqId = 'mucConfirm_${DateTime.now().millisecondsSinceEpoch}';
-      final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
-      iq.toJid = xmpp.Jid.fromFullJid(roomJid);
+      bool exists = false;
+      for (var r in _joinedRooms) {
+        if (r.id == roomJid) exists = true;
+      }
 
-      final query = xmpp.XmppElement();
-      query.name = 'query';
-      query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/muc#owner'));
+      _roomNicknames['$id|${roomJid.toLowerCase()}'] = nick;
 
-      final xForm = xmpp.XmppElement();
-      xForm.name = 'x';
-      xForm.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
-      xForm.addAttribute(xmpp.XmppAttribute('type', 'submit'));
+      if (!exists) {
+        _joinedRooms.add(Room(id: roomJid, name: roomJid.split('@').first, participants: [], protocol: 'XMPP'));
+        _joinedRoomsStreamController.add(List.from(_joinedRooms));
+        notifyListeners();
+      }
 
-      query.addChild(xForm);
-      iq.addChild(query);
+      final persistStr = '$id|$roomJid|$nick';
+      if (!_persistedRooms.contains(persistStr)) {
+        _persistedRooms.add(persistStr);
+        await saveJoinedRooms();
+      }
 
-      conn.writeStanza(iq);
-
-      _joinedRooms.add(Room(id: roomJid, name: roomJid.split('@').first, participants: [], protocol: 'XMPP'));
-      _joinedRoomsStreamController.add(List.from(_joinedRooms));
-      notifyListeners();
       return null;
     } catch (e) {
       debugPrint('XMPP Room Creation Error: $e');
@@ -535,7 +545,7 @@ class XmppRoomService with ChangeNotifier {
     }
   }
 
-  Future<void> configureXmppRoom(
+  Future<String?> configureXmppRoom(
     String roomJid, {
     String? accountId,
     String? name,
@@ -549,7 +559,7 @@ class XmppRoomService with ChangeNotifier {
   }) async {
     final id = accountId ?? _activeAccountId;
     final conn = _connections[id];
-    if (conn == null) return;
+    if (conn == null) return 'No connection';
 
     final iqId = 'mucConfig_${DateTime.now().millisecondsSinceEpoch}';
     final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
@@ -596,7 +606,23 @@ class XmppRoomService with ChangeNotifier {
     query.addChild(xForm);
     iq.addChild(query);
 
+    final completer = Completer<xmpp.IqStanza>();
+    _pendingIqs[iqId] = completer;
     conn.writeStanza(iq);
+
+    try {
+      final response = await completer.future.timeout(const Duration(seconds: 10));
+      if (response.type == xmpp.IqStanzaType.ERROR) {
+        final error = response.getChild('error');
+        return error?.textValue ?? 'Room configuration failed';
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Room configuration error: $e');
+      return e.toString();
+    } finally {
+      _pendingIqs.remove(iqId);
+    }
   }
 
   xmpp.XmppElement _makeField(String varName, String value) {

@@ -108,9 +108,25 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
           final domain = _selectedAccountId!.split('@').last;
           finalId = '${id.toLowerCase()}@conference.$domain';
         }
-        await authService.createRoom(_selectedAccountId!, finalId, nick);
+        final error = await authService.createRoom(_selectedAccountId!, finalId, nick);
+        if (error != null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error: $error'), backgroundColor: Colors.red),
+            );
+          }
+          return;
+        }
       } else {
-        await authService.joinRoom(_selectedAccountId!, id, nick);
+        final error = await authService.joinRoom(_selectedAccountId!, id, nick);
+        if (error != null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error: $error'), backgroundColor: Colors.red),
+            );
+          }
+          return;
+        }
       }
       if (mounted) Navigator.pop(context);
     } catch (e) {

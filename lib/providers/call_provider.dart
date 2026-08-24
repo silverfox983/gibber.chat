@@ -88,6 +88,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   Timer? _callTimeoutTimer;
   Timer? _iceDebugTimer;
   Timer? _disconnectGraceTimer;
+  Timer? _cleanupSafetyTimer;
   int _candidateSendCount = 0;
   int _iceRestartAttempts = 0;
   DateTime? _iceCheckingStartTime;
@@ -365,6 +366,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _callAccountId = accountId;
     _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
     _isGroupCall = true;
+    _remoteAnswerProcessed = false;
     _log('Outgoing group ${_isVideo ? "video" : "voice"} call started (SFU)', isSent: true);
     _startOutgoingCountdown();
     notifyListeners();
@@ -882,7 +884,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
   }
 
-  void _handleJingleEvent(dynamic event) {
+  Future<void> _handleJingleEvent(dynamic event) async {
     debugPrint(
       'CallProvider: Received Jingle event ${event.action} on account ${event.accountId}',
     );
@@ -1004,8 +1006,25 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           _log('Call transfer accepted', isSent: true);
           _lastError = 'Transfer accepted - ending original call';
           endCall();
+        } else if (event.reason == 'screen-share-start') {
+          _log('Remote started screen share', isSent: false);
+          _isScreenSharing = true;
+          notifyListeners();
+        } else if (event.reason == 'screen-share-stop') {
+          _log('Remote stopped screen share', isSent: false);
+          _isScreenSharing = false;
+          notifyListeners();
         } else if (event.reason != null) {
           _log('Call info: ${event.reason}', isSent: false);
+        }
+        break;
+      case JingleAction.connectionResumed:
+        debugPrint('CallProvider: XMPP connection resumed during active call');
+        if (_state == CallState.active) {
+          _log('XMPP connection restored, triggering ICE restart', isSent: false);
+          _iceRestartAttempts = 0;
+          _iceCheckingStartTime = null;
+          _rtcManager.restartIceGathering();
         }
         break;
     }
@@ -1017,7 +1036,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
   }
 
-  void receiveCall(
+  Future<void> receiveCall(
     String fromJid,
     String sessionId,
     String? offerSdp, {
@@ -1030,6 +1049,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     _displayedError = null;
     _lastError = null;
+    _remoteAnswerProcessed = false;
 
     // HARDENING: Ignore calls from ourselves (compare bare JIDs exactly)
     final myJid = _authService?.activeAccountId?.split('/').first.toLowerCase();
@@ -1202,16 +1222,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   Future<void> toggleScreenShare() async {
     if (_state != CallState.active) return;
 
+    final wasSharing = _isScreenSharing;
     _isScreenSharing = !_isScreenSharing;
+    final isNowStarting = !wasSharing && _isScreenSharing;
 
     if (_isGroupCall) {
       if (_janusService != null && _groupCallSession != null) {
-        // _isScreenSharing was just toggled: true = just started sharing, false = just stopped
         if (!_isScreenSharing) {
-          // Was sharing, now stopping: restore camera track
           await _multiPeerManager!.replaceVideoTrack(_multiPeerManager!.localStream!.getVideoTracks().first, isStopping: true);
         } else {
-          // Was not sharing, now starting: get screen track
           final screenStream = await _multiPeerManager!.getDisplayMedia();
           if (screenStream != null) {
             final screenTrack = screenStream.getVideoTracks().firstOrNull;
@@ -1221,9 +1240,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           }
         }
       } else if (_multiPeerManager != null) {
-        // Mesh: replace video track on all peer connections
         if (!_isScreenSharing) {
-          // Was sharing, now stopping: restore camera track
           await _multiPeerManager!.replaceVideoTrackForAll(_multiPeerManager!.localStream!.getVideoTracks().first, isStopping: true);
         } else {
           final screenStream = await _multiPeerManager!.getDisplayMedia();
@@ -1244,6 +1261,14 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     if (!success) {
       _isScreenSharing = false;
     }
+
+    if (success) {
+      final signaling = _authService?.getJingleService(_callAccountId ?? '') ?? _authService?.jingleSignaling;
+      if (signaling != null && _remoteJid != null && _sessionId != null) {
+        signaling.sendScreenShareInfo(_remoteJid!, _sessionId!, isNowStarting);
+      }
+    }
+
     _log('Screen share ${_isScreenSharing ? "On" : "Off"}', isSent: true);
     notifyListeners();
   }
@@ -1383,6 +1408,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _isVideo = isVideo;
     _callAccountId = accountId;
     _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
+    _remoteAnswerProcessed = false;
     _log('Outgoing ${_isVideo ? "video" : "voice"} call started', isSent: true);
 
     // START RINGBACK
@@ -1716,11 +1742,22 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           'CallProvider: ICE stuck in Checking for ${stuckDuration.inSeconds} seconds',
         );
         if (stuckDuration.inSeconds >= 8) {
-          debugPrint(
-            'CallProvider: ICE stuck for too long, restarting ICE gathering...',
-          );
-          _rtcManager.restartIceGathering();
-          _iceCheckingStartTime = DateTime.now(); // Reset timer after restart
+          if (_iceRestartAttempts < 4) {
+            _iceRestartAttempts++;
+            final backoff = Duration(seconds: (2 << (_iceRestartAttempts - 1)).clamp(2, 16));
+            debugPrint(
+              'CallProvider: ICE stuck for too long, restarting ICE gathering (attempt $_iceRestartAttempts/4, backoff ${backoff.inSeconds}s)...',
+            );
+            _iceCheckingStartTime = DateTime.now();
+            notifyListeners();
+            Future.delayed(backoff, () {
+              _rtcManager.restartIceGathering();
+            });
+          } else {
+            debugPrint('CallProvider: ICE restart attempts exhausted, ending call');
+            _lastError = 'ICE connection failed after multiple attempts';
+            endCall();
+          }
         }
       } else if (_state == CallState.active) {
         debugPrint(
@@ -1806,14 +1843,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: Configuring audio output...');
       if (!_isVideo) {
         debugPrint('CallProvider: Voice call - applying Android Speaker Route Force');
-        
-        // Android Speaker Force: toggling sometimes triggers the correct routing
-        _rtcManager.setSpeakerphone(false); 
-        Future.delayed(const Duration(milliseconds: 50), () {
-          _rtcManager.setSpeakerphone(true);
-          _isSpeakerOn = true;
-          debugPrint('CallProvider: Speaker ON forced, _isSpeakerOn = true');
-        });
+        _isSpeakerOn = true;
+        _rtcManager.setSpeakerphone(true);
       } else {
         debugPrint('CallProvider: Video call - using current speaker setting');
         _rtcManager.setSpeakerphone(_isSpeakerOn);
@@ -1826,9 +1857,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       _rtcManager.setRemoteAudioVolume(1.0);
 
       // AUDIO DELAYS: Multiple ensures for Android to properly configure audio
+      // Guards ensure these don't access disposed objects if call ends before they fire
       debugPrint('CallProvider: Scheduling delayed audio fixes...');
 
       Future.delayed(const Duration(milliseconds: 200), () {
+        if (_isCleaningUp) return;
         debugPrint('CallProvider: [DELAY 200ms] Audio fix #1');
         _rtcManager.ensureAudioEnabled();
         if (!_isVideo) {
@@ -1836,8 +1869,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         }
       });
 
-
       Future.delayed(const Duration(milliseconds: 500), () {
+        if (_isCleaningUp) return;
         debugPrint('CallProvider: [DELAY 500ms] Audio fix #2');
         _rtcManager.ensureAudioEnabled();
         if (!_isVideo) {
@@ -1849,12 +1882,12 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       });
 
       Future.delayed(const Duration(milliseconds: 1000), () {
+        if (_isCleaningUp) return;
         debugPrint('CallProvider: [DELAY 1000ms] Audio fix #3');
         if (!_isVideo) {
           _rtcManager.setSpeakerphone(true);
           debugPrint('CallProvider: [DELAY 1000ms] Final speaker ON');
         }
-        // Verify stream is still attached
         if (_remoteRenderer.srcObject != null) {
           debugPrint(
             'CallProvider: [DELAY 1000ms] Stream still attached, audio should be playing',
@@ -1865,6 +1898,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       });
 
       Future.delayed(const Duration(milliseconds: 2000), () {
+        if (_isCleaningUp) return;
         debugPrint('CallProvider: [DELAY 2000ms] Final audio check');
         debugPrint(
           'CallProvider: Remote audio tracks: ${_remoteRenderer.srcObject?.getAudioTracks().length ?? 0}',
@@ -1923,12 +1957,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         }
       } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         debugPrint('CallProvider: ICE FAILED - Check network/NAT');
-        if (_iceRestartAttempts < 2) {
+        if (_iceRestartAttempts < 4) {
           _iceRestartAttempts++;
-          _lastError = 'Reconnecting... ($_iceRestartAttempts/2)';
+          final backoff = Duration(seconds: (2 << (_iceRestartAttempts - 1)).clamp(2, 16));
+          _lastError = 'Reconnecting... ($_iceRestartAttempts/4)';
           _iceCheckingStartTime = null;
           notifyListeners();
-          _rtcManager.restartIceGathering();
+          Future.delayed(backoff, () {
+            _rtcManager.restartIceGathering();
+          });
         } else {
           _lastError = 'ICE connection failed';
           _iceCheckingStartTime = null;
@@ -2274,6 +2311,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     debugPrint('CallProvider: Cleanup reason: $reason');
 
     _isCleaningUp = true;
+    _cleanupSafetyTimer?.cancel();
+    _cleanupSafetyTimer = Timer(const Duration(seconds: 5), () {
+      debugPrint('CallProvider: CLEANUP SAFETY TIMER - Force resetting _isCleaningUp after 5s');
+      _isCleaningUp = false;
+    });
 
     _releaseSchedulerForCall();
 
@@ -2352,12 +2394,18 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _groupAudioLevels.clear();
     await _multiPeerManager?.dispose();
     _multiPeerManager = null;
+
+    if (_janusService != null) {
+      final handleId = _groupCallSession?.publisherHandle;
+      if (handleId != null) {
+        await _janusService!.leaveRoom(handleId);
+      }
+      _janusService!.disconnect();
+      _janusService!.dispose();
+    }
+    _janusService = null;
     _isGroupCall = false;
     _groupCallSession = null;
-
-    _janusService?.disconnect();
-    _janusService?.dispose();
-    _janusService = null;
 
     await _stopAllSounds();
     debugPrint('CallProvider: Sounds stopped');
@@ -2395,6 +2443,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _iceRestartAttempts = 0;
     _disconnectGraceTimer?.cancel();
     _disconnectGraceTimer = null;
+    _cleanupSafetyTimer?.cancel();
+    _cleanupSafetyTimer = null;
     _qualityStats = null;
 
     // Reset audio effects and stop playback on call end

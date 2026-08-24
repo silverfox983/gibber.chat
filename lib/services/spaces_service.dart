@@ -1210,7 +1210,7 @@ class SpacesService extends ChangeNotifier {
     bool mucJoined;
     try {
       final myJid = _connection.account.fullJid.userAtDomain;
-      mucJoined = await _joinMucRoom(channelJid, myJid);
+      mucJoined = await _joinMucRoom(channelJid, myJid).timeout(const Duration(seconds: 10));
     } catch (e) {
       debugPrint('SpacesService: Channel MUC creation failed: $e');
       mucJoined = false;
@@ -1219,6 +1219,23 @@ class SpacesService extends ChangeNotifier {
     if (!mucJoined) {
       debugPrint('SpacesService: MUC join returned false, skipping bookmark publish for $channelJid');
       return false;
+    }
+
+    if (_roomService != null) {
+      final accountId = _getAccountIdForConnection(_connection);
+      final configError = await _roomService!.configureXmppRoom(
+        channelJid,
+        accountId: accountId,
+        name: channelName,
+        isPublic: true,
+        isPersistent: true,
+        isMembersOnly: false,
+        allowMemberInvites: true,
+        changeSubject: true,
+      );
+      if (configError != null) {
+        debugPrint('SpacesService: Channel configuration failed: $configError');
+      }
     }
 
     final conference = xmpp.XmppElement();

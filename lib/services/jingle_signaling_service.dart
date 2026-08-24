@@ -19,6 +19,7 @@ enum JingleAction {
   chatMarker,
   retract,
   messageError,
+  connectionResumed,
 }
 
 class JingleEvent {
@@ -72,6 +73,9 @@ class JingleSignalingService {
   // Timers for XEP-0353 fallback (proceed timeout)
   final Map<String, Timer> _proceedTimers = {};
 
+  // Timers for session-initiate IQ timeout (no RESULT received)
+  final Map<String, Timer> _sessionInitTimers = {};
+
   // Timers for XEP-0353 fallbacks
 
 
@@ -90,9 +94,21 @@ class JingleSignalingService {
   final Map<String, List<Map<String, dynamic>>> _pendingOutgoingCandidates = {};
 
   StreamSubscription? _stanzaSubscription;
+  StreamSubscription? _connectionStateSub;
 
   JingleSignalingService(this.connection) {
     debugPrint('Jingle: Initialized for ${connection.fullJid.fullJid}');
+
+    _connectionStateSub = connection.connectionStateStream.listen((state) {
+      debugPrint('Jingle: Connection state changed to $state');
+      if (state == xmpp.XmppConnectionState.Ready) {
+        _eventController.add(JingleEvent(
+          action: JingleAction.connectionResumed,
+          sessionId: '',
+          fromJid: '',
+        ));
+      }
+    });
   }
 
   bool _writeStanza(xmpp.AbstractStanza stanza) {
@@ -109,6 +125,8 @@ class JingleSignalingService {
   void dispose() {
     _stanzaSubscription?.cancel();
     _stanzaSubscription = null;
+    _connectionStateSub?.cancel();
+    _connectionStateSub = null;
 
     if (!_eventController.isClosed) {
       _eventController.close();
@@ -569,6 +587,18 @@ class JingleSignalingService {
 
     debugPrint('Jingle: [INITIATE] Sending IQ to $toJid');
     _writeStanza(iq);
+
+    _sessionInitTimers[sessionId]?.cancel();
+    _sessionInitTimers[sessionId] = Timer(const Duration(seconds: 30), () {
+      debugPrint('Jingle: [TIMEOUT] Session-initiate IQ timed out for $sessionId');
+      _cleanupSession(sessionId);
+      _eventController.add(JingleEvent(
+        action: JingleAction.sessionTerminate,
+        sessionId: sessionId,
+        fromJid: toJid,
+        reason: 'timeout',
+      ));
+    });
   }
 
   /// XEP-0353: Send session-accept (responds to session-initiate via IQ)
@@ -1107,6 +1137,29 @@ class JingleSignalingService {
     _writeStanza(iq);
   }
 
+  void sendScreenShareInfo(String toJid, String sessionId, bool isStarting) {
+    final iqId = 'jingle_${DateTime.now().millisecondsSinceEpoch}';
+    _iqToSessionId[iqId] = sessionId;
+    final iq = xmpp.IqStanza(iqId, xmpp.IqStanzaType.SET);
+    iq.addAttribute(XmppAttribute('to', toJid));
+    iq.addAttribute(XmppAttribute('id', iqId));
+
+    final jingle = xmpp.XmppElement();
+    jingle.name = 'jingle';
+    jingle.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:1'));
+    jingle.addAttribute(XmppAttribute('action', 'session-info'));
+    jingle.addAttribute(XmppAttribute('sid', sessionId));
+
+    final screenShare = xmpp.XmppElement();
+    screenShare.name = isStarting ? 'screen-share-start' : 'screen-share-stop';
+    screenShare.addAttribute(XmppAttribute('xmlns', 'urn:xmpp:jingle:apps:rtp:1'));
+    jingle.addChild(screenShare);
+
+    iq.addChild(jingle);
+    debugPrint('Jingle: Sending screen-share ${isStarting ? "start" : "stop"} to $toJid');
+    _writeStanza(iq);
+  }
+
   void sendContentModify(String toJid, String sessionId, String senders, {bool isAudio = true, bool isVideo = true}) {
     final iqId = 'jingle_${DateTime.now().millisecondsSinceEpoch}';
     _iqToSessionId[iqId] = sessionId;
@@ -1156,6 +1209,8 @@ class JingleSignalingService {
     _pendingProposeSessions.remove(sessionId);
     _proceedTimers[sessionId]?.cancel();
     _proceedTimers.remove(sessionId);
+    _sessionInitTimers[sessionId]?.cancel();
+    _sessionInitTimers.remove(sessionId);
 
     _iqToSessionId.removeWhere((key, value) => value == sessionId);
     _sessionSetupRoles.remove(sessionId);
@@ -1173,6 +1228,8 @@ class JingleSignalingService {
       if (sidForIq != null) {
         debugPrint('Jingle: IQ $iqId acknowledged for SID: $sidForIq');
         _acknowledgedSessions.add(sidForIq);
+        _sessionInitTimers[sidForIq]?.cancel();
+        _sessionInitTimers.remove(sidForIq);
         _flushPendingCandidates(
           sidForIq,
           stanza.fromJid?.fullJid ?? recipientJid ?? '',
@@ -1359,13 +1416,21 @@ class JingleSignalingService {
       }
     } else if (actionStr == 'session-info') {
       action = JingleAction.sessionInfo;
-      // Extract reason/info from session-info (used for transfer response, etc.)
+      // Extract reason/info from session-info (used for transfer response, screen-share, etc.)
       final transferEl = jingle.getChild('transfer');
       if (transferEl != null) {
         reason = 'transfer';
       } else {
-        final infoEl = jingle.getChild('info');
-        reason = infoEl?.textValue ?? 'session-info';
+        final screenShareStart = jingle.getChild('screen-share-start');
+        final screenShareStop = jingle.getChild('screen-share-stop');
+        if (screenShareStart != null) {
+          reason = 'screen-share-start';
+        } else if (screenShareStop != null) {
+          reason = 'screen-share-stop';
+        } else {
+          final infoEl = jingle.getChild('info');
+          reason = infoEl?.textValue ?? 'session-info';
+        }
       }
     } else if (actionStr == 'content-modify') {
       action = JingleAction.contentModify;

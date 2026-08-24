@@ -71,7 +71,7 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
       if (error != null) throw error;
 
       if (_descriptionController.text.isNotEmpty || !_isPublic || !_isPersistent || _isMembersOnly) {
-        await authService.configureXmppRoom(
+        final configError = await authService.configureXmppRoom(
           _jidController.text.trim().toLowerCase(),
           accountId: _selectedAccountId,
           name: _nameController.text.trim().isNotEmpty ? _nameController.text.trim() : null,
@@ -83,6 +83,7 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
           changeSubject: _changeSubject,
           historyLength: _historyLength,
         );
+        if (configError != null) throw configError;
       }
 
       if (mounted) {

@@ -1,9 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../providers/call_provider.dart';
-import '../../screens/call_screen.dart';
 
 class CallFloatingOverlay extends StatefulWidget {
   const CallFloatingOverlay({super.key});
@@ -15,7 +15,6 @@ class CallFloatingOverlay extends StatefulWidget {
 class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
   Offset _position = const Offset(20, 100);
   bool _isDragging = false;
-  bool _isExpanded = false;
 
   static const double _collapsedWidth = 120;
   static const double _collapsedHeight = 160;
@@ -25,19 +24,6 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
     return Consumer<CallProvider>(
       builder: (context, call, _) {
         if (call.state == CallState.idle) return const SizedBox.shrink();
-
-        if (_isExpanded) {
-          return GestureDetector(
-            onTap: () => setState(() => _isExpanded = false),
-            child: Container(
-              color: Colors.black54,
-              child: const Center(
-                child: Text('Tap to collapse',
-                    style: TextStyle(color: Colors.white70)),
-              ),
-            ),
-          );
-        }
 
         return Positioned(
           right: _position.dx,
@@ -115,7 +101,7 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
                 ),
               ),
               GestureDetector(
-                onTap: () => setState(() => _isExpanded = true),
+                onTap: () => context.pushNamed('call_screen'),
                 child: Icon(
                   Icons.open_in_full_rounded,
                   size: 12,
