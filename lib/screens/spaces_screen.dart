@@ -3478,8 +3478,143 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
   }
 
   void _handleShare(SpaceItem item) {
-    final text = '${item.name ?? 'Post'} by ${item.author ?? 'Anonymous'}\n\n${item.description ?? ''}';
-    Share.share(text, subject: item.name);
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) {
+        final auth = Provider.of<AuthService>(context, listen: false);
+        final chats = Provider.of<ChatProvider>(context, listen: false).conversations;
+        final rooms = auth.joinedRooms;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(color: Theme.of(ctx).colorScheme.onSurfaceVariant.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 12),
+              Text('Share Post', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Theme.of(ctx).colorScheme.onSurface)),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Icon(Icons.ios_share_rounded, color: Theme.of(ctx).colorScheme.primary),
+                title: const Text('Share externally'),
+                subtitle: const Text('Share via system share sheet'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  final text = '${item.name ?? 'Post'} by ${item.author ?? 'Anonymous'}\n\n${item.description ?? ''}';
+                  Share.share(text, subject: item.name);
+                },
+              ),
+              if (chats.isNotEmpty) ...[
+                const Divider(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Align(alignment: Alignment.centerLeft, child: Text('SHARE TO CHAT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.2, color: Theme.of(ctx).colorScheme.onSurfaceVariant))),
+                ),
+                SizedBox(
+                  height: 120,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: chats.length > 10 ? 10 : chats.length,
+                    itemBuilder: (_, i) {
+                      final chat = chats[i];
+                      return InkWell(
+                        onTap: () async {
+                          Navigator.pop(ctx);
+                          final accountId = auth.activeAccountId;
+                          if (accountId == null) return;
+                          final postUrl = 'xmpp:${widget.space.domain}?;node=${widget.space.node};item=${item.id}';
+                          await auth.pubsubInteractionService.sharePostToChat(
+                            accountId: accountId,
+                            targetJid: chat.id,
+                            postId: item.id,
+                            postUrl: postUrl,
+                            postTitle: item.name,
+                          );
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Shared to ${chat.name}'), backgroundColor: Colors.green));
+                          }
+                        },
+                        child: Container(
+                          width: 80,
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircleAvatar(
+                                radius: 22,
+                                backgroundColor: Theme.of(ctx).colorScheme.primaryContainer,
+                                child: Text(chat.name.isNotEmpty ? chat.name[0].toUpperCase() : '?', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(ctx).colorScheme.onPrimaryContainer)),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(chat.name, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+              if (rooms.isNotEmpty) ...[
+                const Divider(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Align(alignment: Alignment.centerLeft, child: Text('SHARE TO ROOM', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.2, color: Theme.of(ctx).colorScheme.onSurfaceVariant))),
+                ),
+                SizedBox(
+                  height: 120,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: rooms.length > 10 ? 10 : rooms.length,
+                    itemBuilder: (_, i) {
+                      final room = rooms[i];
+                      return InkWell(
+                        onTap: () async {
+                          Navigator.pop(ctx);
+                          final accountId = auth.activeAccountId;
+                          if (accountId == null) return;
+                          final postUrl = 'xmpp:${widget.space.domain}?;node=${widget.space.node};item=${item.id}';
+                          await auth.pubsubInteractionService.sharePostToRoom(
+                            accountId: accountId,
+                            roomJid: room.id,
+                            postId: item.id,
+                            postUrl: postUrl,
+                            postTitle: item.name,
+                          );
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Shared to ${room.name}'), backgroundColor: Colors.green));
+                          }
+                        },
+                        child: Container(
+                          width: 80,
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircleAvatar(
+                                radius: 22,
+                                backgroundColor: Theme.of(ctx).colorScheme.tertiaryContainer,
+                                child: Icon(Icons.groups_rounded, color: Theme.of(ctx).colorScheme.onTertiaryContainer, size: 20),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(room.name, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void _showRepostDialog(SpaceItem item) {
