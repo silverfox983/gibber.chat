@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import './omemo_service_stub.dart' if (dart.library.io) './omemo_service.dart';
 import './omemo_storage_stub.dart' if (dart.library.io) './omemo_storage.dart';
+import './xmpp_room_service.dart';
 
 class XmppOmemoService with ChangeNotifier {
   static const String nsOmemo = OmemoService.nsOmemo;
@@ -14,9 +15,14 @@ class XmppOmemoService with ChangeNotifier {
   final Map<String, xmpp.Connection> _connections = {};
   final Map<String, String> _jids = {};
   final Map<String, Set<String>> _serverFeatures = {};
+  XmppRoomService? _roomService;
 
   OmemoService get omemo => _omemo;
   bool get isStrictVerificationEnabled => _isStrictVerificationEnabled;
+
+  void setRoomService(XmppRoomService roomService) {
+    _roomService = roomService;
+  }
 
   void registerConnection(String accountId, xmpp.Connection conn, String fullJid) {
     _connections[accountId] = conn;
@@ -232,7 +238,12 @@ class XmppOmemoService with ChangeNotifier {
   }
 
   List<String> getGroupParticipants(String roomJid) {
-    return [];
+    if (_roomService == null) return [];
+    final participants = _roomService!.getRoomParticipants(roomJid.toLowerCase());
+    return participants
+        .where((p) => p.realJid != null && p.realJid!.isNotEmpty)
+        .map((p) => p.realJid!.split('/').first.toLowerCase())
+        .toList();
   }
 
   Future<List<xmpp.XmppElement>?> encryptMessageForMuc(

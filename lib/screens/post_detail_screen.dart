@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -5,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/space_models.dart';
 import '../services/spaces_service.dart';
 import '../services/auth_service.dart';
+import '../services/pubsub_interaction_service.dart';
 import 'package:provider/provider.dart';
 
 class PostDetailScreen extends StatefulWidget {
@@ -30,11 +32,80 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   bool _isLoadingReplies = true;
   final _replyController = TextEditingController();
   bool _isPosting = false;
+  Map<String, int> _reactionCounts = {};
+  bool _isLiked = false;
+  StreamSubscription<PubSubLikeEvent>? _likeSub;
 
   @override
   void initState() {
     super.initState();
     _loadReplies();
+    _loadReactions();
+    _listenToLikes();
+  }
+
+  void _listenToLikes() {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    _likeSub = auth.pubsubInteractionService.likeEvents.listen((event) {
+      if (event.itemId == widget.post.id) {
+        if (mounted) {
+          setState(() {
+            _isLiked = event.liked;
+            if (event.liked) {
+              _reactionCounts['\u2764\uFE0F'] = (_reactionCounts['\u2764\uFE0F'] ?? 0) + 1;
+            } else {
+              final current = _reactionCounts['\u2764\uFE0F'] ?? 0;
+              if (current > 0) _reactionCounts['\u2764\uFE0F'] = current - 1;
+            }
+          });
+        }
+      }
+    });
+  }
+
+  Future<void> _loadReactions() async {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final accountId = auth.activeAccountId;
+    if (accountId == null) return;
+
+    try {
+      final counts = await auth.pubsubInteractionService.fetchReactionCounts(
+        accountId: accountId,
+        itemId: widget.post.id,
+        serviceJid: widget.space.domain,
+      );
+      if (mounted) {
+        setState(() {
+          _reactionCounts = counts;
+          _isLiked = counts.containsKey('\u2764\uFE0F');
+        });
+      }
+    } catch (_) {
+    }
+  }
+
+  Future<void> _toggleLike() async {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final accountId = auth.activeAccountId;
+    if (accountId == null) return;
+
+    final nodeId = widget.post.sourceSpace?.node ?? widget.space.node;
+    await auth.pubsubInteractionService.toggleLike(
+      accountId: accountId,
+      itemId: widget.post.id,
+      nodeId: nodeId,
+      serviceJid: widget.space.domain,
+      isCurrentlyLiked: _isLiked,
+    );
+    setState(() {
+      _isLiked = !_isLiked;
+      if (_isLiked) {
+        _reactionCounts['\u2764\uFE0F'] = (_reactionCounts['\u2764\uFE0F'] ?? 0) + 1;
+      } else {
+        final current = _reactionCounts['\u2764\uFE0F'] ?? 0;
+        if (current > 0) _reactionCounts['\u2764\uFE0F'] = current - 1;
+      }
+    });
   }
 
   Future<void> _loadReplies() async {
@@ -82,6 +153,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   @override
   void dispose() {
+    _likeSub?.cancel();
     _replyController.dispose();
     super.dispose();
   }
@@ -102,22 +174,40 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
     setState(() => _isPosting = true);
 
+    final auth = context.read<AuthService>();
+    final accountId = auth.activeAccountId;
     final targetDomain = widget.post.commentService ?? widget.space.domain;
     final targetNode = widget.post.commentNode ?? widget.space.node;
 
-    final auth = context.read<AuthService>();
-    final authorName = auth.getResolvedNickname(null);
-    var success = await widget.spacesService.postReply(
-      targetDomain,
-      targetNode,
-      text,
-      replyToId: widget.post.id,
-      authorName: authorName,
-    );
+    var success = false;
+    if (accountId != null) {
+      try {
+        final commentId = await auth.pubsubInteractionService.publishComment(
+          accountId: accountId,
+          nodeId: targetNode,
+          serviceJid: targetDomain,
+          inReplyTo: widget.post.id,
+          content: text,
+        );
+        success = commentId.isNotEmpty;
+      } catch (_) {
+        success = false;
+      }
+    }
 
-    // Fallback: If the post specified a comment node but it failed (e.g. node doesn't exist),
-    // fallback to publishing the reply on the main space node as per XEP-0277.
+    if (!success) {
+      final authorName = auth.getResolvedNickname(null);
+      success = await widget.spacesService.postReply(
+        targetDomain,
+        targetNode,
+        text,
+        replyToId: widget.post.id,
+        authorName: authorName,
+      );
+    }
+
     if (!success && widget.post.commentNode != null) {
+      final authorName = auth.getResolvedNickname(null);
       success = await widget.spacesService.postReply(
         widget.space.domain,
         widget.space.node,
@@ -265,6 +355,42 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       child: Image.network(widget.post.imageUrl!, fit: BoxFit.cover),
                     ),
                   ),
+
+                // Like / Reactions bar
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          _isLiked ? Icons.favorite_rounded : Icons.favorite_outline_rounded,
+                          color: _isLiked ? Colors.redAccent : theme.colorScheme.onSurfaceVariant,
+                        ),
+                        onPressed: _toggleLike,
+                      ),
+                      if (_reactionCounts.isNotEmpty)
+                        ..._reactionCounts.entries.map((e) => Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text('${e.key} ${e.value}', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                          ),
+                        )),
+                      const Spacer(),
+                      IconButton(
+                        icon: Icon(Icons.share_rounded, color: theme.colorScheme.onSurfaceVariant),
+                        onPressed: () async {
+                          final postUrl = 'xmpp:${widget.space.domain}?;node=${widget.space.node};item=${widget.post.id}';
+                          try { await launchUrl(Uri.parse(postUrl), mode: LaunchMode.externalApplication); } catch (_) {}
+                        },
+                      ),
+                    ],
+                  ),
+                ),
 
                 const Divider(thickness: 4),
 

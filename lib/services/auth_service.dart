@@ -362,6 +362,7 @@ class AuthService with ChangeNotifier {
   AuthService() {
     _roomService = XmppRoomService(_xmppConnections, _xmppJids);
     _roomService.setActiveAccountIdGetter(() => _activeAccountId);
+    _omemoService.setRoomService(_roomService);
     _contactService = XmppContactService(_AuthContactDeps(this));
     _messageService = XmppMessageService(_AuthMessageDeps(this));
     _stanzaHandler = XmppStanzaHandler(_AuthStanzaDeps(this));
