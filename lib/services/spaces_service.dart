@@ -750,7 +750,7 @@ class SpacesService extends ChangeNotifier {
 
   Future<String?> createSpace(String domain, String node, String name, {String? description, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true, String? avatarUrl, String? coverUrl}) async {
     // Build the XEP-0060 node configuration form (Movim-style Space config).
-    xmpp.XmppElement _buildConfigForm() {
+    xmpp.XmppElement buildConfigForm() {
       final x = xmpp.XmppElement();
       x.name = 'x';
       x.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
@@ -789,7 +789,7 @@ class SpacesService extends ChangeNotifier {
       return x;
     }
 
-    Future<xmpp.IqStanza> _sendCreateNode({required String domain, xmpp.XmppElement? configForm}) async {
+    Future<xmpp.IqStanza> sendCreateNode({required String domain, xmpp.XmppElement? configForm}) async {
       final iq = xmpp.IqStanza('create_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
       iq.toJid = xmpp.Jid.fromFullJid(domain);
       final pubsub = xmpp.XmppElement();
@@ -809,7 +809,7 @@ class SpacesService extends ChangeNotifier {
       return _sendIq(iq);
     }
 
-    Future<xmpp.IqStanza> _sendConfigureNode(String domain, xmpp.XmppElement configForm) async {
+    Future<xmpp.IqStanza> sendConfigureNode(String domain, xmpp.XmppElement configForm) async {
       final iq = xmpp.IqStanza('config_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
       iq.toJid = xmpp.Jid.fromFullJid(domain);
       final pubsub = xmpp.XmppElement();
@@ -824,7 +824,7 @@ class SpacesService extends ChangeNotifier {
       return _sendIq(iq);
     }
 
-    String _formatError(String errorDomain, xmpp.IqStanza response, String defaultMessage) {
+    String formatError(String errorDomain, xmpp.IqStanza response, String defaultMessage) {
       final errorNode = response.getChild('error');
       final fullXml = response.buildXmlString();
       debugPrint('SpacesService: createSpace error on $errorDomain: $fullXml');
@@ -857,28 +857,28 @@ class SpacesService extends ChangeNotifier {
       return 'CreateSpace v2: $defaultMessage (domain: $errorDomain) Raw: $errorXml';
     }
 
-    Future<bool> _isSuccess(xmpp.IqStanza response) async =>
+    Future<bool> isSuccess(xmpp.IqStanza response) async =>
         response.type != xmpp.IqStanzaType.ERROR;
 
-    Future<String?> _tryCreateOnDomain(String targetDomain) async {
-      final configForm = _buildConfigForm();
-      final response = await _sendCreateNode(domain: targetDomain, configForm: configForm);
-      if (await _isSuccess(response)) {
+    Future<String?> tryCreateOnDomain(String targetDomain) async {
+      final configForm = buildConfigForm();
+      final response = await sendCreateNode(domain: targetDomain, configForm: configForm);
+      if (await isSuccess(response)) {
         debugPrint('SpacesService: created+configured Space node $node on $targetDomain');
         return null;
       }
-      final combinedError = _formatError(targetDomain, response, 'Server rejected the space creation request.');
+      final combinedError = formatError(targetDomain, response, 'Server rejected the space creation request.');
 
       // Fallback: create node with default config, then configure separately.
-      final createResponse = await _sendCreateNode(domain: targetDomain);
-      if (await _isSuccess(createResponse)) {
+      final createResponse = await sendCreateNode(domain: targetDomain);
+      if (await isSuccess(createResponse)) {
         debugPrint('SpacesService: created Space node $node with default config on $targetDomain; applying config now');
-        final configResponse = await _sendConfigureNode(targetDomain, configForm);
-        if (await _isSuccess(configResponse)) {
+        final configResponse = await sendConfigureNode(targetDomain, configForm);
+        if (await isSuccess(configResponse)) {
           debugPrint('SpacesService: configured Space node $node on $targetDomain');
           return null;
         } else {
-          final configError = _formatError(targetDomain, configResponse, 'Space was created but configuration failed.');
+          final configError = formatError(targetDomain, configResponse, 'Space was created but configuration failed.');
           debugPrint('SpacesService: configure fallback failed on $targetDomain: $configError');
           // Node exists; treat as success but MUC/subscribe may not work fully.
           return null;
@@ -895,7 +895,7 @@ class SpacesService extends ChangeNotifier {
 
       String? lastError;
       for (final targetDomain in domains) {
-        lastError = await _tryCreateOnDomain(targetDomain);
+        lastError = await tryCreateOnDomain(targetDomain);
         if (lastError == null) {
           // SUCCESS — now create MUC room (optional) and auto-subscribe
           final myJid = _connection.account.fullJid.userAtDomain;
