@@ -176,6 +176,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         role: _roleController.text.trim().isEmpty ? null : _roleController.text.trim(),
         birthday: _birthdayController.text.trim().isEmpty ? null : _birthdayController.text.trim(),
       );
+
+      // Publish nickname via PEP (XEP-0172)
+      if (_nickController.text.trim().isNotEmpty) {
+        authService.pepService.publishNicknamePep(_selectedAccountId!, _nickController.text.trim());
+      }
       
       if (mounted) {
         if (!widget.isSidebar) {

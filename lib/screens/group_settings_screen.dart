@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
+import '../services/xmpp_room_service.dart';
 import '../providers/chat_provider.dart';
 import '../models/chat_models.dart';
+
 class GroupSettingsScreen extends StatefulWidget {
   final Conversation conversation;
 
@@ -15,12 +17,50 @@ class GroupSettingsScreen extends StatefulWidget {
 class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   late TextEditingController _nameController;
   late TextEditingController _topicController;
+  String _notificationAction = 'notify';
+  bool _isLoadingNotifSettings = true;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.conversation.name);
     _topicController = TextEditingController();
+    _loadNotificationSettings();
+  }
+
+  Future<void> _loadNotificationSettings() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final accountId = widget.conversation.accountId ?? authService.activeAccountId;
+    if (accountId == null) {
+      if (mounted) setState(() => _isLoadingNotifSettings = false);
+      return;
+    }
+    try {
+      final settings = await authService.roomService.getChatNotificationSettings(accountId, widget.conversation.id);
+      if (mounted && settings != null) {
+        setState(() {
+          _notificationAction = settings.effectiveAction;
+          _isLoadingNotifSettings = false;
+        });
+      } else if (mounted) {
+        setState(() => _isLoadingNotifSettings = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingNotifSettings = false);
+    }
+  }
+
+  Future<void> _updateNotificationAction(String action) async {
+    setState(() => _notificationAction = action);
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final accountId = widget.conversation.accountId ?? authService.activeAccountId;
+    if (accountId == null) return;
+
+    final settings = ChatNotificationSettings(
+      peerJid: widget.conversation.id,
+      rules: [NotificationRule(action: action)],
+    );
+    await authService.roomService.setChatNotificationSettings(accountId, widget.conversation.id, settings);
   }
 
   @override
@@ -97,6 +137,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   const SizedBox(height: 16),
                   _buildParticipantList(context, authService, conversation),
                   const SizedBox(height: 32),
+                  _buildSectionHeader(context, 'NOTIFICATIONS (XEP-0492)'),
+                  const SizedBox(height: 16),
+                  _buildNotificationSection(context, theme),
+                  const SizedBox(height: 32),
                   _buildSectionHeader(context, 'DANGER ZONE'),
                   const SizedBox(height: 16),
                   _buildCard(
@@ -145,6 +189,41 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         },
         label: const Text('Save Changes'),
         icon: const Icon(Icons.save_rounded),
+      ),
+    );
+  }
+
+  Widget _buildNotificationSection(BuildContext context, ThemeData theme) {
+    final options = [
+      ('notify', 'All Messages', Icons.notifications_rounded, 'Notify for every message'),
+      ('mention', 'Mentions Only', Icons.alternate_email_rounded, 'Notify only when mentioned'),
+      ('mute', 'Muted', Icons.notifications_off_rounded, 'No notifications'),
+    ];
+
+    return _buildCard(
+      context,
+      child: Column(
+        children: [
+          if (_isLoadingNotifSettings)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+            )
+          else
+            ...options.map((opt) {
+              final (action, label, icon, description) = opt;
+              final isSelected = _notificationAction == action;
+              return ListTile(
+                leading: Icon(icon, color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant),
+                title: Text(label, style: TextStyle(fontWeight: isSelected ? FontWeight.w900 : FontWeight.w500)),
+                subtitle: Text(description, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+                trailing: isSelected
+                    ? Icon(Icons.check_circle_rounded, color: theme.colorScheme.primary)
+                    : null,
+                onTap: () => _updateNotificationAction(action),
+              );
+            }),
+        ],
       ),
     );
   }
