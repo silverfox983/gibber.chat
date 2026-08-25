@@ -1652,8 +1652,9 @@ class AuthService with ChangeNotifier {
             }
           }
         } else if (state == xmpp.XmppConnectionState.Resumed) {
-          debugPrint('XMPP Account $id: Stream Management resumed — flushing pending messages');
+          debugPrint('XMPP Account $id: Stream Management resumed — flushing pending messages and rejoining MUC rooms');
           _flushPendingMessages(id);
+          await _roomService.autoJoinRooms(id);
         }
       }, onError: _handleXmppStreamError);
 
