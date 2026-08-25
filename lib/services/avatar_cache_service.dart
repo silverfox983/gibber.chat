@@ -114,4 +114,10 @@ class AvatarCacheService {
       await _cacheDir!.create(recursive: true);
     }
   }
+
+  void invalidateAvatar(String id) {
+    final normalized = _normalizeJid(id);
+    final fileName = _getFileName(normalized);
+    _memoryCache.remove(fileName);
+  }
 }

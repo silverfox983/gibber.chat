@@ -760,6 +760,9 @@ class AuthService with ChangeNotifier {
       _discoveredPubsubServices[id] = [];
       _discoveredMucServices[id] = [];
       ConnectionLifecycleService.instance.registerConnection(id, conn);
+      ConnectionLifecycleService.instance.setOnRoomsRejoined((accountId) {
+        _roomService.autoJoinRooms(accountId);
+      });
 
       _connectionStateSubs[id]?.cancel();
       _connectionStateSubs[id] = conn.connectionStateStream.listen((state) async {

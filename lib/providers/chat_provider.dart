@@ -1131,6 +1131,24 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  void updateContactFromPepNickname(String bareJid, String nickname) {
+    final jid = bareJid.toLowerCase().split('/').first;
+    final cIdx = _contacts.indexWhere((c) => c.id.toLowerCase() == jid);
+    if (cIdx != -1) {
+      _contacts[cIdx].name = nickname;
+      notifyListeners();
+    }
+  }
+
+  void updateContactFromPepLastInteraction(String bareJid, DateTime lastInteraction) {
+    final jid = bareJid.toLowerCase().split('/').first;
+    final cIdx = _contacts.indexWhere((c) => c.id.toLowerCase() == jid);
+    if (cIdx != -1) {
+      _contacts[cIdx].lastInteraction = lastInteraction;
+      notifyListeners();
+    }
+  }
+
   Future<void> addReaction(
     String conversationId,
     String messageId,

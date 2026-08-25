@@ -11,6 +11,7 @@ class ConnectionLifecycleService extends WidgetsBindingObserver {
   bool _isInitialized = false;
   AppLifecycleState _lastState = AppLifecycleState.resumed;
   final Map<String, xmpp.Connection> _connections = {};
+  void Function(String accountId)? _onRoomsRejoined;
 
   void init() {
     if (_isInitialized) return;
@@ -24,6 +25,10 @@ class ConnectionLifecycleService extends WidgetsBindingObserver {
 
   void unregisterConnection(String accountId) {
     _connections.remove(accountId);
+  }
+
+  void setOnRoomsRejoined(void Function(String accountId) callback) {
+    _onRoomsRejoined = callback;
   }
 
   @override
@@ -61,6 +66,9 @@ class ConnectionLifecycleService extends WidgetsBindingObserver {
           state == xmpp.XmppConnectionState.Resumed) {
         debugPrint('Lifecycle: Account $id still connected, sending ping');
         _pingConnection(id, conn);
+        if (_onRoomsRejoined != null) {
+          _onRoomsRejoined!(id);
+        }
       } else {
         debugPrint('Lifecycle: Account $id in state $state, waiting');
       }

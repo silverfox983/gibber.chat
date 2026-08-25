@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -20,15 +21,53 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  StreamSubscription<Map<String, String?>>? _nicknameSub;
+  StreamSubscription<Map<String, String?>>? _avatarSub;
+  StreamSubscription<Map<String, String?>>? _lastInteractionSub;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _listenToPepEvents();
+  }
+
+  void _listenToPepEvents() {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+
+    _nicknameSub = authService.nicknameStream.listen((event) {
+      final jid = event['jid'];
+      final nickname = event['nickname'];
+      if (jid != null && nickname != null) {
+        chatProvider.updateContactFromPepNickname(jid, nickname);
+      }
+    });
+
+    _avatarSub = authService.avatarUpdateStream.listen((event) {
+      final jid = event['jid'];
+      if (jid != null) {
+        AvatarCacheService().invalidateAvatar(jid);
+      }
+    });
+
+    _lastInteractionSub = authService.lastInteractionStream.listen((event) {
+      final jid = event['jid'];
+      final stamp = event['lastInteraction'];
+      if (jid != null && stamp != null) {
+        final dt = DateTime.tryParse(stamp);
+        if (dt != null) {
+          chatProvider.updateContactFromPepLastInteraction(jid, dt);
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
+    _nicknameSub?.cancel();
+    _avatarSub?.cancel();
+    _lastInteractionSub?.cancel();
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -555,6 +594,16 @@ class _ContactTile extends StatelessWidget {
   final Contact contact;
   const _ContactTile({required this.contact});
 
+  String _timeAgo(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inDays > 365) return '${(diff.inDays / 365).floor()}y';
+    if (diff.inDays > 30) return '${(diff.inDays / 30).floor()}mo';
+    if (diff.inDays > 0) return '${diff.inDays}d';
+    if (diff.inHours > 0) return '${diff.inHours}h';
+    if (diff.inMinutes > 0) return '${diff.inMinutes}m';
+    return 'now';
+  }
+
   @override
   Widget build(BuildContext context) {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
@@ -598,6 +647,21 @@ class _ContactTile extends StatelessWidget {
                   style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppColors.accent),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            if (contact.lastInteraction != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2.0),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.access_time_rounded, size: 10, color: Colors.white.withValues(alpha: 0.35)),
+                    const SizedBox(width: 3),
+                    Text(
+                      _timeAgo(contact.lastInteraction!),
+                      style: TextStyle(fontSize: 10, color: Colors.white.withValues(alpha: 0.35)),
+                    ),
+                  ],
                 ),
               ),
           ],
