@@ -136,6 +136,11 @@ abstract class AuthServiceSyncDeps {
   Future<void> fetchMyVCard({String? accountId});
 }
 
+abstract class PrivacyServiceDeps {
+  Map<String, xmpp.Connection> get xmppConnections;
+  String? get activeAccountId;
+}
+
 abstract class AuthServiceUploadDeps {
   Map<String, xmpp.Connection> get xmppConnections;
   String? get activeAccountId;

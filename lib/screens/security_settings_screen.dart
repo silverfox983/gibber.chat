@@ -207,11 +207,19 @@ class SecuritySettingsScreen extends StatelessWidget {
           ),
           const Divider(height: 1),
           ListTile(
+            leading: const Icon(Icons.shield_outlined, color: Colors.indigoAccent),
+            title: const Text('Manage Privacy Lists', style: TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: const Text('Block messages, presence, or IQs from specific JIDs'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => context.pushNamed('privacy'),
+          ),
+          const Divider(height: 1),
+          ListTile(
              leading: const Icon(Icons.article_outlined, color: Colors.blueAccent),
              title: const Text('View Legal & Privacy Policy', style: TextStyle(fontWeight: FontWeight.bold)),
              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
              onTap: () {},
-          ),
+           ),
         ],
       ),
     );

@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
+import 'package:xmpp_stone/xmpp_stone.dart' show PrivacyListsManager, PrivacyList, PrivacyListItem, PrivacyAction, PrivacyType, PrivacyControlStanza;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/chat_models.dart';
 import '../models/picked_file.dart';
@@ -2360,6 +2361,103 @@ class AuthService with ChangeNotifier {
 
   Future<List<String>> getBlockList({String? accountId}) =>
       _contactService.getBlockList(accountId: accountId);
+
+  // --- XEP-0166: Privacy Lists ---
+  bool isPrivacyListsSupported({String? accountId}) {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) return false;
+    final conn = _xmppConnections[acc];
+    if (conn == null) return false;
+    return PrivacyListsManager.getInstance(conn).isPrivacyListsSupported();
+  }
+
+  Future<List<String>> getPrivacyLists({String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) throw Exception('No active account');
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    final result = await manager.getAllLists();
+    return result.allPrivacyLists ?? [];
+  }
+
+  Future<String?> getActivePrivacyList({String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) return null;
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    final result = await manager.getAllLists();
+    return result.activeList;
+  }
+
+  Future<String?> getDefaultPrivacyList({String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) return null;
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    final result = await manager.getAllLists();
+    return result.defaultList;
+  }
+
+  Future<void> setActivePrivacyList(String name, {String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) throw Exception('No active account');
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    await manager.setActiveList(name);
+  }
+
+  Future<void> createPrivacyList(String name, List<Map<String, dynamic>> items, {String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) throw Exception('No active account');
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    final privacyItems = items.map((item) {
+      final controlStanzas = <xmpp.PrivacyControlStanza>[];
+      if (item['block_messages'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.MESSAGE);
+      if (item['block_iq'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.IQ);
+      if (item['block_presence_in'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.PRESENCE_IN);
+      if (item['block_presence_out'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.PRESENCE_OUT);
+      return xmpp.PrivacyListItem(
+        type: _parsePrivacyType(item['type'] as String?),
+        value: item['value'] as String?,
+        action: item['action'] == 'allow' ? xmpp.PrivacyAction.ALLOW : xmpp.PrivacyAction.DENY,
+        order: item['order'] as int? ?? 0,
+        controlStanzas: controlStanzas,
+      );
+    }).toList();
+    await manager.createPrivacyList(xmpp.PrivacyList(name, privacyItems));
+  }
+
+  xmpp.PrivacyType _parsePrivacyType(String? type) {
+    switch (type) {
+      case 'jid': return xmpp.PrivacyType.JID;
+      case 'group': return xmpp.PrivacyType.GROUP;
+      case 'subscription': return xmpp.PrivacyType.SUBSCRIPTION;
+      default: return xmpp.PrivacyType.JID;
+    }
+  }
+
+  Future<void> removePrivacyList(String name, {String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) throw Exception('No active account');
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    await manager.removePrivacyList(name);
+  }
+
+  Future<List<Map<String, dynamic>>> getPrivacyListItems(String name, {String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) throw Exception('No active account');
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    final items = await manager.getListByName(name);
+    return items.map((item) {
+      final ctrl = item.controlStanzas ?? [];
+      return {
+        'value': item.value ?? '',
+        'type': item.type?.name.toLowerCase() ?? 'jid',
+        'action': item.action.name.toLowerCase(),
+        'order': item.order,
+        'block_messages': ctrl.contains(PrivacyControlStanza.MESSAGE),
+        'block_iq': ctrl.contains(PrivacyControlStanza.IQ),
+        'block_presence_in': ctrl.contains(PrivacyControlStanza.PRESENCE_IN),
+        'block_presence_out': ctrl.contains(PrivacyControlStanza.PRESENCE_OUT),
+      };
+    }).toList();
+  }
 
   Future<void> clearAllData() => _contactService.clearAllData();
 }

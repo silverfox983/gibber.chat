@@ -18,6 +18,8 @@ import '../screens/profile_screen.dart';
 import '../screens/account_preferences_screen.dart';
 import '../screens/security_settings_screen.dart';
 import '../screens/identity_trust_screen.dart';
+import '../screens/privacy_lists_screen.dart';
+import '../screens/privacy_edit_screen.dart';
 import '../screens/invite_screen.dart';
 import '../screens/recordings_screen.dart';
 import '../screens/tier_screen.dart';
@@ -179,6 +181,21 @@ GoRouter createAppRouter({
                         path: 'identity',
                         name: 'identity',
                         pageBuilder: (context, state) => _fadePage(state: state, child: const IdentityTrustScreen()),
+                      ),
+                      GoRoute(
+                        path: 'privacy',
+                        name: 'privacy',
+                        pageBuilder: (context, state) => _fadePage(state: state, child: const PrivacyListsScreen()),
+                        routes: [
+                          GoRoute(
+                            path: 'edit',
+                            name: 'privacy_edit',
+                            pageBuilder: (context, state) => _fadePage(
+                              state: state,
+                              child: PrivacyEditScreen(listName: state.extra as String? ?? ''),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
