@@ -9,6 +9,7 @@ import './providers/call_provider.dart';
 import './services/avatar_cache_service.dart';
 import './services/call_history_service.dart';
 import './services/account_status_notification_service.dart';
+import './services/chat_notification_service.dart';
 import './services/resource_scheduler_service.dart';
 import './services/transcription_service.dart';
 import './services/assistant_service.dart';
@@ -163,6 +164,7 @@ class _ChatAppState extends State<ChatApp> {
       _chatProvider!.initialize(_authService!);
       _callProvider!.initialize(_authService!, _callHistoryService!, scheduler: _resourceScheduler!);
       _accountStatusNotifications.start(_authService!);
+      await ChatNotificationService.instance.initialize();
 
       await _themeProvider!.initialized;
 

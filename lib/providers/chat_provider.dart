@@ -5,6 +5,7 @@ import '../models/chat_models.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../services/avatar_cache_service.dart';
+import '../services/chat_notification_service.dart';
 
 class ChatProvider with ChangeNotifier {
   List<Conversation> _conversations = [];
@@ -48,6 +49,29 @@ class ChatProvider with ChangeNotifier {
   // Story state per contact: {jid: {hasStory, hasUnviewed}}
   final Map<String, bool> _contactHasStory = {};
   final Map<String, bool> _contactHasUnviewedStory = {};
+
+  void _showNotification({
+    required String targetId,
+    required String convName,
+    required String? senderName,
+    required String body,
+    required String? accountId,
+    required bool isGroup,
+    required bool muteNotifications,
+    required String? senderId,
+  }) {
+    if (muteNotifications) return;
+    if (senderId != null && _blockedJids.contains(senderId.split('/').first.toLowerCase())) return;
+    final preview = body.length > 100 ? '${body.substring(0, 100)}...' : body;
+    ChatNotificationService.instance.showMessageNotification(
+      conversationId: targetId,
+      conversationName: convName,
+      senderName: senderName ?? 'Someone',
+      body: preview,
+      accountId: accountId,
+      isGroup: isGroup,
+    );
+  }
 
   List<Contact> get contacts => _contacts;
   List<String> get blockedJids => _blockedJids;
@@ -844,6 +868,16 @@ class ChatProvider with ChangeNotifier {
           if (targetId != _activeConversationId && !message.isSent) {
             _conversations[index].unreadCount++;
             DatabaseService().incrementUnreadCount(targetId);
+            _showNotification(
+              targetId: targetId,
+              convName: _conversations[index].name,
+              senderName: message.senderName,
+              body: message.text,
+              accountId: message.accountId,
+              isGroup: _conversations[index].isGroup,
+              muteNotifications: _conversations[index].muteNotifications,
+              senderId: message.senderId,
+            );
           } else if (targetId == _activeConversationId && !message.isSent && _authService != null) {
             _authService!.sendChatMarker(
               targetId,
