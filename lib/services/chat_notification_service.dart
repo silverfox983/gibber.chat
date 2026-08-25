@@ -25,6 +25,16 @@ class ChatNotificationService {
     const initSettings = InitializationSettings(android: android, iOS: ios);
 
     await _plugin.initialize(settings: initSettings);
+    await _plugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(AndroidNotificationChannel(
+          'chat_messages',
+          'Chat Messages',
+          description: 'Notifications for incoming chat messages',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: true,
+        ));
     _initialized = true;
   }
 
