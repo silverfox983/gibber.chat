@@ -521,10 +521,92 @@ class _ChatViewState extends State<ChatView> {
             ),
             const SizedBox(width: 8),
             IconButton(
+              icon: const Icon(Icons.mood_rounded),
+              onPressed: () => _showMoodPicker(context),
+              color: Colors.grey,
+              tooltip: 'Set mood',
+            ),
+            IconButton(
               icon: const Icon(Icons.send_rounded),
               onPressed: _sendMessage,
               color: AppColors.primary,
               tooltip: 'Send',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMoodPicker(BuildContext ctx) {
+    final moods = {
+      'happy': '😊 Happy',
+      'sad': '😢 Sad',
+      'angry': '😠 Angry',
+      'surprised': '😮 Surprised',
+      'confused': '😕 Confused',
+      'love': '😍 In love',
+      'sleeping': '😴 Sleeping',
+      'laughing': '😂 Laughing',
+      'gaming': '🎮 Gaming',
+      'working': '💼 Working',
+      'eating': '🍽️ Eating',
+      'coffee': '☕ Drinking coffee',
+      'music': '🎵 Listening to music',
+      'exercise': '🏃 Exercising',
+      'thinking': '🤔 Thinking',
+      'excited': '🤩 Excited',
+    };
+
+    showModalBottomSheet(
+      context: ctx,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)))),
+            Text('How are you feeling?', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: moods.entries.map((e) {
+                return ActionChip(
+                  avatar: Text(e.key == e.value.split(' ')[0] ? e.value.split(' ')[0] : '😊'),
+                  label: Text(e.value),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    final auth = Provider.of<AuthService>(ctx, listen: false);
+                    final svc = auth.spacesService;
+                    if (svc != null) {
+                      await svc.publishMood(e.key);
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Mood set: ${e.value}')));
+                      }
+                    }
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.clear),
+              title: const Text('Clear mood'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final auth = Provider.of<AuthService>(ctx, listen: false);
+                final svc = auth.spacesService;
+                if (svc != null) {
+                  await svc.retractMood();
+                  if (ctx.mounted) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Mood cleared')));
+                  }
+                }
+              },
             ),
           ],
         ),

@@ -1452,6 +1452,132 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
+  Future<bool> publishMood(String mood, {String? text}) async {
+    final conn = _connection;
+    if (conn == null) return false;
+
+    final iq = xmpp.IqStanza('mood_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(conn.fullJid.domain);
+
+    final pubsub = xmpp.XmppElement();
+    pubsub.name = 'pubsub';
+    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+
+    final publish = xmpp.XmppElement();
+    publish.name = 'publish';
+    publish.addAttribute(xmpp.XmppAttribute('node', 'http://jabber.org/protocol/mood'));
+    pubsub.addChild(publish);
+
+    final item = xmpp.XmppElement();
+    item.name = 'item';
+    item.addAttribute(xmpp.XmppAttribute('id', 'current'));
+    publish.addChild(item);
+
+    final moodEl = xmpp.XmppElement();
+    moodEl.name = 'mood';
+    moodEl.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/mood'));
+
+    final child = xmpp.XmppElement();
+    child.name = mood;
+    moodEl.addChild(child);
+
+    if (text != null && text.isNotEmpty) {
+      final textEl = xmpp.XmppElement();
+      textEl.name = 'text';
+      textEl.textValue = text;
+      moodEl.addChild(textEl);
+    }
+
+    item.addChild(moodEl);
+    iq.addChild(pubsub);
+
+    try {
+      final response = await _sendIq(iq);
+      return response.type != xmpp.IqStanzaType.ERROR;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> shareItem(String targetDomain, String targetNode, SpaceItem original, {String? authorName}) async {
+    final entry = xmpp.XmppElement();
+    entry.name = 'entry';
+    entry.addAttribute(xmpp.XmppAttribute('xmlns', 'http://www.w3.org/2005/Atom'));
+
+    final id = xmpp.XmppElement();
+    id.name = 'id';
+    id.textValue = 'share_${DateTime.now().millisecondsSinceEpoch}';
+    entry.addChild(id);
+
+    final published = xmpp.XmppElement();
+    published.name = 'published';
+    published.textValue = DateTime.now().toUtc().toIso8601String().split('.').first;
+    entry.addChild(published);
+
+    final updated = xmpp.XmppElement();
+    updated.name = 'updated';
+    updated.textValue = DateTime.now().toUtc().toIso8601String().split('.').first;
+    entry.addChild(updated);
+
+    final ref = xmpp.XmppElement();
+    ref.name = 'reference';
+    ref.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp/reference:0'));
+    ref.addAttribute(xmpp.XmppAttribute('type', 'share'));
+    final origNode = original.sourceSpace?.node ?? original.node ?? '';
+    final origDomain = original.sourceSpace?.domain ?? targetDomain;
+    ref.addAttribute(xmpp.XmppAttribute('uri', 'xmpp:$origNode@$origDomain/${original.id}'));
+    entry.addChild(ref);
+
+    if (authorName != null) {
+      final author = xmpp.XmppElement();
+      author.name = 'author';
+      final name = xmpp.XmppElement();
+      name.name = 'name';
+      name.textValue = authorName;
+      author.addChild(name);
+      entry.addChild(author);
+    }
+
+    final content = xmpp.XmppElement();
+    content.name = 'content';
+    content.addAttribute(xmpp.XmppAttribute('type', 'text'));
+    content.textValue = original.rawContent ?? original.description ?? original.name ?? '';
+    entry.addChild(content);
+
+    return publishItem(targetDomain, targetNode, entry, autoCreateNode: true);
+  }
+
+  Future<bool> retractMood() async {
+    final conn = _connection;
+    if (conn == null) return false;
+
+    final iq = xmpp.IqStanza('mood_retract_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
+    iq.toJid = xmpp.Jid.fromFullJid(conn.fullJid.domain);
+
+    final pubsub = xmpp.XmppElement();
+    pubsub.name = 'pubsub';
+    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+
+    final publish = xmpp.XmppElement();
+    publish.name = 'publish';
+    publish.addAttribute(xmpp.XmppAttribute('node', 'http://jabber.org/protocol/mood'));
+    pubsub.addChild(publish);
+
+    final item = xmpp.XmppElement();
+    item.name = 'retract';
+    item.addAttribute(xmpp.XmppAttribute('id', 'current'));
+    publish.addChild(item);
+
+    iq.addChild(pubsub);
+
+    try {
+      final response = await _sendIq(iq);
+      return response.type != xmpp.IqStanzaType.ERROR;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<bool> publishMicroblogEntry(String domain, String node, {required String title, required String content, String? authorName, String? itemId, String? imageUrl, String? replyToId, List<String>? categories, bool autoCreateNode = false}) async {
     final explicitItemId = itemId ?? 'post_${DateTime.now().millisecondsSinceEpoch}-${node.hashCode}';
     final entry = xmpp.XmppElement();

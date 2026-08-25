@@ -97,6 +97,26 @@ class XmppStanzaHandler {
             }
           }
         }
+      } else if (items?.getAttribute('node')?.value == 'http://jabber.org/protocol/mood') {
+        final bareJid = stanza.fromJid?.fullJid?.split('/').first.toLowerCase() ?? '';
+        for (var item in (items?.children ?? []).where((c) => c.name == 'item')) {
+          final moodEl = item.getChild('mood');
+          if (moodEl != null) {
+            String? mood;
+            String? text;
+            for (var child in moodEl.children) {
+              if (child.name != 'text' && child.name != 'mood') {
+                mood = child.name;
+              } else if (child.name == 'text') {
+                text = child.textValue;
+              }
+            }
+            if (bareJid.isNotEmpty && mood != null) {
+              debugPrint('PEP: Received mood from $bareJid: $mood${text != null ? " ($text)" : ""}');
+              _d.onMoodReceived?.call(bareJid, mood, text);
+            }
+          }
+        }
       }
     }
 

@@ -584,6 +584,26 @@ class _FeedScreenState extends State<FeedScreen>
                             _bookmarkedItems.add(item.id);
                           }
                         });
+                      } else if (action == 'share') {
+                        if (_mySpaces.isEmpty) {
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Join a space first to share posts.')),
+                          );
+                          return;
+                        }
+                        final targetSpace = _mySpaces.first;
+                        final targetDomain = targetSpace.domain;
+                        final targetNode = targetSpace.node;
+                        final auth = Provider.of<AuthService>(context, listen: false);
+                        final profile = auth.currentProfile;
+                        final ok = await _spacesService?.shareItem(
+                          targetDomain, targetNode, item,
+                          authorName: profile?.displayName,
+                        );
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(ok == true ? 'Post shared' : 'Failed to share')),
+                        );
+                        if (ok == true) _refresh();
                       }
                     },
                     itemBuilder: (context) => [
@@ -601,6 +621,14 @@ class _FeedScreenState extends State<FeedScreen>
                           Icon((_bookmarkedItems.contains(item.id) || item.isBookmarked) ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, size: 18),
                           const SizedBox(width: 12),
                           Text((_bookmarkedItems.contains(item.id) || item.isBookmarked) ? 'Remove bookmark' : 'Bookmark'),
+                        ]),
+                      ),
+                      PopupMenuItem(
+                        value: 'share',
+                        child: Row(children: [
+                          Icon(Icons.repeat_rounded, size: 18),
+                          const SizedBox(width: 12),
+                          Text('Share / Repost'),
                         ]),
                       ),
                     ],

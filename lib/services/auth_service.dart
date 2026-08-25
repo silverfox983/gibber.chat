@@ -120,6 +120,12 @@ class AuthService with ChangeNotifier {
       StreamController<JingleEvent>.broadcast();
   Stream<JingleEvent> get jingleEvents => _jingleEventController.stream;
 
+  void Function(String jid, String mood, String? text)? _onMoodReceived;
+
+  final StreamController<Map<String, String?>> _moodStreamController =
+      StreamController<Map<String, String?>>.broadcast();
+  Stream<Map<String, String?>> get moodStream => _moodStreamController.stream;
+
   final List<Map<String, String>> _pendingSubscriptionRequests = [];
   List<Map<String, String>> get currentSubscriptionRequests => List.unmodifiable(_pendingSubscriptionRequests);
 
@@ -336,6 +342,9 @@ class AuthService with ChangeNotifier {
     _uploadServiceHandler = XmppUploadService(_AuthUploadDeps(this));
     _otr.injectMessage = (bareJid, text) {
       _messageService.sendMessage(_activeAccountId ?? '', bareJid, text, isGroup: false);
+    };
+    _onMoodReceived = (jid, mood, text) {
+      _moodStreamController.add({'jid': jid, 'mood': mood, 'text': text});
     };
   }
 
@@ -2447,6 +2456,8 @@ class _AuthStanzaDeps implements AuthServiceStanzaDeps {
   void notifyListeners() => _auth.notifyListeners();
   Future<void> refreshOmemoDevices(String chatId, {String? accountId}) => _auth.refreshOmemoDevices(chatId, accountId: accountId);
   bool get sendReadReceipts => _auth.sendReadReceipts;
+  void Function(String jid, String mood, String? text)? get onMoodReceived => _auth._onMoodReceived;
+  set onMoodReceived(void Function(String jid, String mood, String? text)? fn) => _auth._onMoodReceived = fn;
 }
 
 class _AuthVCardDeps implements AuthServiceVCardDeps {

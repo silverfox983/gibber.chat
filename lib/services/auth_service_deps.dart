@@ -94,6 +94,7 @@ abstract class AuthServiceStanzaDeps {
   void notifyListeners();
   Future<void> refreshOmemoDevices(String chatId, {String? accountId});
   bool get sendReadReceipts;
+  void Function(String jid, String mood, String? text)? onMoodReceived;
 }
 
 abstract class AuthServiceVCardDeps {
