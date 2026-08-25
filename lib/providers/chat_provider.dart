@@ -59,15 +59,16 @@ class ChatProvider with ChangeNotifier {
     required bool isGroup,
     required bool muteNotifications,
     required String? senderId,
+    required bool mentioned,
   }) {
-    if (muteNotifications) return;
+    if (muteNotifications && !mentioned) return;
     if (senderId != null && _blockedJids.contains(senderId.split('/').first.toLowerCase())) return;
     final preview = body.length > 100 ? '${body.substring(0, 100)}...' : body;
     ChatNotificationService.instance.showMessageNotification(
       conversationId: targetId,
       conversationName: convName,
       senderName: senderName ?? 'Someone',
-      body: preview,
+      body: mentioned ? '[$senderName mentioned you] $preview' : preview,
       accountId: accountId,
       isGroup: isGroup,
     );
@@ -877,6 +878,7 @@ class ChatProvider with ChangeNotifier {
               isGroup: _conversations[index].isGroup,
               muteNotifications: _conversations[index].muteNotifications,
               senderId: message.senderId,
+              mentioned: message.mentioned,
             );
           } else if (targetId == _activeConversationId && !message.isSent && _authService != null) {
             _authService!.sendChatMarker(

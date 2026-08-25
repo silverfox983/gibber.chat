@@ -47,10 +47,6 @@ class ChatNotificationService {
     if (!_initialized) return;
     if (kIsWeb) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    final mutedKey = 'mute_notif_$conversationId';
-    if (prefs.getBool(mutedKey) == true) return;
-
     final notificationId = _getConversationNotificationId(conversationId);
 
     final androidDetails = AndroidNotificationDetails(
