@@ -6,6 +6,7 @@ import '../models/picked_file.dart';
 import 'auth_service_deps.dart';
 import 'jingle_signaling_service.dart';
 import 'xmpp_omemo_service.dart';
+import 'xmpp_message_enhancements.dart';
 
 class XmppStanzaHandler {
   final AuthServiceStanzaDeps _d;
@@ -341,6 +342,9 @@ class XmppStanzaHandler {
         final msgType = _classifyMessage(finalBody, stanza);
         final oobUrl = _extractOobUrl(stanza);
         final fileName = oobUrl != null ? _extractFileName(oobUrl) : null;
+        final threadId = XmppMessageEnhancements.parseThreadId(stanza);
+        final encryptionInfo = XmppMessageEnhancements.parseEncryptionIndicator(stanza);
+        final noStore = XmppMessageEnhancements.hasNoStoreHint(stanza);
 
         _d.messageStreamController.add(
           ChatMessage(
@@ -357,6 +361,10 @@ class XmppStanzaHandler {
             isGroup: true,
             fileName: fileName,
             mentioned: mentioned,
+            threadId: threadId,
+            encryptionNamespace: encryptionInfo?.namespace,
+            encryptionName: encryptionInfo?.name,
+            noStore: noStore,
           ),
         );
       }
@@ -396,6 +404,11 @@ class XmppStanzaHandler {
 
         if (finalBody == null) return;
 
+        final threadId = XmppMessageEnhancements.parseThreadId(stanza);
+        final encryptionInfo = XmppMessageEnhancements.parseEncryptionIndicator(stanza);
+        final noStore = XmppMessageEnhancements.hasNoStoreHint(stanza);
+        final noPermStore = XmppMessageEnhancements.hasNoPermanentStoreHint(stanza);
+
         final geoEl = stanza.getChild('geo');
         final isLocation = geoEl != null && geoEl.getAttribute('xmlns')?.value == 'http://jabber.org/protocol/geoloc';
         double? lat;
@@ -423,10 +436,15 @@ class XmppStanzaHandler {
             protocol: 'XMPP',
             replacesId: replacesId,
             encryptionType: encrypted != null ? 'omemo' : null,
+            encryptionNamespace: encryptionInfo?.namespace ?? (encrypted != null ? 'urn:xmpp:omemo:0' : null),
+            encryptionName: encryptionInfo?.name ?? (encrypted != null ? 'OMEMO' : null),
             latitude: lat,
             longitude: lon,
             locationLabel: locLabel,
             fileName: _extractOobUrl(stanza) != null ? _extractFileName(_extractOobUrl(stanza)!) : null,
+            threadId: threadId,
+            noStore: noStore,
+            noPermanentStore: noPermStore,
           ),
         );
       }
@@ -596,6 +614,70 @@ class XmppStanzaHandler {
         }
       } catch (e) {
         debugPrint('CARBON PARSE ERROR: $e');
+      }
+    }
+
+    // XEP-0084: Avatar metadata PEP notifications
+    if (eventEl != null) {
+      final avatarItems = eventEl.getChild('items');
+      if (avatarItems != null &&
+          avatarItems.getAttribute('node')?.value == 'urn:xmpp:avatar:metadata') {
+        final bareJid = stanza.fromJid?.fullJid?.split('/').first.toLowerCase() ?? '';
+        for (var item in (avatarItems.children ?? []).where((c) => c.name == 'item')) {
+          final metadata = item.getChild('metadata');
+          if (metadata != null) {
+            final info = metadata.children.firstWhere(
+              (e) => e.name == 'info',
+              orElse: () => xmpp.XmppElement(),
+            );
+            if (info.name == 'info') {
+              final id = info.getAttribute('id')?.value;
+              debugPrint('PEP: Received avatar metadata update from $bareJid (id: $id)');
+              _d.onAvatarMetadataReceived?.call(bareJid, id);
+            }
+          }
+        }
+      }
+    }
+
+    // XEP-0172: Nickname PEP notifications
+    if (eventEl != null) {
+      final nickItems = eventEl.getChild('items');
+      if (nickItems != null &&
+          nickItems.getAttribute('node')?.value == 'http://jabber.org/protocol/nick') {
+        final bareJid = stanza.fromJid?.fullJid?.split('/').first.toLowerCase() ?? '';
+        for (var item in (nickItems.children ?? []).where((c) => c.name == 'item')) {
+          final nick = item.getChild('nick');
+          if (nick != null) {
+            final nickname = nick.textValue;
+            if (bareJid.isNotEmpty && nickname != null) {
+              debugPrint('PEP: Received nickname from $bareJid: $nickname');
+              _d.onNicknameReceived?.call(bareJid, nickname);
+            }
+          }
+        }
+      }
+    }
+
+    // XEP-0319: Last User Interaction PEP notifications
+    if (eventEl != null) {
+      final liItems = eventEl.getChild('items');
+      if (liItems != null &&
+          liItems.getAttribute('node')?.value == 'urn:xmpp:last-interaction:0') {
+        final bareJid = stanza.fromJid?.fullJid?.split('/').first.toLowerCase() ?? '';
+        for (var item in (liItems.children ?? []).where((c) => c.name == 'item')) {
+          final timeEl = item.getChild('time');
+          if (timeEl != null) {
+            final stamp = timeEl.getAttribute('stamp')?.value;
+            if (bareJid.isNotEmpty && stamp != null) {
+              final dt = DateTime.tryParse(stamp);
+              if (dt != null) {
+                debugPrint('PEP: Received last interaction from $bareJid: $dt');
+                _d.onLastInteractionReceived?.call(bareJid, dt);
+              }
+            }
+          }
+        }
       }
     }
   }

@@ -32,6 +32,11 @@ import './xmpp_stanza_handler.dart';
 import './xmpp_vcard_service.dart';
 import './xmpp_sync_service.dart';
 import './xmpp_upload_service.dart';
+import './xmpp_pep_service.dart';
+import './pubsub_interaction_service.dart';
+import './xmpp_room_enhancements_service.dart';
+import './xmpp_server_info_service.dart';
+import './xmpp_sticker_service.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -122,10 +127,25 @@ class AuthService with ChangeNotifier {
   Stream<JingleEvent> get jingleEvents => _jingleEventController.stream;
 
   void Function(String jid, String mood, String? text)? _onMoodReceived;
+  void Function(String jid, String? avatarId)? _onAvatarMetadataReceived;
+  void Function(String jid, String nickname)? _onNicknameReceived;
+  void Function(String jid, DateTime lastInteraction)? _onLastInteractionReceived;
 
   final StreamController<Map<String, String?>> _moodStreamController =
       StreamController<Map<String, String?>>.broadcast();
   Stream<Map<String, String?>> get moodStream => _moodStreamController.stream;
+
+  final StreamController<Map<String, String?>> _nicknameStreamController =
+      StreamController<Map<String, String?>>.broadcast();
+  Stream<Map<String, String?>> get nicknameStream => _nicknameStreamController.stream;
+
+  final StreamController<Map<String, String?>> _lastInteractionStreamController =
+      StreamController<Map<String, String?>>.broadcast();
+  Stream<Map<String, String?>> get lastInteractionStream => _lastInteractionStreamController.stream;
+
+  final StreamController<Map<String, String?>> _avatarUpdateStreamController =
+      StreamController<Map<String, String?>>.broadcast();
+  Stream<Map<String, String?>> get avatarUpdateStream => _avatarUpdateStreamController.stream;
 
   final List<Map<String, String>> _pendingSubscriptionRequests = [];
   List<Map<String, String>> get currentSubscriptionRequests => List.unmodifiable(_pendingSubscriptionRequests);
@@ -258,6 +278,13 @@ class AuthService with ChangeNotifier {
   late final XmppVCardService _vcardService;
   late final XmppSyncService _syncService;
   late final XmppUploadService _uploadServiceHandler;
+  late final XmppPepService _pepService;
+  late final PubSubInteractionService _pubsubInteractionService;
+  late final XmppMucSelfPingService _mucSelfPingService;
+  late final XmppMdsService _mdsService;
+  late final XmppChannelSearchService _channelSearchService;
+  late final XmppServerInfoService _serverInfoService;
+  late final XmppStickerService _stickerService;
 
   final Map<String, Set<String>> _serverFeatures = {};
 
@@ -341,15 +368,38 @@ class AuthService with ChangeNotifier {
     _vcardService = XmppVCardService(_AuthVCardDeps(this));
     _syncService = XmppSyncService(_AuthSyncDeps(this));
     _uploadServiceHandler = XmppUploadService(_AuthUploadDeps(this));
+    _pepService = XmppPepService(_xmppConnections, _xmppJids);
+    _pubsubInteractionService = PubSubInteractionService(_xmppConnections, _xmppJids);
+    _mucSelfPingService = XmppMucSelfPingService(_xmppConnections, _xmppJids);
+    _mdsService = XmppMdsService(_xmppConnections, _xmppJids);
+    _channelSearchService = XmppChannelSearchService(_xmppConnections, _xmppJids);
+    _serverInfoService = XmppServerInfoService(_xmppConnections, _xmppJids);
+    _stickerService = XmppStickerService(_xmppConnections, _xmppJids);
     _otr.injectMessage = (bareJid, text) {
       _messageService.sendMessage(_activeAccountId ?? '', bareJid, text, isGroup: false);
     };
     _onMoodReceived = (jid, mood, text) {
       _moodStreamController.add({'jid': jid, 'mood': mood, 'text': text});
     };
+    _onAvatarMetadataReceived = (jid, avatarId) {
+      _avatarUpdateStreamController.add({'jid': jid, 'avatarId': avatarId});
+    };
+    _onNicknameReceived = (jid, nickname) {
+      _nicknameStreamController.add({'jid': jid, 'nickname': nickname});
+    };
+    _onLastInteractionReceived = (jid, lastInteraction) {
+      _lastInteractionStreamController.add({'jid': jid, 'lastInteraction': lastInteraction.toIso8601String()});
+    };
   }
 
   XmppRoomService get roomService => _roomService;
+  XmppPepService get pepService => _pepService;
+  PubSubInteractionService get pubsubInteractionService => _pubsubInteractionService;
+  XmppMucSelfPingService get mucSelfPingService => _mucSelfPingService;
+  XmppMdsService get mdsService => _mdsService;
+  XmppChannelSearchService get channelSearchService => _channelSearchService;
+  XmppServerInfoService get serverInfoService => _serverInfoService;
+  XmppStickerService get stickerService => _stickerService;
   List<Room> get joinedRooms => _roomService.joinedRooms;
   Stream<List<Room>> get joinedRoomsStream => _roomService.joinedRoomsStream;
   Stream<Map<String, List<RoomParticipant>>> get roomParticipantsStream => _roomService.roomParticipantsStream;
@@ -2557,6 +2607,12 @@ class _AuthStanzaDeps implements AuthServiceStanzaDeps {
   bool get sendReadReceipts => _auth.sendReadReceipts;
   void Function(String jid, String mood, String? text)? get onMoodReceived => _auth._onMoodReceived;
   set onMoodReceived(void Function(String jid, String mood, String? text)? fn) => _auth._onMoodReceived = fn;
+  void Function(String jid, String? avatarId)? get onAvatarMetadataReceived => _auth._onAvatarMetadataReceived;
+  set onAvatarMetadataReceived(void Function(String jid, String? avatarId)? fn) => _auth._onAvatarMetadataReceived = fn;
+  void Function(String jid, String nickname)? get onNicknameReceived => _auth._onNicknameReceived;
+  set onNicknameReceived(void Function(String jid, String nickname)? fn) => _auth._onNicknameReceived = fn;
+  void Function(String jid, DateTime lastInteraction)? get onLastInteractionReceived => _auth._onLastInteractionReceived;
+  set onLastInteractionReceived(void Function(String jid, DateTime lastInteraction)? fn) => _auth._onLastInteractionReceived = fn;
 }
 
 class _AuthVCardDeps implements AuthServiceVCardDeps {

@@ -829,6 +829,144 @@ class OmemoService {
     return encryptedElements;
   }
 
+  Future<List<xmpp.XmppElement>?> encryptMessageForMuc(
+    String roomJid,
+    String plaintext,
+    List<String> participantJids, {
+    bool strict = false,
+  }) async {
+    final bareRoomJid = roomJid.split('/').first.toLowerCase();
+    final encryptionKey = _generateRandomKey(16);
+    final iv = _generateRandomKey(12);
+
+    final secretKey = SecretKey(encryptionKey);
+    final box = await _aes.encrypt(
+      utf8.encode(plaintext),
+      secretKey: secretKey,
+      nonce: iv,
+    );
+    final ciphertext = box.cipherText;
+    final tag = box.mac.bytes;
+
+    final header = xmpp.XmppElement()
+      ..name = 'header'
+      ..addAttribute(xmpp.XmppAttribute('sid', _deviceId.toString()));
+
+    header.addChild(
+      xmpp.XmppElement()
+        ..name = 'iv'
+        ..textValue = base64Encode(iv),
+    );
+
+    final store = SQLiteSignalStore();
+    final myBareJid = _conn?.fullJid.userAtDomain.toLowerCase();
+    bool addedKeys = false;
+    final keysWrapper = xmpp.XmppElement()..name = 'keys';
+
+    final allJids = <String>{...participantJids.map((j) => j.toLowerCase())};
+    if (myBareJid != null) allJids.add(myBareJid);
+
+    for (final bareJid in allJids) {
+      List<Map<String, dynamic>> devices = await store.getIdentitiesForJid(bareJid);
+
+      if (devices.isEmpty) {
+        try {
+          final fetchedIds = await fetchDeviceList(bareJid);
+          for (final devId in fetchedIds) {
+            await buildSession(bareJid, devId);
+          }
+          devices = await store.getIdentitiesForJid(bareJid);
+        } catch (e) {
+          debugPrint('OMEMO MUC: Failed to fetch devices for $bareJid: $e');
+          continue;
+        }
+      }
+
+      for (var d in devices) {
+        final deviceId = d['device_id'] as int;
+        final trustLevel = d['trust_level'] as int? ?? 0;
+
+        if (bareJid == myBareJid && deviceId == _deviceId) continue;
+        if (trustLevel == 2) {
+          debugPrint('OMEMO MUC: Skipping distrusted device $deviceId for $bareJid');
+          continue;
+        }
+        if (strict && trustLevel == 0) continue;
+
+        final address = SignalProtocolAddress(bareJid, deviceId);
+
+        if (!await store.containsSession(address)) {
+          try {
+            await buildSession(bareJid, deviceId);
+          } catch (e) {
+            debugPrint('OMEMO MUC: Failed to build session for $bareJid:$deviceId: $e');
+            continue;
+          }
+        }
+
+        try {
+          final cipher = SessionCipher(store, store, store, store, address);
+          final encryptedKey = await cipher.encrypt(encryptionKey);
+
+          final keyElement = xmpp.XmppElement()
+            ..name = 'key'
+            ..addAttribute(xmpp.XmppAttribute('rid', deviceId.toString()));
+          keyElement.textValue = base64Encode(encryptedKey.serialize());
+          if (encryptedKey.getType() == CiphertextMessage.PREKEY_TYPE) {
+            keyElement.addAttribute(xmpp.XmppAttribute('prekey', 'true'));
+          }
+          keysWrapper.addChild(keyElement);
+          addedKeys = true;
+        } catch (e) {
+          debugPrint('OMEMO MUC: Failed to encrypt for $bareJid:$deviceId: $e');
+          try {
+            await store.deleteSession(address);
+            await buildSession(bareJid, deviceId);
+            final cipher = SessionCipher(store, store, store, store, address);
+            final encryptedKey = await cipher.encrypt(encryptionKey);
+            final keyElement = xmpp.XmppElement()
+              ..name = 'key'
+              ..addAttribute(xmpp.XmppAttribute('rid', deviceId.toString()));
+            keyElement.textValue = base64Encode(encryptedKey.serialize());
+            if (encryptedKey.getType() == CiphertextMessage.PREKEY_TYPE) {
+              keyElement.addAttribute(xmpp.XmppAttribute('prekey', 'true'));
+            }
+            keysWrapper.addChild(keyElement);
+            addedKeys = true;
+          } catch (healError) {
+            debugPrint('OMEMO MUC: Session heal failed for $bareJid:$deviceId: $healError');
+          }
+        }
+      }
+    }
+
+    if (!addedKeys) return null;
+
+    header.addChild(keysWrapper);
+
+    final modernEncrypted = xmpp.XmppElement()
+      ..name = 'encrypted'
+      ..addAttribute(xmpp.XmppAttribute('xmlns', nsOmemo));
+    modernEncrypted.addChild(header);
+    modernEncrypted.addChild(
+      xmpp.XmppElement()
+        ..name = 'payload'
+        ..textValue = base64Encode(Uint8List.fromList(ciphertext + tag)),
+    );
+
+    final legacyEncrypted = xmpp.XmppElement()
+      ..name = 'encrypted'
+      ..addAttribute(xmpp.XmppAttribute('xmlns', nsOmemoLegacy));
+    legacyEncrypted.addChild(header);
+    legacyEncrypted.addChild(
+      xmpp.XmppElement()
+        ..name = 'payload'
+        ..textValue = base64Encode(Uint8List.fromList(ciphertext + tag)),
+    );
+
+    return [modernEncrypted, legacyEncrypted];
+  }
+
   Future<String?> decryptMessage(
     xmpp.XmppElement encrypted, {
     String? fromBareJid,

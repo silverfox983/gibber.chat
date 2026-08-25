@@ -26,6 +26,7 @@ class OmemoService {
   Future<void> buildSession(String bareJid, int deviceId) async {}
   Future<String?> decryptMessage(xmpp.XmppElement encrypted, {String? fromBareJid, bool isHistorical = false}) async => null;
   Future<List<xmpp.XmppElement>?> encryptMessage(String toJid, String plaintext, {bool strict = false}) async => null;
+  Future<List<xmpp.XmppElement>?> encryptMessageForMuc(String roomJid, String plaintext, List<String> participantJids, {bool strict = false}) async => null;
   Future<void> resetIdentity(String bareJid) async {}
   Future<void> clearDatabase() async {}
   Future<void> handleDeviceListUpdate(String fromJid, String rawUpdate) async {}

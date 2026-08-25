@@ -230,4 +230,18 @@ class XmppOmemoService with ChangeNotifier {
   Future<void> clearDatabase() {
     return _omemo.clearDatabase();
   }
+
+  List<String> getGroupParticipants(String roomJid) {
+    return [];
+  }
+
+  Future<List<xmpp.XmppElement>?> encryptMessageForMuc(
+    String roomJid,
+    String plaintext,
+    List<String> participantJids, {
+    bool strict = false,
+  }) async {
+    if (kIsWeb) return null;
+    return _omemo.encryptMessageForMuc(roomJid, plaintext, participantJids, strict: strict);
+  }
 }

@@ -27,6 +27,8 @@ class Contact {
   String? title;
   String? role;
   String? birthday;
+  String? pronouns;
+  DateTime? lastInteraction;
 
   Contact({
     required this.id,
@@ -45,6 +47,8 @@ class Contact {
     this.title,
     this.role,
     this.birthday,
+    this.pronouns,
+    this.lastInteraction,
   });
 
   Map<String, dynamic> toJson() => {
@@ -63,6 +67,8 @@ class Contact {
     'title': title,
     'role': role,
     'birthday': birthday,
+    'pronouns': pronouns,
+    'lastInteraction': lastInteraction?.toIso8601String(),
   };
 
   factory Contact.fromJson(Map<String, dynamic> json) => Contact(
@@ -81,6 +87,8 @@ class Contact {
     title: json['title'] as String?,
     role: json['role'] as String?,
     birthday: json['birthday'] as String?,
+    pronouns: json['pronouns'] as String?,
+    lastInteraction: json['lastInteraction'] != null ? DateTime.tryParse(json['lastInteraction']) : null,
   );
 }
 
@@ -113,6 +121,11 @@ class ChatMessage {
   final double? longitude;
   final String? locationLabel;
   final bool mentioned;
+  final String? threadId;
+  final String? encryptionNamespace;
+  final String? encryptionName;
+  final bool noStore;
+  final bool noPermanentStore;
 
   ChatMessage({
     required this.id,
@@ -141,6 +154,11 @@ class ChatMessage {
     this.longitude,
     this.locationLabel,
     this.mentioned = false,
+    this.threadId,
+    this.encryptionNamespace,
+    this.encryptionName,
+    this.noStore = false,
+    this.noPermanentStore = false,
   }) : conversationId = conversationId?.split('/').first.toLowerCase(),
        reactions = _dedupeReactionMap(reactions ?? const {});
 
@@ -173,6 +191,11 @@ class ChatMessage {
       'longitude': longitude,
       'location_label': locationLabel,
       'mentioned': mentioned ? 1 : 0,
+      'thread_id': threadId,
+      'encryption_namespace': encryptionNamespace,
+      'encryption_name': encryptionName,
+      'no_store': noStore ? 1 : 0,
+      'no_permanent_store': noPermanentStore ? 1 : 0,
     };
   }
 
@@ -262,6 +285,11 @@ class ChatMessage {
       longitude: map['longitude'] != null ? (map['longitude'] as num).toDouble() : null,
       locationLabel: map['location_label'],
       mentioned: (map['mentioned'] ?? 0) == 1,
+      threadId: map['thread_id'] as String?,
+      encryptionNamespace: map['encryption_namespace'] as String?,
+      encryptionName: map['encryption_name'] as String?,
+      noStore: (map['no_store'] ?? 0) == 1,
+      noPermanentStore: (map['no_permanent_store'] ?? 0) == 1,
     );
   }
 }

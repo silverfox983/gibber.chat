@@ -95,6 +95,9 @@ abstract class AuthServiceStanzaDeps {
   Future<void> refreshOmemoDevices(String chatId, {String? accountId});
   bool get sendReadReceipts;
   void Function(String jid, String mood, String? text)? onMoodReceived;
+  void Function(String jid, String? avatarId)? onAvatarMetadataReceived;
+  void Function(String jid, String nickname)? onNicknameReceived;
+  void Function(String jid, DateTime lastInteraction)? onLastInteractionReceived;
 }
 
 abstract class AuthServiceVCardDeps {

@@ -11,6 +11,10 @@ class UserProfile {
   String? title;
   String? role;
   String? birthday;
+  String? pronouns;
+  String? avatarHash;
+  String? bannerUrl;
+
   final List<String> accountIds;
 
   UserProfile({
@@ -25,6 +29,9 @@ class UserProfile {
     this.title,
     this.role,
     this.birthday,
+    this.pronouns,
+    this.avatarHash,
+    this.bannerUrl,
     required this.accountIds,
   });
 
@@ -40,6 +47,9 @@ class UserProfile {
     'title': title,
     'role': role,
     'birthday': birthday,
+    'pronouns': pronouns,
+    'avatarHash': avatarHash,
+    'bannerUrl': bannerUrl,
     'accountIds': accountIds,
   };
 
@@ -55,6 +65,9 @@ class UserProfile {
     title: json['title'] as String?,
     role: json['role'] as String?,
     birthday: json['birthday'] as String?,
+    pronouns: json['pronouns'] as String?,
+    avatarHash: json['avatarHash'] as String?,
+    bannerUrl: json['bannerUrl'] as String?,
     accountIds: List<String>.from(json['accountIds']),
   );
 }

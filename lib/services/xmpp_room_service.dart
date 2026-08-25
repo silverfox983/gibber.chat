@@ -990,4 +990,175 @@ class XmppRoomService with ChangeNotifier {
     _groupInviteStreamController.close();
     super.dispose();
   }
+
+  // --- XEP-0410: MUC Self-Ping ---
+
+  Future<bool> selfPingRoom(String accountId, String roomJid) async {
+    final conn = _connections[accountId];
+    if (conn == null) return false;
+
+    final nick = getNickname(accountId, roomJid.toLowerCase());
+    if (nick == null) return false;
+
+    final pingJid = '${roomJid.toLowerCase()}/$nick';
+    final iq = xmpp.IqStanza(
+      'selfping_${DateTime.now().microsecondsSinceEpoch}',
+      xmpp.IqStanzaType.GET,
+    );
+    iq.toJid = xmpp.Jid.fromFullJid(pingJid);
+
+    try {
+      final completer = Completer<bool>();
+      final timeout = Duration(seconds: 5);
+
+      StreamSubscription? sub;
+      sub = conn.inStanzasStream.listen((stanza) {
+        if (stanza is xmpp.IqStanza && stanza.id == iq.id) {
+          if (stanza.type == xmpp.IqStanzaType.RESULT) {
+            completer.complete(true);
+          } else {
+            completer.complete(false);
+          }
+        }
+      });
+
+      conn.writeStanza(iq);
+
+      final result = await completer.future.timeout(timeout);
+      sub.cancel();
+      return result;
+    } catch (e) {
+      debugPrint('MUC Self-Ping: Failed for $roomJid: $e');
+      return false;
+    }
+  }
+
+  // --- XEP-0492: Chat Notification Settings ---
+
+  Future<ChatNotificationSettings?> getChatNotificationSettings(String accountId, String peerJid) async {
+    final conn = _connections[accountId];
+    if (conn == null) return null;
+
+    final bareJid = _jids[accountId]?.split('/').first ?? '';
+    if (bareJid.isEmpty) return null;
+
+    final iq = xmpp.IqStanza(
+      'notify_settings_get_${xmpp.AbstractStanza.getRandomId()}',
+      xmpp.IqStanzaType.GET,
+    );
+    iq.toJid = xmpp.Jid.fromFullJid(bareJid);
+
+    final pubsub = xmpp.XmppElement();
+    pubsub.name = 'pubsub';
+    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+    final items = xmpp.XmppElement();
+    items.name = 'items';
+    items.addAttribute(xmpp.XmppAttribute('node', 'urn:xmpp:notifications:0'));
+    pubsub.addChild(items);
+    iq.addChild(pubsub);
+
+    try {
+      final completer = Completer<xmpp.IqStanza>();
+      _pendingIqs[iq.id ?? ''] = completer;
+      conn.writeStanza(iq);
+      final res = await completer.future.timeout(const Duration(seconds: 10));
+
+      final pubsubRes = res.getChild('pubsub');
+      final itemsRes = pubsubRes?.getChild('items');
+      final item = itemsRes?.children.firstWhere(
+        (e) => e.name == 'item',
+        orElse: () => xmpp.XmppElement(),
+      );
+      if (item?.name != 'item') return null;
+
+      final notifications = item?.getChild('notifications');
+      if (notifications == null) return null;
+
+      final rules = <NotificationRule>[];
+      for (var rule in notifications.children.where((e) => e.name == 'rule')) {
+        final xmlns = rule.getAttribute('xmlns')?.value;
+        if (xmlns == 'urn:xmpp:notifications:0') {
+          final id = rule.getAttribute('id')?.value;
+          final action = rule.getAttribute('action')?.value ?? 'notify';
+          rules.add(NotificationRule(id: id, action: action));
+        }
+      }
+
+      return ChatNotificationSettings(peerJid: peerJid, rules: rules);
+    } catch (e) {
+      debugPrint('ChatNotification: Get settings failed: $e');
+      return null;
+    }
+  }
+
+  Future<bool> setChatNotificationSettings(String accountId, String peerJid, ChatNotificationSettings settings) async {
+    final conn = _connections[accountId];
+    if (conn == null) return false;
+
+    final bareJid = _jids[accountId]?.split('/').first ?? '';
+    if (bareJid.isEmpty) return false;
+
+    final iq = xmpp.IqStanza(
+      'notify_settings_set_${xmpp.AbstractStanza.getRandomId()}',
+      xmpp.IqStanzaType.SET,
+    );
+    iq.toJid = xmpp.Jid.fromFullJid(bareJid);
+
+    final pubsub = xmpp.XmppElement();
+    pubsub.name = 'pubsub';
+    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+    final publish = xmpp.XmppElement();
+    publish.name = 'publish';
+    publish.addAttribute(xmpp.XmppAttribute('node', 'urn:xmpp:notifications:0'));
+    final item = xmpp.XmppElement();
+    item.name = 'item';
+    item.addAttribute(xmpp.XmppAttribute('id', peerJid));
+    final notifications = xmpp.XmppElement();
+    notifications.name = 'notifications';
+    notifications.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:notifications:0'));
+
+    for (var rule in settings.rules) {
+      final ruleEl = xmpp.XmppElement();
+      ruleEl.name = 'rule';
+      ruleEl.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:notifications:0'));
+      if (rule.id != null) ruleEl.addAttribute(xmpp.XmppAttribute('id', rule.id!));
+      ruleEl.addAttribute(xmpp.XmppAttribute('action', rule.action));
+      notifications.addChild(ruleEl);
+    }
+
+    item.addChild(notifications);
+    publish.addChild(item);
+    pubsub.addChild(publish);
+    iq.addChild(pubsub);
+
+    try {
+      final completer = Completer<xmpp.IqStanza>();
+      _pendingIqs[iq.id ?? ''] = completer;
+      conn.writeStanza(iq);
+      final res = await completer.future.timeout(const Duration(seconds: 10));
+      return res.type != xmpp.IqStanzaType.ERROR;
+    } catch (e) {
+      debugPrint('ChatNotification: Set settings failed: $e');
+      return false;
+    }
+  }
+}
+
+class ChatNotificationSettings {
+  final String peerJid;
+  final List<NotificationRule> rules;
+
+  ChatNotificationSettings({required this.peerJid, this.rules = const []});
+
+  String get effectiveAction {
+    if (rules.isEmpty) return 'notify';
+    return rules.first.action;
+  }
+}
+
+class NotificationRule {
+  final String? id;
+  final String action;
+
+  NotificationRule({this.id, required this.action});
 }

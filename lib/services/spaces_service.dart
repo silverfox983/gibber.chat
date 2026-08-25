@@ -1974,7 +1974,15 @@ class SpacesService extends ChangeNotifier {
       items.addAttribute(xmpp.XmppAttribute('node', node));
     }
     items.addAttribute(xmpp.XmppAttribute('max_items', '50')); // Limit items to prevent timeout
-    
+
+    // XEP-0059: Result Set Management for pagination
+    final rsm = xmpp.XmppElement();
+    rsm.name = 'set';
+    rsm.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/rsm'));
+    final maxEl = xmpp.XmppElement()..name = 'max'..textValue = '50';
+    rsm.addChild(maxEl);
+    items.addChild(rsm);
+
     pubsub.addChild(items);
     iq.addChild(pubsub);
 
@@ -2683,6 +2691,165 @@ class SpacesService extends ChangeNotifier {
       return [];
     }
   }
+
+  /// XEP-0059: Fetch space content with pagination using RSM after/paging
+  Future<PaginatedResult<SpaceItem>> fetchSpaceContentPaginated(
+    String pubsubDomain,
+    String node, {
+    SpaceNode? spaceContext,
+    String? afterId,
+    int count = 20,
+  }) async {
+    final isServiceNode = node == pubsubDomain;
+
+    final iq = xmpp.IqStanza('fetch_content_page_${xmpp.AbstractStanza.getRandomId()}', xmpp.IqStanzaType.GET);
+    iq.toJid = xmpp.Jid.fromFullJid(pubsubDomain);
+
+    final pubsub = xmpp.XmppElement();
+    pubsub.name = 'pubsub';
+    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+
+    final items = xmpp.XmppElement();
+    items.name = 'items';
+    if (!isServiceNode) {
+      items.addAttribute(xmpp.XmppAttribute('node', node));
+    }
+
+    final rsm = xmpp.XmppElement();
+    rsm.name = 'set';
+    rsm.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/rsm'));
+    final maxEl = xmpp.XmppElement()..name = 'max'..textValue = count.toString();
+    rsm.addChild(maxEl);
+    if (afterId != null) {
+      final after = xmpp.XmppElement()..name = 'after'..textValue = afterId;
+      rsm.addChild(after);
+    }
+    items.addChild(rsm);
+    pubsub.addChild(items);
+    iq.addChild(pubsub);
+
+    try {
+      final response = await _sendIq(iq);
+      if (response.type == xmpp.IqStanzaType.ERROR) {
+        return PaginatedResult<SpaceItem>(items: [], first: null, last: null, count: 0);
+      }
+
+      final pubsubRes = response.getChild('pubsub');
+      final itemsRes = pubsubRes?.getChild('items');
+      final rsmRes = pubsubRes?.getChild('set');
+      final firstId = rsmRes?.getChild('first')?.textValue;
+      final lastId = rsmRes?.getChild('last')?.textValue;
+      final totalCount = int.tryParse(rsmRes?.getChild('count')?.textValue ?? '0') ?? 0;
+
+      final spaceItems = <SpaceItem>[];
+      if (itemsRes != null) {
+        for (var item in itemsRes.children.where((e) => e.name == 'item')) {
+          final parsed = _parseSpaceItem(item, pubsubDomain, node, spaceContext);
+          if (parsed != null) spaceItems.add(parsed);
+        }
+      }
+
+      return PaginatedResult<SpaceItem>(
+        items: spaceItems,
+        first: firstId,
+        last: lastId,
+        count: totalCount,
+      );
+    } catch (e) {
+      debugPrint('Paginated space content fetch error: $e');
+      return PaginatedResult<SpaceItem>(items: [], first: null, last: null, count: 0);
+    }
+  }
+
+  SpaceItem? _parseSpaceItem(xmpp.XmppElement item, String pubsubDomain, String node, SpaceNode? spaceContext) {
+    final id = item.getAttribute('id')?.value;
+    if (id == null) return null;
+
+    String? name;
+    String? type;
+    String? url;
+    String? subNode;
+    String? description;
+    String? imageUrl;
+    bool isPinned = false;
+    List<MediaAttachment> mediaAttachments = [];
+    List<String> categories = [];
+    String? replyToId;
+    String? author;
+    DateTime? publishedDate;
+    String? rawContent;
+    String? contentType;
+    String? commentNode;
+    String? commentService;
+
+    for (var child in item.children) {
+      final ns = child.getAttribute('xmlns')?.value;
+
+      if (child.name == 'entry' && ns == 'http://www.w3.org/2005/Atom') {
+        type = 'entry';
+        name = child.getChild('title')?.textValue;
+        description = child.getChild('summary')?.textValue ?? child.getChild('content')?.textValue;
+        final authorNode = child.getChild('author');
+        author = authorNode?.getChild('name')?.textValue ?? authorNode?.getChild('uri')?.textValue;
+        final publishedStr = child.getChild('published')?.textValue;
+        if (publishedStr != null) {
+          try { publishedDate = DateTime.parse(publishedStr); } catch (_) {}
+        }
+        final contentNode = child.getChild('content');
+        contentType = contentNode?.getAttribute('type')?.value;
+        if (contentNode != null) {
+          rawContent = contentNode.children.isNotEmpty
+              ? contentNode.children.map((c) => c.buildXmlString()).join('')
+              : contentNode.textValue;
+        }
+        rawContent ??= description;
+
+        for (var link in child.children.where((e) => e.name == 'link')) {
+          final rel = link.getAttribute('rel')?.value;
+          final href = link.getAttribute('href')?.value;
+          final typeAttr = link.getAttribute('type')?.value;
+          if (rel == 'enclosure' && href != null) {
+            mediaAttachments.add(MediaAttachment(url: href, type: typeAttr));
+            if (typeAttr != null && typeAttr.startsWith('image/') && imageUrl == null) imageUrl = href;
+          } else if (rel == 'replies' && href != null) {
+            commentNode = link.getAttribute('node')?.value;
+            commentService = href;
+          }
+        }
+
+        final thr = child.children.where((e) => e.name == 'in-reply-to' || e.name == 'thr:in-reply-to').firstOrNull;
+        replyToId = thr?.getAttribute('ref')?.value;
+
+        for (var cat in child.children.where((e) => e.name == 'category')) {
+          final term = cat.getAttribute('term')?.value;
+          if (term != null) categories.add(term);
+        }
+      }
+    }
+
+    if (type != null) {
+      return SpaceItem(
+        id: id,
+        type: type,
+        name: name,
+        url: url,
+        node: subNode,
+        description: description,
+        imageUrl: imageUrl,
+        mediaAttachments: mediaAttachments,
+        categories: categories,
+        replyToId: replyToId,
+        author: author,
+        publishedDate: publishedDate ?? DateTime.now(),
+        rawContent: rawContent,
+        contentType: contentType,
+        commentNode: commentNode,
+        commentService: commentService,
+        sourceSpace: spaceContext ?? SpaceNode(domain: pubsubDomain, node: node, name: node),
+      );
+    }
+    return null;
+  }
 }
 
 // -- Bounded LRU Cache with TTL ------------------------------------------------
@@ -2728,6 +2895,17 @@ class _BoundedCache<K, V> {
 
   void remove(K key) => _store.remove(key);
   void clear() => _store.clear();
+}
+
+class PaginatedResult<T> {
+  final List<T> items;
+  final String? first;
+  final String? last;
+  final int count;
+
+  PaginatedResult({required this.items, this.first, this.last, this.count = 0});
+
+  bool get hasMore => last != null && items.length < count;
 }
 
 class _CacheEntry<V> {

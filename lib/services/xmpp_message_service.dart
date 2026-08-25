@@ -4,6 +4,7 @@ import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/chat_models.dart';
 import 'auth_service_deps.dart';
 import 'jingle_signaling_service.dart';
+import 'xmpp_message_enhancements.dart';
 
 class _StanzaWriteResult {
   final String stanzaId;
@@ -133,28 +134,46 @@ class XmppMessageService {
     msg.addChild(originIdEl);
     _d.trackSentOriginId(originId, id ?? _d.activeAccountId ?? '');
 
-    // NOTE: OMEMO for MUC/group chat is not yet supported - proper implementation
-    // requires resolving all room participants and encrypting for each device.
-    // For now, fall back to plaintext for group chats with OMEMO enabled.
-    final encryptForGroup = isOmemo && !isGroup;
-
-    if (encryptForGroup) {
-      final encryptedList = await _d.omemoService.encryptMessage(
+    // OMEMO encryption: support 1:1 and group (MUC) encryption.
+    // For MUC: resolve all participant JIDs and encrypt for each device.
+    // For 1:1: encrypt for the target JID's devices.
+    final List<xmpp.XmppElement>? encryptedList;
+    if (isOmemo && !isGroup) {
+      encryptedList = await _d.omemoService.encryptMessage(
         targetJid,
         text,
         strict: _d.omemoService.isStrictVerificationEnabled,
       );
-      if (encryptedList != null && encryptedList.isNotEmpty) {
-        for (var enc in encryptedList) {
-          msg.addChild(enc);
-        }
-        msg.body = '🔒 This message is encrypted with OMEMO.';
-      } else {
+      if (encryptedList == null || encryptedList.isEmpty) {
         throw Exception(
           'OMEMO Encryption Failed: The recipient ($targetJid) does not have any OMEMO-capable devices. '
           'Please disable OMEMO for this contact in the chat settings to send unencrypted messages.',
         );
       }
+    } else if (isOmemo && isGroup) {
+      final participants = _d.omemoService.getGroupParticipants(targetJid);
+      encryptedList = await _d.omemoService.encryptMessageForMuc(
+        targetJid,
+        text,
+        participants,
+        strict: _d.omemoService.isStrictVerificationEnabled,
+      );
+      if (encryptedList == null || encryptedList.isEmpty) {
+        throw Exception(
+          'OMEMO MUC Encryption Failed: Could not encrypt for group participants. '
+          'Ensure all participants have OMEMO keys published.',
+        );
+      }
+    } else {
+      encryptedList = null;
+    }
+
+    if (encryptedList != null) {
+      for (var enc in encryptedList) {
+        msg.addChild(enc);
+      }
+      msg.body = '🔒 This message is encrypted with OMEMO.';
+      XmppMessageEnhancements.addEncryptionIndicator(msg, 'urn:xmpp:omemo:0', name: 'OMEMO');
     } else {
       msg.body = isGroup
           ? text
