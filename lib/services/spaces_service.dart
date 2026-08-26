@@ -386,7 +386,7 @@ class SpacesService extends ChangeNotifier {
 
                   if (!hasGatewayFeature) {
                     for (var child in infoQueryRes.children.whereType<xmpp.XmppElement>()) {
-                      if (child.runtimeType.toString() == 'Identity' || child.name == 'identity' || child.name == 'INVALID') {
+                      if (child.name == 'identity' || child.name == 'INVALID') {
                         final cat = child.getAttribute('category')?.value;
                         serviceName = child.getAttribute('name')?.value ?? serviceName;
                         if (cat == 'conference' || cat == 'directory') {
@@ -591,7 +591,7 @@ class SpacesService extends ChangeNotifier {
         return [];
       }
 
-      final queryRes = response.getChild('query');
+      final queryRes = response.getChild('query') ?? response.children.whereType<xmpp.XmppElement>().where((e) => e.name == 'query' || e.name == 'INVALID').firstOrNull;
       if (queryRes == null) return [];
 
       final List<SpaceNode> spaces = [];
@@ -664,9 +664,16 @@ class SpacesService extends ChangeNotifier {
 
     try {
       final response = await _sendIq(iq);
-      if (response.type == xmpp.IqStanzaType.ERROR) return null;
+      if (response.type == xmpp.IqStanzaType.ERROR) {
+        return SpaceNode(
+          domain: domain,
+          node: node,
+          name: fallbackName ?? node,
+          syncedAt: DateTime.now(),
+        );
+      }
 
-      final queryRes = response.getChild('query');
+      final queryRes = response.getChild('query') ?? response.children.whereType<xmpp.XmppElement>().where((e) => e.name == 'query' || e.name == 'INVALID').firstOrNull;
       String name = fallbackName ?? node;
       String? desc;
       String? avatar;
@@ -744,7 +751,12 @@ class SpacesService extends ChangeNotifier {
       return result;
     } catch (e) {
       debugPrint('Error fetching metadata for $node: $e');
-      return null;
+      return SpaceNode(
+        domain: domain,
+        node: node,
+        name: fallbackName ?? node,
+        syncedAt: DateTime.now(),
+      );
     }
   }
 

@@ -83,14 +83,35 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
 
   Set<String> get _joinedKeys => _myCommunities.map((c) => c.id).toSet();
 
+  StreamSubscription? _connectionStateSub;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _init());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _init();
+      final auth = Provider.of<AuthService>(context, listen: false);
+      final conn = auth.activeXmppConnection;
+      if (conn != null) {
+        _connectionStateSub = conn.connectionStateStream.listen((state) {
+          if (state.toString().contains('Ready') || state.toString().contains('Resumed')) {
+            if (!_exploreLoading && _exploreResults.isEmpty) {
+              _addOwnServerToExploreSources();
+              _loadExplore();
+            }
+            if (!_roomsLoading && _rooms.isEmpty) {
+              _addOwnMucService();
+              _loadRooms();
+            }
+          }
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
+    _connectionStateSub?.cancel();
     _exploreSearchController.dispose();
     _mySearchController.dispose();
     _roomsSearchController.dispose();
@@ -226,7 +247,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
             const Duration(seconds: 10),
             onTimeout: () => s,
           );
-          if (meta != null) enriched.add(meta);
+          enriched.add(meta ?? s);
         } catch (_) {
           enriched.add(s);
         }
@@ -255,11 +276,12 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
     }
   }
 
-  Future<void> _loadExplore() async {
+  Future<void> _loadExplore({bool forceRefresh = false}) async {
     if (_spacesService == null) {
       if (mounted) setState(() => _exploreLoading = false);
       return;
     }
+    if (_exploreLoading) return;
     setState(() => _exploreLoading = true);
 
     final allCommunities = <UnifiedCommunity>[];
@@ -275,7 +297,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
       final batch = _exploreSources.skip(i).take(3).toList();
       await Future.wait(batch.map((domain) async {
         try {
-          final spaces = await _spacesService!.discoverAllSpaces(domain).timeout(
+          final spaces = await _spacesService!.discoverAllSpaces(domain, forceRefresh: forceRefresh).timeout(
             const Duration(seconds: 30),
             onTimeout: () => <SpaceNode>[],
           );
@@ -287,7 +309,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                 const Duration(seconds: 10),
                 onTimeout: () => s,
               );
-              if (meta != null) enriched.add(meta);
+              enriched.add(meta ?? s);
             } catch (_) {
               enriched.add(s);
             }
@@ -369,7 +391,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
 
   Future<void> _refresh() async {
     await _loadMyCommunities();
-    _loadExplore();
+    _loadExplore(forceRefresh: true);
     _loadRooms();
   }
 
@@ -381,7 +403,7 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
         emptyIcon: Icons.explore_outlined,
         emptyTitle: 'No communities found',
         emptySubtitle: 'Try a different search or check your connection.',
-        onRefresh: () async { _loadExplore(); },
+        onRefresh: () async { _loadExplore(forceRefresh: true); },
         searchHint: 'Search communities...',
         searchController: _exploreSearchController,
         onSearchChanged: (v) => setState(() => _exploreQuery = v),

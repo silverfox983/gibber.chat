@@ -15,7 +15,7 @@ class SpaceNode {
   final int? numSubscribers;
   final String? ownerJid;
 
-  bool get isPublic => accessModel == 'open';
+  bool get isPublic => accessModel == null || accessModel == 'open';
 
   // Enriched fields
   final bool isSubscribed;
