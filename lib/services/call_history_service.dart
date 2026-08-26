@@ -16,7 +16,14 @@ class CallHistoryService with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final data = prefs.getStringList(_key) ?? [];
     _logs = data
-        .map((e) => CallLog.fromJson(jsonDecode(e)))
+        .map((e) {
+          try {
+            return CallLog.fromJson(jsonDecode(e));
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<CallLog>()
         .toList();
     notifyListeners();
   }

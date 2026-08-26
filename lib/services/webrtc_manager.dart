@@ -1158,12 +1158,18 @@ class WebRTCManager {
       for (var sender in senders) {
         if (sender.track?.kind == 'audio') {
           final dtmfSender = sender.dtmfSender;
-          await dtmfSender.insertDTMF(tone);
-          debugPrint('WebRTC: Sent DTMF tone: $tone');
-          return;
+          if (dtmfSender != null) {
+            try {
+              await dtmfSender.insertDTMF(tone);
+              debugPrint('WebRTC: Sent DTMF tone: $tone');
+              return;
+            } catch (e) {
+              debugPrint('WebRTC: DTMF insertDTMF failed: $e');
+            }
+          }
         }
       }
-      debugPrint('WebRTC: No audio sender found for DTMF');
+      debugPrint('WebRTC: No DTMF-capable audio sender found');
     } catch (e) {
       debugPrint('WebRTC: Error sending DTMF: $e');
     }

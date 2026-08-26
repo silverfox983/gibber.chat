@@ -63,6 +63,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   String? _callAccountId;
   bool _isRecording = false;
   String? _lastRecordingPath;
+  bool _preProximitySpeakerOn = false;
+  CallDirection? _callDirection;
   String? _lastError;
   String? _displayedError;
   RTCIceConnectionState _iceState =
@@ -115,6 +117,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
   CallState get state => _state;
   String? get remoteJid => _remoteJid;
+  DateTime? get callStartTime => _callStartTime;
   String? get sessionId => _sessionId;
   bool get isVideo => _isVideo;
   bool get isMicMuted => _isMicMuted;
@@ -294,6 +297,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         case SipCallState.ringing:
           if (_state == CallState.idle) {
             _state = CallState.incoming;
+            _callDirection = CallDirection.incoming;
             HapticFeedback.heavyImpact();
             _isSipCall = true;
             _remoteJid = _sipService!.remoteNumber ?? 'Unknown';
@@ -359,6 +363,17 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       return;
     }
 
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.microphone,
+      if (isVideo) Permission.camera,
+    ].request();
+    if (statuses[Permission.microphone] != PermissionStatus.granted ||
+        (isVideo && statuses[Permission.camera] != PermissionStatus.granted)) {
+      _permissionError = 'Microphone/Camera permission denied';
+      notifyListeners();
+      return;
+    }
+
     _state = CallState.outgoing;
     _remoteJid = roomJid;
     _lastDisplayName = roomJid;
@@ -370,18 +385,6 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _log('Outgoing group ${_isVideo ? "video" : "voice"} call started (SFU)', isSent: true);
     _startOutgoingCountdown();
     notifyListeners();
-
-    Map<Permission, PermissionStatus> statuses = await [
-      Permission.microphone,
-      if (isVideo) Permission.camera,
-    ].request();
-    if (statuses[Permission.microphone] != PermissionStatus.granted ||
-        (isVideo && statuses[Permission.camera] != PermissionStatus.granted)) {
-      _permissionError = 'Microphone/Camera permission denied';
-      _state = CallState.idle;
-      notifyListeners();
-      return;
-    }
 
     await _soundService.setCallAudioContext(isVideo: isVideo);
     _applyDefaultSpeakerRoute(isVideo: isVideo, source: 'start_sfu_call');
@@ -745,6 +748,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     if (_isCleaningUp) return;
     debugPrint('CallProvider: === STARTING INTERNAL XMPP CALL ===');
 
+    _statsSub?.cancel();
+    _qualityStatsSub?.cancel();
+    _qualityStatsSub = null;
     await _rtcManager.dispose();
     _rtcManager = WebRTCManager();
 
@@ -858,13 +864,13 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       );
 
       if (_state == CallState.active && !_isVideo) {
-        // In voice-only active calls, holding to ear should switch to earpiece
         if (isNear) {
+          _preProximitySpeakerOn = _isSpeakerOn;
           _rtcManager.setSpeakerphone(false);
           _isSpeakerOn = false;
         } else {
-          _rtcManager.setSpeakerphone(true);
-          _isSpeakerOn = true;
+          _isSpeakerOn = _preProximitySpeakerOn;
+          _rtcManager.setSpeakerphone(_isSpeakerOn);
         }
         notifyListeners();
       }
@@ -1036,7 +1042,13 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           _log('XMPP connection restored, triggering ICE restart', isSent: false);
           _iceRestartAttempts = 0;
           _iceCheckingStartTime = null;
-          _rtcManager.restartIceGathering();
+          if (_isGroupCall && _multiPeerManager != null) {
+            for (final peerId in _multiPeerManager!.peerIds) {
+              _multiPeerManager!.restartIce(peerId);
+            }
+          } else {
+            _rtcManager.restartIceGathering();
+          }
         }
         break;
     }
@@ -1096,6 +1108,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
 
     _state = CallState.incoming;
+    _callDirection = CallDirection.incoming;
     HapticFeedback.heavyImpact();
     _remoteJid = fromJid;
     _lastDisplayName = fromJid;
@@ -1241,7 +1254,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     if (_isGroupCall) {
       if (_janusService != null && _groupCallSession != null) {
         if (!_isScreenSharing) {
-          await _multiPeerManager!.replaceVideoTrack(_multiPeerManager!.localStream!.getVideoTracks().first, isStopping: true);
+          final videoTracks = _multiPeerManager?.localStream?.getVideoTracks();
+          if (videoTracks != null && videoTracks.isNotEmpty) {
+            await _multiPeerManager!.replaceVideoTrack(videoTracks.first, isStopping: true);
+          }
         } else {
           final screenStream = await _multiPeerManager!.getDisplayMedia();
           if (screenStream != null) {
@@ -1253,7 +1269,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         }
       } else if (_multiPeerManager != null) {
         if (!_isScreenSharing) {
-          await _multiPeerManager!.replaceVideoTrackForAll(_multiPeerManager!.localStream!.getVideoTracks().first, isStopping: true);
+          final videoTracks = _multiPeerManager!.localStream?.getVideoTracks();
+          if (videoTracks != null && videoTracks.isNotEmpty) {
+            await _multiPeerManager!.replaceVideoTrackForAll(videoTracks.first, isStopping: true);
+          }
         } else {
           final screenStream = await _multiPeerManager!.getDisplayMedia();
           if (screenStream != null) {
@@ -1305,8 +1324,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     _displayedError = null;
     _lastError = null;
-
-    // IRC does not support voice/video calls in this client.
+    _callDirection = CallDirection.outgoing;
     if (activeProtocol == 'IRC') {
       _lastError = 'Voice and video calling are not supported for IRC chats.';
       _state = CallState.idle;
@@ -1996,8 +2014,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     if (type == 'answer') {
       debugPrint('CallProvider: Setting remote answer, state: $_state');
 
-      // Prevent duplicate processing of session-accept
-      if (_remoteAnswerProcessed) {
+      // Prevent duplicate processing of the initial session-accept,
+      // but allow renegotiation answers when call is already active
+      if (_remoteAnswerProcessed && _state != CallState.active) {
         debugPrint(
           'CallProvider: Already processed remote answer, ignoring duplicate',
         );
@@ -2410,10 +2429,10 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     if (_janusService != null) {
       final handleId = _groupCallSession?.publisherHandle;
       if (handleId != null) {
-        await _janusService!.leaveRoom(handleId);
+        try { await _janusService!.leaveRoom(handleId); } catch (_) {}
       }
-      _janusService!.disconnect();
-      _janusService!.dispose();
+      try { _janusService!.disconnect(); } catch (_) {}
+      try { _janusService!.dispose(); } catch (_) {}
     }
     _janusService = null;
     _isGroupCall = false;
@@ -2444,6 +2463,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _isAccepted = false;
     _isRinging = false;
     _isAccepting = false;
+    _isRecording = false;
+    _lastRecordingPath = null;
+    _callDirection = null;
     _permissionError = null;
     _incomingOfferSdp = null;
     _lastError = null;
@@ -2457,18 +2479,18 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _disconnectGraceTimer = null;
     _cleanupSafetyTimer?.cancel();
     _cleanupSafetyTimer = null;
+    _lastRecordingPath = null;
     _qualityStats = null;
 
     // Reset audio effects and stop playback on call end
     _audioEffects.reset();
     _audioPlayback.stop();
 
-    // Signal idle state BEFORE resetting cleanup flag so listeners see consistent state
+    // Signal idle state AND reset cleanup flag atomically so new calls are not blocked
     _state = CallState.idle;
+    _isCleaningUp = false;
     notifyListeners();
 
-    // Now safe to allow new calls — reset cleanup flag last
-    _isCleaningUp = false;
     debugPrint('CallProvider: === CLEANUP COMPLETE ===');
   }
 
@@ -2483,9 +2505,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           : null,
       isVideo: _isVideo,
       status: status,
-      direction: _state == CallState.incoming
-          ? CallDirection.incoming
-          : CallDirection.outgoing,
+      direction: _callDirection ?? CallDirection.outgoing,
     );
 
     _historyService?.addLog(log);

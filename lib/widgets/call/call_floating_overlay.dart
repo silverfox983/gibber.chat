@@ -15,9 +15,34 @@ class CallFloatingOverlay extends StatefulWidget {
 class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
   Offset _position = const Offset(20, 100);
   bool _isDragging = false;
+  Duration _callDuration = Duration.zero;
+  DateTime? _durationAnchor;
 
-  static const double _collapsedWidth = 120;
-  static const double _collapsedHeight = 160;
+  static const double _collapsedWidth = 140;
+  static const double _collapsedHeight = 180;
+
+  @override
+  void initState() {
+    super.initState();
+    _durationAnchor = DateTime.now();
+  }
+
+  String _formatDuration(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  void _snapToEdge(Size screenSize) {
+    final midX = screenSize.width / 2;
+    setState(() {
+      if (_position.dx > midX - _collapsedWidth / 2) {
+        _position = Offset(16, _position.dy);
+      } else {
+        _position = Offset(screenSize.width - _collapsedWidth - 16, _position.dy);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,58 +50,69 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
       builder: (context, call, _) {
         if (call.state == CallState.idle) return const SizedBox.shrink();
 
-        return Positioned(
-          right: _position.dx,
-          top: _position.dy,
-          child: GestureDetector(
-            onPanStart: (_) => setState(() => _isDragging = true),
-            onPanUpdate: (details) {
-              setState(() {
-                _position = Offset(
-                  (_position.dx - details.delta.dx)
-                      .clamp(0, MediaQuery.of(context).size.width - _collapsedWidth),
-                  (_position.dy + details.delta.dy)
-                      .clamp(0, MediaQuery.of(context).size.height - _collapsedHeight - 100),
-                );
-              });
-            },
-            onPanEnd: (_) => setState(() => _isDragging = false),
-            onTap: () {
-              context.pushNamed('call_screen');
-            },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: _collapsedWidth,
-              height: _collapsedHeight,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.85),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: _isDragging ? 0.4 : 0.2),
-                    blurRadius: _isDragging ? 20 : 10,
-                    spreadRadius: _isDragging ? 2 : 0,
+        final duration = call.callStartTime != null
+            ? DateTime.now().difference(call.callStartTime!)
+            : Duration.zero;
+
+        return Stack(
+          children: [
+            Positioned(
+              left: _position.dx,
+              top: _position.dy,
+              child: GestureDetector(
+                onPanStart: (_) => setState(() => _isDragging = true),
+                onPanUpdate: (details) {
+                  setState(() {
+                    _position = Offset(
+                      (_position.dx + details.delta.dx)
+                          .clamp(0, MediaQuery.of(context).size.width - _collapsedWidth),
+                      (_position.dy + details.delta.dy)
+                          .clamp(0, MediaQuery.of(context).size.height - _collapsedHeight - 100),
+                    );
+                  });
+                },
+                onPanEnd: (_) {
+                  setState(() => _isDragging = false);
+                  _snapToEdge(MediaQuery.of(context).size);
+                },
+                onTap: () {
+                  context.pushNamed('call_screen');
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: _collapsedWidth,
+                  height: _collapsedHeight,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: _isDragging ? 0.4 : 0.2),
+                        blurRadius: _isDragging ? 20 : 10,
+                        spreadRadius: _isDragging ? 2 : 0,
+                      ),
+                    ],
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+                    ),
                   ),
-                ],
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
-                ),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                  child: _buildCollapsedContent(call),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      child: _buildCollapsedContent(call, duration),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         );
       },
     );
   }
 
-  Widget _buildCollapsedContent(CallProvider call) {
+  Widget _buildCollapsedContent(CallProvider call, Duration duration) {
     final isActive = call.state == CallState.active;
     final isIncoming = call.state == CallState.incoming;
     final theme = Theme.of(context);
@@ -100,6 +136,16 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (isActive)
+                Text(
+                  _formatDuration(duration),
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              const SizedBox(width: 2),
               GestureDetector(
                 onTap: () => context.pushNamed('call_screen'),
                 child: Icon(
@@ -114,7 +160,15 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
         Expanded(
           child: Stack(
             children: [
-              if (call.isVideo && isActive && !call.isCameraOff && call.localRenderer.srcObject != null)
+              if (call.isVideo && isActive && call.remoteRenderer.srcObject != null)
+                Positioned.fill(
+                  child: RTCVideoView(
+                    call.remoteRenderer,
+                    mirror: false,
+                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                  ),
+                )
+              else if (call.isVideo && isActive && !call.isCameraOff && call.localRenderer.srcObject != null)
                 Positioned.fill(
                   child: RTCVideoView(
                     call.localRenderer,
@@ -132,6 +186,27 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
                         size: 28,
                         color: theme.colorScheme.primary.withValues(alpha: 0.5),
                       ),
+                    ),
+                  ),
+                ),
+              if (call.iceState == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
+                  call.iceState == RTCIceConnectionState.RTCIceConnectionStateChecking)
+                Positioned(
+                  top: 4,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      call.iceState == RTCIceConnectionState.RTCIceConnectionStateDisconnected
+                          ? 'Reconnecting...'
+                          : 'Connecting...',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.w600),
                     ),
                   ),
                 ),
@@ -177,6 +252,8 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
     if (call.state == CallState.active) {
       color = Colors.green;
     } else if (call.state == CallState.incoming) {
+      color = Colors.orange;
+    } else if (call.iceState == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
       color = Colors.orange;
     } else {
       color = Colors.blue;

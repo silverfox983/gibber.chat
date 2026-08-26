@@ -65,6 +65,7 @@ class MultiPeerWebRTCManager {
 
   bool get isDisposed => _isDisposed;
   MediaStream? get localStream => _localStream;
+  List<String> get peerIds => _peerConnections.keys.toList();
 
   void setIceServers(List<Map<String, dynamic>> servers) {
     final allServers = <Map<String, dynamic>>[...servers];
@@ -399,6 +400,17 @@ class MultiPeerWebRTCManager {
 
   MediaStream? _screenStream;
   MediaStreamTrack? _originalCameraTrack;
+
+  void restartIce(String peerId) {
+    final pc = _peerConnections[peerId];
+    if (pc == null) return;
+    try {
+      pc.restartIce();
+      debugPrint('MultiPeer: ICE restart triggered for $peerId');
+    } catch (e) {
+      debugPrint('MultiPeer: ICE restart failed for $peerId: $e');
+    }
+  }
 
   Future<MediaStream?> getDisplayMedia() async {
     try {

@@ -99,7 +99,11 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
 
   void _startTimer() {
     if (_durationTimer != null) return;
-    _callDuration = Duration.zero;
+    if (_callProvider.callStartTime != null) {
+      _callDuration = DateTime.now().difference(_callProvider.callStartTime!);
+    } else {
+      _callDuration = Duration.zero;
+    }
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) {
         setState(() {
@@ -442,6 +446,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     bool isSpeaking = false,
   }) {
     final theme = Theme.of(context);
+    final hasVideo = renderer.srcObject?.getVideoTracks().isNotEmpty ?? false;
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: Container(
@@ -453,13 +458,34 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
         ),
         child: Stack(
           children: [
-            Positioned.fill(
-              child: RTCVideoView(
-                renderer,
-                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                mirror: mirror,
+            if (hasVideo)
+              Positioned.fill(
+                child: RTCVideoView(
+                  renderer,
+                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                  mirror: mirror,
+                ),
+              )
+            else
+              Positioned.fill(
+                child: Container(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  child: Center(
+                    child: CircleAvatar(
+                      radius: 32,
+                      backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.2),
+                      child: Text(
+                        name.isNotEmpty ? name[0].toUpperCase() : '?',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            ),
             Positioned(
               bottom: 8,
               left: 8,
@@ -590,7 +616,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                                 if (value == 'mute') {
                                   call.muteParticipant(participantId, !p.audioEnabled);
                                 } else if (value == 'kick') {
-                                  _showKickParticipantDialog(call, participantId, p.displayName);
+                                  _showKickParticipantDialog(call, p.displayName, p.displayName);
                                 }
                               },
                               itemBuilder: (context) => [
@@ -774,6 +800,50 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+          ),
+        ],
+        if (call.state == CallState.active && call.isOnHold) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.orange.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.pause_circle_rounded, color: Colors.orange, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  'CALL ON HOLD',
+                  style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.2),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (call.state == CallState.active && (call.iceState == RTCIceConnectionState.RTCIceConnectionStateDisconnected || call.iceState == RTCIceConnectionState.RTCIceConnectionStateChecking)) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.orange.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange)),
+                const SizedBox(width: 8),
+                Text(
+                  call.iceState == RTCIceConnectionState.RTCIceConnectionStateDisconnected ? 'Reconnecting...' : 'Connecting...',
+                  style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
           ),
         ],
       ],
@@ -1337,7 +1407,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
     );
   }
 
-  void _showKickParticipantDialog(CallProvider call, String participantId, String displayName) {
+  void _showKickParticipantDialog(CallProvider call, String nick, String displayName) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1354,7 +1424,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
               foregroundColor: Theme.of(context).colorScheme.onError,
             ),
             onPressed: () {
-              call.kickParticipant(participantId);
+              call.kickParticipant(nick);
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('Removed $displayName from the call')),
