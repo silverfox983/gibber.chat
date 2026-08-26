@@ -122,6 +122,8 @@ class _ConversationTile extends StatelessWidget {
   }
 
   Widget _buildAvatar(BuildContext context, Color avatarColor, IconData? protocolIcon) {
+    final showPresence = !conv.isGroup && conv.status != ContactStatus.offline;
+
     final avatar = CircleAvatar(
       radius: 24,
       backgroundColor: avatarColor.withValues(alpha: 0.1),
@@ -129,16 +131,53 @@ class _ConversationTile extends StatelessWidget {
       child: _buildAvatarContent(avatarColor, protocolIcon),
     );
 
+    final wrappedAvatar = showPresence
+        ? Stack(
+            clipBehavior: Clip.none,
+            children: [
+              avatar,
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: _statusColor(conv.status),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Theme.of(context).colorScheme.surface, width: 2),
+                  ),
+                ),
+              ),
+            ],
+          )
+        : avatar;
+
     if (hasStory) {
       return StoryRing(
         hasUnviewed: hasUnviewedStory,
         radius: 24,
         onTap: onTap,
-        child: avatar,
+        child: wrappedAvatar,
       );
     }
 
-    return avatar;
+    return wrappedAvatar;
+  }
+
+  Color _statusColor(ContactStatus status) {
+    switch (status) {
+      case ContactStatus.online:
+        return Colors.green;
+      case ContactStatus.away:
+        return Colors.orange;
+      case ContactStatus.xa:
+        return Colors.amber;
+      case ContactStatus.dnd:
+        return Colors.red;
+      case ContactStatus.offline:
+        return Colors.grey;
+    }
   }
 
   Widget _buildAvatarContent(Color avatarColor, IconData? protocolIcon) {
@@ -196,8 +235,28 @@ class _ConversationTile extends StatelessWidget {
       );
     }
 
+    final presenceMsg = (!conv.isGroup && conv.presenceMessage != null && conv.presenceMessage!.isNotEmpty)
+        ? conv.presenceMessage
+        : null;
+    final lastText = conv.lastMessage?.text;
+
+    if (lastText == null && presenceMsg != null) {
+      return Text(
+        presenceMsg,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 12,
+          fontStyle: FontStyle.italic,
+          color: isActive
+              ? AppColors.primary.withValues(alpha: 0.6)
+              : Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+
     return Text(
-      conv.lastMessage?.text ?? 'No messages',
+      lastText ?? 'No messages',
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(

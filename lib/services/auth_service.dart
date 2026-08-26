@@ -570,7 +570,11 @@ class AuthService with ChangeNotifier {
       }
       final hash = await _getMyAvatarHash(accountId);
       final presence = xmpp.PresenceStanza();
-      presence.show = _mapShowToPresence(status);
+      if (_isUnavailableStatus(status)) {
+        presence.type = xmpp.PresenceType.UNAVAILABLE;
+      } else {
+        presence.show = _mapShowToPresence(status);
+      }
       presence.status = message ?? '';
       final xUpdate = xmpp.XmppElement();
       xUpdate.name = 'x';
@@ -878,16 +882,27 @@ class AuthService with ChangeNotifier {
 
           // Handle Presence
           final presenceManager = xmpp.PresenceManager.getInstance(conn);
+          // Send presence probes for all contacts to get current status
+          for (final contact in _currentContacts) {
+            try {
+              presenceManager.askDirectPresence(xmpp.Jid.fromFullJid(contact.id));
+            } catch (_) {}
+          }
           _presenceSubs[id]?.cancel();
           _presenceSubs[id] = presenceManager.presenceStream.listen((presence) {
             final pid = presence.jid?.fullJid ?? presence.jid?.domain;
             if (pid != null) {
               final barePid = pid.split('/').first.toLowerCase();
+              // Skip MUC presence — handled in inStanzasStream
+              final mucServices = _discoveredMucServices[id] ?? [];
+              if (pid.contains('/') && mucServices.any((d) => barePid.endsWith(d.toLowerCase()))) {
+                return;
+              }
               final index = _currentContacts.indexWhere(
                 (c) => c.id.toLowerCase().split('/').first == barePid,
               );
               if (index != -1) {
-                if (presence.showElement == xmpp.PresenceShowElement.AWAY &&
+                if (presence.showElement == xmpp.PresenceShowElement.XA &&
                     presence.status == 'Unavailable') {
                   _currentContacts[index].status = ContactStatus.offline;
                   _currentContacts[index].presenceMessage = null;
@@ -897,6 +912,18 @@ class AuthService with ChangeNotifier {
                   );
                   _currentContacts[index].presenceMessage = presence.status;
                 }
+                _contactStreamController.add(List.from(_currentContacts));
+              } else {
+                // Presence for unknown contact — add them
+                _currentContacts.add(Contact(
+                  id: barePid,
+                  name: barePid.split('@').first,
+                  status: presence.showElement == xmpp.PresenceShowElement.XA && presence.status == 'Unavailable'
+                      ? ContactStatus.offline
+                      : _mapPresenceToShow(presence.showElement),
+                  presenceMessage: presence.status,
+                  protocol: 'XMPP',
+                ));
                 _contactStreamController.add(List.from(_currentContacts));
               }
             }
@@ -1709,6 +1736,8 @@ class AuthService with ChangeNotifier {
           debugPrint('XMPP Account $id: Stream Management resumed — flushing pending messages and rejoining MUC rooms');
           _flushPendingMessages(id);
           await _roomService.autoJoinRooms(id);
+          // Re-broadcast presence on resumption
+          updateMyStatus(_myStatus, message: _myStatusMessage);
         }
       }, onError: _handleXmppStreamError);
 
@@ -1874,7 +1903,11 @@ class AuthService with ChangeNotifier {
         final hash = await _getMyAvatarHash(accountId);
 
         final presence = xmpp.PresenceStanza();
-        presence.show = _mapShowToPresence(status);
+        if (_isUnavailableStatus(status)) {
+          presence.type = xmpp.PresenceType.UNAVAILABLE;
+        } else {
+          presence.show = _mapShowToPresence(status);
+        }
         presence.status = message ?? '';
         
         // XEP-0153: vCard-Based Avatars
@@ -2194,9 +2227,11 @@ class AuthService with ChangeNotifier {
       case ContactStatus.dnd:
         return xmpp.PresenceShowElement.DND;
       case ContactStatus.offline:
-        return xmpp.PresenceShowElement.CHAT;
+        return xmpp.PresenceShowElement.XA;
     }
   }
+
+  bool _isUnavailableStatus(ContactStatus status) => status == ContactStatus.offline;
 
   ContactStatus _mapPresenceToShow(xmpp.PresenceShowElement? show) {
     if (show == null || show == xmpp.PresenceShowElement.CHAT) {

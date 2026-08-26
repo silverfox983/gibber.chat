@@ -373,12 +373,16 @@ class RoomParticipant {
   final String? realJid;
   final String? affiliation;
   final String? role;
+  final ContactStatus presenceStatus;
+  final String? presenceMessage;
 
   RoomParticipant({
     required this.nickname,
     this.realJid,
     this.affiliation,
     this.role,
+    this.presenceStatus = ContactStatus.offline,
+    this.presenceMessage,
   });
 
   @override

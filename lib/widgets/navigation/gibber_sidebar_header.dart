@@ -345,6 +345,7 @@ class GibberSidebarHeader extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             ...ContactStatus.values.map((status) {
+              final label = status == ContactStatus.offline ? 'INVISIBLE' : status.name.toUpperCase();
               return ListTile(
                 leading: Container(
                   width: 12,
@@ -355,7 +356,7 @@ class GibberSidebarHeader extends StatelessWidget {
                   ),
                 ),
                 title: Text(
-                  status.name.toUpperCase(),
+                  label,
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
                 onTap: () {

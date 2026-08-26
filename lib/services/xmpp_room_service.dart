@@ -59,8 +59,9 @@ class XmppRoomService with ChangeNotifier {
     if (conn == null) return;
 
     debugPrint('MUC: Leaving Room $roomJid');
+    final nick = getNickname(accountId, roomJid);
     final presence = xmpp.PresenceStanza();
-    presence.toJid = xmpp.Jid.fromFullJid(roomJid);
+    presence.toJid = xmpp.Jid.fromFullJid(nick != null ? '$roomJid/$nick' : roomJid);
     presence.type = xmpp.PresenceType.UNAVAILABLE;
     conn.writeStanza(presence);
 

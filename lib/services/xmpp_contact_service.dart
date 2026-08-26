@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert' as json;
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
@@ -667,34 +668,70 @@ class XmppContactService {
     final conn = _d.xmppConnections[id];
     if (conn == null) return;
 
+    final hash = await _getAvatarHash(id);
     final presence = xmpp.PresenceStanza();
-    switch (status) {
-      case ContactStatus.online:
-        presence.show = xmpp.PresenceShowElement.CHAT;
-        break;
-      case ContactStatus.away:
-        presence.show = xmpp.PresenceShowElement.AWAY;
-        break;
-      case ContactStatus.xa:
-        presence.show = xmpp.PresenceShowElement.XA;
-        break;
-      case ContactStatus.dnd:
-        presence.show = xmpp.PresenceShowElement.DND;
-        break;
-      case ContactStatus.offline:
-        break;
+    if (status == ContactStatus.offline) {
+      presence.type = xmpp.PresenceType.UNAVAILABLE;
+    } else {
+      switch (status) {
+        case ContactStatus.online:
+          presence.show = xmpp.PresenceShowElement.CHAT;
+          break;
+        case ContactStatus.away:
+          presence.show = xmpp.PresenceShowElement.AWAY;
+          break;
+        case ContactStatus.xa:
+          presence.show = xmpp.PresenceShowElement.XA;
+          break;
+        case ContactStatus.dnd:
+          presence.show = xmpp.PresenceShowElement.DND;
+          break;
+        case ContactStatus.offline:
+          break;
+      }
     }
 
     if (message != null) {
       presence.status = message;
     }
 
+    // XEP-0153: vCard-Based Avatars
+    if (hash != null) {
+      final xUpdate = xmpp.XmppElement();
+      xUpdate.name = 'x';
+      xUpdate.addAttribute(xmpp.XmppAttribute('xmlns', 'vcard-temp:x:update'));
+      final photo = xmpp.XmppElement();
+      photo.name = 'photo';
+      photo.textValue = hash;
+      xUpdate.addChild(photo);
+      presence.addChild(xUpdate);
+    }
+
     conn.writeStanza(presence);
+
+    // Persist status
+    await _saveStatus(status, message);
 
     _auth.myStatus = status;
     _auth.myStatusMessage = message;
     _auth.notifyListeners();
     debugPrint('SOCIAL: Updated my presence to $status ($message) for $id');
+  }
+
+  Future<String?> _getAvatarHash(String? accountId) async {
+    final myJid = _auth.xmppJids[accountId];
+    if (myJid == null) return null;
+    final bytes = await AvatarCacheService().getAvatar(myJid.split('/').first);
+    if (bytes != null) {
+      return sha1.convert(bytes).toString();
+    }
+    return null;
+  }
+
+  Future<void> _saveStatus(ContactStatus status, String? message) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('my_status_index', ContactStatus.values.indexOf(status));
+    await prefs.setString('my_status_message', message ?? '');
   }
 
   void acceptSubscription(String jid, {String? accountId}) {
