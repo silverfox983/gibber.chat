@@ -37,9 +37,9 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
     final midX = screenSize.width / 2;
     setState(() {
       if (_position.dx > midX - _collapsedWidth / 2) {
-        _position = Offset(16, _position.dy);
-      } else {
         _position = Offset(screenSize.width - _collapsedWidth - 16, _position.dy);
+      } else {
+        _position = Offset(16, _position.dy);
       }
     });
   }

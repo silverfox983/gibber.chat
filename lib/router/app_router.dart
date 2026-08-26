@@ -10,7 +10,6 @@ import '../services/spaces_service.dart';
 import '../screens/landing_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/main_chat_screen.dart';
-import '../screens/call_screen.dart';
 import '../screens/contacts_screen.dart';
 import '../screens/add_contact_screen.dart';
 import '../screens/contact_profile_screen.dart';
@@ -43,7 +42,6 @@ import '../screens/new_message_screen.dart';
 import '../screens/appearance_settings_screen.dart';
 import '../screens/register_screen.dart';
 import '../screens/nexus_search_screen.dart';
-import '../widgets/call/call_floating_overlay.dart';
 
 CustomTransitionPage<void> _fadePage({
   required GoRouterState state,
@@ -115,21 +113,7 @@ GoRouter createAppRouter({
       ),
       ShellRoute(
         builder: (context, state, child) {
-          return ListenableBuilder(
-            listenable: callProvider,
-            builder: (context, _) {
-              return Stack(
-                children: [
-                  child,
-                  if (callProvider.state == CallState.incoming)
-                    const CallScreen(),
-                  if (callProvider.state == CallState.active ||
-                      callProvider.state == CallState.outgoing)
-                    const CallFloatingOverlay(),
-                ],
-              );
-            },
-          );
+          return child;
         },
         routes: [
           GoRoute(

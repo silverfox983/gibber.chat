@@ -687,6 +687,17 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
 
     return Column(
       children: [
+        Align(
+          alignment: Alignment.topLeft,
+          child: IconButton(
+            icon: Icon(Icons.minimize_rounded, color: Theme.of(context).colorScheme.onSurface),
+            tooltip: 'Minimize',
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              call.minimizeCall();
+            },
+          ),
+        ),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

@@ -136,6 +136,8 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   RTCIceConnectionState get iceState => _iceState;
   bool get isAccepted => _isAccepted;
   bool get isRinging => _isRinging;
+  bool _isMinimized = false;
+  bool get isMinimized => _isMinimized;
   double get localVolume => _localVolume;
   double get remoteVolume => _remoteVolume;
   bool get isTalkingWhileMuted => _isTalkingWhileMuted;
@@ -880,13 +882,14 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     debugPrint('CallProvider: Lifecycle change to $state');
-    // HARDENING: Only terminate on detached (app killed).
-    // Allow 'paused' (backgrounding) to keep calls alive for background talking.
     if (_state != CallState.idle && state == AppLifecycleState.detached) {
       debugPrint(
         'CallProvider: Force cleaning up WebRTC resources due to app termination.',
       );
       endCall();
+    } else if (_state != CallState.idle && state == AppLifecycleState.resumed) {
+      debugPrint('CallProvider: App resumed — re-applying audio routing');
+      _applyDefaultSpeakerRoute(isVideo: _isVideo, source: 'app_resumed');
     }
   }
 
@@ -1127,6 +1130,18 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _playRingtone();
 
     _log('Incoming ${_isVideo ? "video" : "voice"} call', isSent: false);
+    notifyListeners();
+  }
+
+  void minimizeCall() {
+    if (_state != CallState.idle) {
+      _isMinimized = true;
+      notifyListeners();
+    }
+  }
+
+  void expandCall() {
+    _isMinimized = false;
     notifyListeners();
   }
 
@@ -2466,6 +2481,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _isRecording = false;
     _lastRecordingPath = null;
     _callDirection = null;
+    _isMinimized = false;
     _permissionError = null;
     _incomingOfferSdp = null;
     _lastError = null;

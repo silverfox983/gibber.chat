@@ -13,6 +13,8 @@ import './services/chat_notification_service.dart';
 import './services/resource_scheduler_service.dart';
 import './services/transcription_service.dart';
 import './services/assistant_service.dart';
+import './screens/call_screen.dart';
+import './widgets/call/call_floating_overlay.dart';
 import './services/miner_service.dart';
 import './services/entitlement_service.dart';
 import './services/backend_config.dart';
@@ -280,11 +282,45 @@ class _ChatAppState extends State<ChatApp> {
                 ),
                 routerConfig: router,
                 debugShowCheckedModeBanner: false,
+                builder: (context, child) {
+                  return Stack(
+                    children: [
+                      child!,
+                      const _CallOverlay(),
+                    ],
+                  );
+                },
               );
             },
           );
         },
       ),
+    );
+  }
+}
+
+class _CallOverlay extends StatelessWidget {
+  const _CallOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<CallProvider>(
+      builder: (context, call, _) {
+        if (call.state == CallState.idle) return const SizedBox.shrink();
+        if (call.isMinimized) {
+          return const CallFloatingOverlay();
+        }
+        // Full call screen — intercept back button to minimize instead of popping
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) {
+              call.minimizeCall();
+            }
+          },
+          child: const CallScreen(),
+        );
+      },
     );
   }
 }
