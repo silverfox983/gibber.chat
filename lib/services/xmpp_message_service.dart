@@ -137,7 +137,7 @@ class XmppMessageService {
     // OMEMO encryption: support 1:1 and group (MUC) encryption.
     // For MUC: resolve all participant JIDs and encrypt for each device.
     // For 1:1: encrypt for the target JID's devices.
-    final List<xmpp.XmppElement>? encryptedList;
+    List<xmpp.XmppElement>? encryptedList;
     if (isOmemo && !isGroup) {
       encryptedList = await _d.omemoService.encryptMessage(
         targetJid,
@@ -152,17 +152,22 @@ class XmppMessageService {
       }
     } else if (isOmemo && isGroup) {
       final participants = _d.omemoService.getGroupParticipants(targetJid);
-      encryptedList = await _d.omemoService.encryptMessageForMuc(
-        targetJid,
-        text,
-        participants,
-        strict: _d.omemoService.isStrictVerificationEnabled,
-      );
-      if (encryptedList == null || encryptedList.isEmpty) {
-        throw Exception(
-          'OMEMO MUC Encryption Failed: Could not encrypt for group participants. '
-          'Ensure all participants have OMEMO keys published.',
+      if (participants.isEmpty) {
+        debugPrint('XMPP: MUC OMEMO no participants resolved for $targetJid, sending plaintext');
+        encryptedList = null;
+      } else {
+        final encResult = await _d.omemoService.encryptMessageForMuc(
+          targetJid,
+          text,
+          participants,
+          strict: _d.omemoService.isStrictVerificationEnabled,
         );
+        if (encResult == null || encResult.isEmpty) {
+          debugPrint('XMPP: MUC OMEMO encryption returned empty for $targetJid, sending plaintext');
+          encryptedList = null;
+        } else {
+          encryptedList = encResult;
+        }
       }
     } else {
       encryptedList = null;
@@ -323,6 +328,8 @@ class XmppMessageService {
     if (conn != null &&
         (conn.state == xmpp.XmppConnectionState.Ready ||
             conn.state == xmpp.XmppConnectionState.Resumed)) {
+      final isOmemo = _d.omemoService.isOmemoEnabled(targetJid);
+
       final msg = xmpp.MessageStanza(
         DateTime.now().millisecondsSinceEpoch.toString(),
         isGroup
@@ -331,7 +338,6 @@ class XmppMessageService {
       );
       final finalTarget = isGroup ? targetJid.split('/').first : targetJid;
       msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
-      msg.body = newText;
 
       final replace = xmpp.XmppElement();
       replace.name = 'replace';
@@ -341,8 +347,67 @@ class XmppMessageService {
       replace.addAttribute(xmpp.XmppAttribute('id', originalMsgId));
       msg.addChild(replace);
 
+      final originId = msg.id ?? 'edit_${DateTime.now().microsecondsSinceEpoch}';
+      final originIdEl = xmpp.XmppElement();
+      originIdEl.name = 'origin-id';
+      originIdEl.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:sid:0'));
+      originIdEl.addAttribute(xmpp.XmppAttribute('id', originId));
+      msg.addChild(originIdEl);
+      _d.trackSentOriginId(originId, id ?? _d.activeAccountId ?? '');
+
+      final List<xmpp.XmppElement>? encryptedList;
+      if (isOmemo && !isGroup) {
+        final enc = await _d.omemoService.encryptMessage(
+          targetJid,
+          newText,
+          strict: _d.omemoService.isStrictVerificationEnabled,
+        );
+        if (enc == null || enc.isEmpty) {
+          throw Exception('OMEMO Encryption Failed for edit: no devices for $targetJid');
+        }
+        encryptedList = enc;
+      } else if (isOmemo && isGroup) {
+        final participants = _d.omemoService.getGroupParticipants(targetJid);
+        if (participants.isEmpty) {
+          encryptedList = null;
+          msg.body = newText;
+        } else {
+          final enc = await _d.omemoService.encryptMessageForMuc(
+            targetJid, newText, participants,
+            strict: _d.omemoService.isStrictVerificationEnabled,
+          );
+          if (enc == null || enc.isEmpty) {
+            encryptedList = null;
+            msg.body = newText;
+          } else {
+            encryptedList = enc;
+          }
+        }
+      } else {
+        encryptedList = null;
+      }
+
+      if (encryptedList != null) {
+        for (var enc in encryptedList) {
+          msg.addChild(enc);
+        }
+        msg.body = '🔒 This message is encrypted with OMEMO.';
+        XmppMessageEnhancements.addEncryptionIndicator(msg, 'urn:xmpp:omemo:0', name: 'OMEMO');
+      } else if (msg.body == null || msg.body!.isEmpty) {
+        msg.body = isGroup
+            ? newText
+            : _d.otrService.processOutgoingMessage(targetJid.split('/').first, newText);
+      }
+
+      if (!isGroup) {
+        final requestEl = xmpp.XmppElement();
+        requestEl.name = 'request';
+        requestEl.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:receipts'));
+        msg.addChild(requestEl);
+      }
+
       conn.writeStanza(msg);
-      debugPrint('AuthService: Sent edited message for $originalMsgId');
+      debugPrint('AuthService: Sent edited message for $originalMsgId (encrypted: ${encryptedList != null})');
     }
   }
 
@@ -527,7 +592,14 @@ class XmppMessageService {
       );
       final finalTarget = isGroup ? toId.split('/').first : toId;
       msg.toJid = xmpp.Jid.fromFullJid(finalTarget);
-      msg.body = text;
+
+      final originId = msg.id ?? 'loc_${DateTime.now().microsecondsSinceEpoch}';
+      final originIdEl = xmpp.XmppElement();
+      originIdEl.name = 'origin-id';
+      originIdEl.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:sid:0'));
+      originIdEl.addAttribute(xmpp.XmppAttribute('id', originId));
+      msg.addChild(originIdEl);
+      _d.trackSentOriginId(originId, id ?? _d.activeAccountId ?? '');
 
       final geoEl = xmpp.XmppElement();
       geoEl.name = 'geo';
@@ -547,6 +619,49 @@ class XmppMessageService {
       geoEl.addChild(latEl);
       geoEl.addChild(lonEl);
       msg.addChild(geoEl);
+
+      final isOmemo = _d.omemoService.isOmemoEnabled(toId);
+      final List<xmpp.XmppElement>? encryptedList;
+      if (isOmemo && !isGroup) {
+        final enc = await _d.omemoService.encryptMessage(
+          toId, text,
+          strict: _d.omemoService.isStrictVerificationEnabled,
+        );
+        encryptedList = (enc != null && enc.isNotEmpty) ? enc : null;
+        if (encryptedList == null) {
+          debugPrint('XMPP: OMEMO encryption failed for location to $toId, sending plaintext');
+        }
+      } else if (isOmemo && isGroup) {
+        final participants = _d.omemoService.getGroupParticipants(toId);
+        if (participants.isEmpty) {
+          encryptedList = null;
+        } else {
+          final enc = await _d.omemoService.encryptMessageForMuc(
+            toId, text, participants,
+            strict: _d.omemoService.isStrictVerificationEnabled,
+          );
+          encryptedList = (enc != null && enc.isNotEmpty) ? enc : null;
+        }
+      } else {
+        encryptedList = null;
+      }
+
+      if (encryptedList != null) {
+        for (var enc in encryptedList) {
+          msg.addChild(enc);
+        }
+        msg.body = '🔒 This message is encrypted with OMEMO.';
+        XmppMessageEnhancements.addEncryptionIndicator(msg, 'urn:xmpp:omemo:0', name: 'OMEMO');
+      } else {
+        msg.body = text;
+      }
+
+      if (!isGroup) {
+        final requestEl = xmpp.XmppElement();
+        requestEl.name = 'request';
+        requestEl.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:receipts'));
+        msg.addChild(requestEl);
+      }
 
       conn.writeStanza(msg);
 

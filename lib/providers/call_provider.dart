@@ -923,16 +923,28 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         break;
       case JingleAction.sessionInitiate:
         if (event.sdp != null) {
-          final wasAccepted = _isAccepted;
-          receiveCall(
-            event.fromJid,
-            event.sessionId,
-            event.sdp!,
-            accountId: event.accountId,
-          );
-          if (wasAccepted) {
-            debugPrint('CallProvider: Auto-accepting session-initiate as proposal was already accepted');
-            acceptCall();
+          if (_sessionId == event.sessionId && _state != CallState.idle) {
+            debugPrint('CallProvider: Session ${event.sessionId} already active, updating remote SDP');
+            if (_isGroupCall && _multiPeerManager != null) {
+              _multiPeerManager!.setRemoteDescription(
+                event.fromJid,
+                RTCSessionDescription(event.sdp!, 'offer'),
+              );
+            } else {
+              handleRemoteSdp(event.sdp!, 'offer');
+            }
+          } else {
+            final wasAccepted = _isAccepted;
+            receiveCall(
+              event.fromJid,
+              event.sessionId,
+              event.sdp!,
+              accountId: event.accountId,
+            );
+            if (wasAccepted) {
+              debugPrint('CallProvider: Auto-accepting session-initiate as proposal was already accepted');
+              acceptCall();
+            }
           }
         }
         break;
