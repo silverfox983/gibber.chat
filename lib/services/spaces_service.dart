@@ -2228,7 +2228,7 @@ class SpacesService extends ChangeNotifier {
             url: type != 'subscription' ? url : null,
             node: subNode,
             description: description,
-            jid: type == 'subscription' ? url : null,
+            jid: type == 'room' ? id : (type == 'subscription' ? url : null),
             imageUrl: imageUrl,
             mediaAttachments: mediaAttachments,
             categories: categories,
@@ -2246,7 +2246,7 @@ class SpacesService extends ChangeNotifier {
         } else {
           // FALLBACK: If no payload recognized, infer from ID or presence of children
           if (id.contains('@')) {
-            spaceItems.add(SpaceItem(id: id, type: 'room', name: id, sourceSpace: spaceContext));
+            spaceItems.add(SpaceItem(id: id, type: 'room', name: id, jid: id, sourceSpace: spaceContext));
           } else {
             final firstChild = item.children.isNotEmpty ? item.children.first : null;
             spaceItems.add(SpaceItem(
@@ -2326,7 +2326,7 @@ class SpacesService extends ChangeNotifier {
 
           // If it's a conference (MUC), it might be that the space node itself IS the room
           if (category == 'conference' || type == 'text') {
-            return [SpaceItem(id: node, type: 'room', name: identity.getAttribute('name')?.value ?? extractedName ?? node)];
+            return [SpaceItem(id: node, type: 'room', name: identity.getAttribute('name')?.value ?? extractedName ?? node, jid: node)];
           }
         }
       }
@@ -2785,6 +2785,50 @@ class SpacesService extends ChangeNotifier {
     for (var child in item.children) {
       final ns = child.getAttribute('xmlns')?.value;
 
+      // XEP-0048: Bookmarks (modern) — MUC room in a space
+      if (child.name == 'conference' && ns == 'urn:xmpp:bookmarks:1') {
+        type = 'room';
+        name = child.getAttribute('name')?.value;
+        final extensions = child.getChild('extensions');
+        if (extensions != null) {
+          for (var ext in extensions.children) {
+            if (ext.name == 'pinned' && ext.getAttribute('xmlns')?.value == 'urn:xmpp:bookmarks-pinning:0') {
+              isPinned = true;
+              break;
+            }
+          }
+        }
+        break;
+      }
+
+      // Legacy conference invite — MUC room in a space
+      if (child.name == 'x' && ns == 'jabber:x:conference') {
+        type = 'room';
+        name = child.getAttribute('name')?.value;
+        break;
+      }
+
+      // XEP-0066: Out of Band Data (URLs)
+      if (child.name == 'x' && ns == 'jabber:x:oob') {
+        type = 'url';
+        url = child.getChild('url')?.textValue;
+        name = url;
+        break;
+      }
+
+      // XEP-0503 / XEP-0457: Spaces Subscriptions
+      if ((child.name == 'space' && (ns == 'urn:xmpp:spaces:0' || ns == 'urn:xmpp:spaces:1')) ||
+          (child.name == 'subscription' && ns == 'urn:xmpp:pubsub:subscription:0')) {
+        type = 'subscription';
+        subNode = child.getAttribute('node')?.value;
+        final targetJid = child.getAttribute('server')?.value ?? child.getAttribute('jid')?.value;
+        final spaceName = child.getAttribute('name')?.value;
+        name = spaceName ?? (subNode != null ? 'Sub-Space: $subNode' : 'Sub-Space');
+        url = targetJid;
+        break;
+      }
+
+      // Atom Entry (XEP-0277 / Microblogging / News)
       if (child.name == 'entry' && ns == 'http://www.w3.org/2005/Atom') {
         type = 'entry';
         name = child.getChild('title')?.textValue;
@@ -2825,16 +2869,25 @@ class SpacesService extends ChangeNotifier {
           if (term != null) categories.add(term);
         }
       }
+
+      // XEP-0203: Delayed Delivery
+      if (child.name == 'delay' && (ns == 'urn:xmpp:delay' || ns == 'jabber:x:delay')) {
+        final stamp = child.getAttribute('stamp')?.value;
+        if (stamp != null) {
+          try { publishedDate ??= DateTime.parse(stamp); } catch (_) {}
+        }
+      }
     }
 
     if (type != null) {
       return SpaceItem(
         id: id,
         type: type,
-        name: name,
-        url: url,
+        name: name ?? id,
+        url: type != 'subscription' ? url : null,
         node: subNode,
         description: description,
+        jid: type == 'room' ? id : (type == 'subscription' ? url : null),
         imageUrl: imageUrl,
         mediaAttachments: mediaAttachments,
         categories: categories,
@@ -2846,8 +2899,15 @@ class SpacesService extends ChangeNotifier {
         commentNode: commentNode,
         commentService: commentService,
         sourceSpace: spaceContext ?? SpaceNode(domain: pubsubDomain, node: node, name: node),
+        isPinned: isPinned,
       );
     }
+
+    // Fallback: If no payload recognized, infer from ID
+    if (id.contains('@')) {
+      return SpaceItem(id: id, type: 'room', name: id, jid: id, sourceSpace: spaceContext ?? SpaceNode(domain: pubsubDomain, node: node, name: node));
+    }
+
     return null;
   }
 }
