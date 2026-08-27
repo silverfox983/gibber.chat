@@ -89,8 +89,8 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
         );
       }
       Future.delayed(const Duration(milliseconds: 2000), () {
-        if (mounted && Navigator.of(context).canPop()) {
-          Navigator.of(context).maybePop();
+        if (mounted) {
+          _callProvider.expandCall();
         }
       });
     }
@@ -199,9 +199,7 @@ class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
                     ],
                     TextButton(
                       onPressed: () {
-                        if (Navigator.of(context).canPop()) {
-                          Navigator.of(context).maybePop();
-                        }
+                        _callProvider.expandCall();
                       },
                       child: const Text('Close'),
                     ),

@@ -38,7 +38,7 @@ class _ChatViewState extends State<ChatView> {
   bool _showScrollToBottom = false;
   bool _isSearchingMessages = false;
   AudioRecorder? _audioRecorder;
-  Timer? _typingDebouncer;
+
 
   @override
   void initState() {
@@ -57,7 +57,6 @@ class _ChatViewState extends State<ChatView> {
     _msgSearchController.dispose();
     _scrollController.dispose();
     _audioRecorder?.dispose();
-    _typingDebouncer?.cancel();
     super.dispose();
   }
 
@@ -516,7 +515,7 @@ class _ChatViewState extends State<ChatView> {
                     vertical: 10,
                   ),
                 ),
-                onChanged: (val) => _onMessageChanged(val),
+
               ),
             ),
             const SizedBox(width: 8),
@@ -612,13 +611,6 @@ class _ChatViewState extends State<ChatView> {
         ),
       ),
     );
-  }
-
-  void _onMessageChanged(String text) {
-    _typingDebouncer?.cancel();
-    _typingDebouncer = Timer(const Duration(seconds: 2), () {
-      // Send typing stopped
-    });
   }
 
   Future<void> _sendMessage() async {

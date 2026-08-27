@@ -540,26 +540,6 @@ class AuthService with ChangeNotifier {
   }) =>
       _syncService.searchUsers(query, accountId: accountId, searchHost: searchHost);
 
-  // Send typing state (XEP-0085)
-  void sendTypingState(String accountId, String toJid, String state) {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
-
-    final msg = xmpp.MessageStanza(
-      DateTime.now().millisecondsSinceEpoch.toString(),
-      xmpp.MessageStanzaType.CHAT,
-    );
-    msg.toJid = xmpp.Jid.fromFullJid(toJid);
-
-    final stateEl = xmpp.XmppElement();
-    stateEl.name = state; // composing, paused, active, gone
-    stateEl.addAttribute(
-      xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/chatstates'),
-    );
-    msg.addChild(stateEl);
-    conn.writeStanza(msg);
-  }
-
   Future<void> setPresence(ContactStatus status, String? message, {String? accountId}) async {
     if (accountId != null) {
       final conn = _xmppConnections[accountId];
@@ -982,11 +962,24 @@ class AuthService with ChangeNotifier {
                     'accountId': id,
                     'type': 'subscribe',
                   };
-                  if (!_pendingSubscriptionRequests.any((r) => r['jid'] == fromJid)) {
+                  if (!_pendingSubscriptionRequests.any((r) => r['jid'] == fromJid && r['accountId'] == id)) {
                     _pendingSubscriptionRequests.add(req);
                     _subscriptionRequestController.add(List.from(_pendingSubscriptionRequests));
                     _saveSubscriptionRequests();
                   }
+                }
+              } else if (stanza.type == xmpp.PresenceType.SUBSCRIBED) {
+                if (fromJid != null) {
+                  final idx = _currentContacts.indexWhere(
+                    (c) => c.id.toLowerCase().split('/').first == fromJid,
+                  );
+                  if (idx != -1) {
+                    _currentContacts[idx].status = _currentContacts[idx].status == ContactStatus.offline
+                        ? ContactStatus.offline
+                        : _currentContacts[idx].status;
+                    _contactStreamController.add(List.from(_currentContacts));
+                  }
+                  debugPrint('SOCIAL: User $fromJid subscribed to us (SUBSCRIBED received).');
                 }
               } else if (stanza.type == xmpp.PresenceType.UNSUBSCRIBED) {
                 debugPrint('SOCIAL: User $fromJid unsubscribed from us.');

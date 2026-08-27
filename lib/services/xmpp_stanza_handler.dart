@@ -151,15 +151,19 @@ class XmppStanzaHandler {
       orElse: () => xmpp.XmppElement(),
     );
     if (chatState.name != null) {
-      _d.jingleEventController.add(
-        JingleEvent(
-          action: JingleAction.transportInfo,
-          sessionId: 'typing',
-          fromJid: stanza.fromJid?.fullJid ?? '',
-          reason: chatState.name,
-          accountId: accountId,
-        ),
-      );
+      final fromBareJid = stanza.fromJid?.fullJid?.split('/').first.toLowerCase() ?? '';
+      final myBareJid = _d.xmppJids[accountId]?.split('/').first.toLowerCase() ?? '';
+      if (fromBareJid != myBareJid) {
+        _d.jingleEventController.add(
+          JingleEvent(
+            action: JingleAction.transportInfo,
+            sessionId: 'typing',
+            fromJid: stanza.fromJid?.fullJid ?? '',
+            reason: chatState.name,
+            accountId: accountId,
+          ),
+        );
+      }
     }
 
     final received = stanza.getChild('received');
@@ -515,6 +519,12 @@ class XmppStanzaHandler {
                   ? reply?.getAttribute('id')?.value
                   : null;
 
+              final replaceEl = innerMessage.getChild('replace');
+              final replacesId = replaceEl?.getAttribute('xmlns')?.value ==
+                      'urn:xmpp:message-correct:0'
+                  ? replaceEl?.getAttribute('id')?.value
+                  : null;
+
               _d.messageStreamController.add(
                 ChatMessage(
                   id: innerMessage.getAttribute('id')?.value ??
@@ -529,6 +539,8 @@ class XmppStanzaHandler {
                   protocol: 'XMPP',
                   conversationId: buddyJid.split('/').first.toLowerCase(),
                   replyToId: replyToId,
+                  replacesId: replacesId,
+                  isEdited: replacesId != null,
                   isGroup: buddyJid.contains('conference.') ||
                       buddyJid.startsWith('#'),
                 ),
@@ -554,13 +566,12 @@ class XmppStanzaHandler {
           final originId = originIdEl?.getAttribute('id')?.value;
           final stanzaId = innerMessage.getAttribute('id')?.value;
           // Primary dedup: origin-id. Fallback: stanza ID if origin-id missing
+          // Don't remove from sentOriginIds — keep for MAM dedup
           if (originId != null && _d.sentOriginIds.containsKey(originId)) {
             debugPrint('XMPP: Carbon echo for origin-id $originId, dropping');
-            _d.sentOriginIds.remove(originId);
             return;
           } else if (originId == null && stanzaId != null && _d.sentOriginIds.containsKey(stanzaId)) {
             debugPrint('XMPP: Carbon echo for stanza-id $stanzaId (no origin-id), dropping');
-            _d.sentOriginIds.remove(stanzaId);
             return;
           }
 

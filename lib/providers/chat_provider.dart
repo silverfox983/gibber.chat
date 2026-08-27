@@ -171,8 +171,22 @@ class ChatProvider with ChangeNotifier {
   }
 
   Future<void> setActiveConversation(String? id) async {
+    // Send 'gone' chat state when leaving the previous conversation (XEP-0085)
+    if (_activeConversationId != null && _authService != null) {
+      final prevIdx = _conversations.indexWhere(
+        (c) => c.id == _activeConversationId,
+      );
+      if (prevIdx != -1) {
+        _authService!.sendChatState(
+          _activeConversationId!,
+          'gone',
+          isGroup: _conversations[prevIdx].isGroup,
+        );
+      }
+    }
+
     _activeConversationId = id?.split('/').first.toLowerCase();
-    _messageSearchQuery = ''; // Reset search when switching chats
+    _messageSearchQuery = '';
 
     if (_activeConversationId != null) {
       // 1. Ensure Conversation exists in memory list
@@ -216,6 +230,15 @@ class ChatProvider with ChangeNotifier {
 
       _conversations[index].unreadCount = 0;
       DatabaseService().resetUnreadCount(_activeConversationId!);
+
+      // Send 'active' chat state when entering a conversation (XEP-0085)
+      if (_authService != null) {
+        _authService!.sendChatState(
+          _activeConversationId!,
+          'active',
+          isGroup: _conversations[index].isGroup,
+        );
+      }
 
       try {
         final messages = await DatabaseService().getMessages(
@@ -447,12 +470,20 @@ class ChatProvider with ChangeNotifier {
     });
 
     _authSub = authService.messages.listen((message) {
-      // Cancel typing timer when message received from this JID
+      // Cancel typing timer and clear typing indicator when message received from this JID
       final rawSender = (message.conversationId ?? message.senderId ?? '')
           .split('/')
           .first
           .toLowerCase();
       _typingTimers[rawSender]?.cancel();
+      _typingTimers.remove(rawSender);
+      final senderConvIdx = _conversations.indexWhere(
+        (c) => c.id.toLowerCase() == rawSender,
+      );
+      if (senderConvIdx != -1) {
+        _conversations[senderConvIdx].isTyping = false;
+        _conversations[senderConvIdx].typingUser = null;
+      }
 
       final rawTarget = (message.conversationId ?? message.senderId ?? '')
           .toLowerCase();
@@ -603,23 +634,35 @@ class ChatProvider with ChangeNotifier {
 
   void _handleTyping(String fromJid, String state) {
     final bareJid = fromJid.split('/').first;
-    final index = _conversations.indexWhere((c) => c.id == bareJid);
-    if (index == -1) return;
 
     if (state == 'composing') {
-      _conversations[index].isTyping = true;
-      _conversations[index].typingUser = fromJid.contains('/')
+      final typingUser = fromJid.contains('/')
           ? fromJid.split('/').last
           : fromJid.split('@').first;
 
       _typingTimers[bareJid]?.cancel();
+      final idx = _conversations.indexWhere((c) => c.id == bareJid);
+      if (idx == -1) return;
+
+      _conversations[idx].isTyping = true;
+      _conversations[idx].typingUser = typingUser;
+
       _typingTimers[bareJid] = Timer(const Duration(seconds: 5), () {
-        _conversations[index].isTyping = false;
-        notifyListeners();
+        final i = _conversations.indexWhere((c) => c.id == bareJid);
+        if (i != -1) {
+          _conversations[i].isTyping = false;
+          _conversations[i].typingUser = null;
+          notifyListeners();
+        }
       });
     } else {
-      _conversations[index].isTyping = false;
+      final idx = _conversations.indexWhere((c) => c.id == bareJid);
+      if (idx != -1) {
+        _conversations[idx].isTyping = false;
+        _conversations[idx].typingUser = null;
+      }
       _typingTimers[bareJid]?.cancel();
+      _typingTimers.remove(bareJid);
     }
     notifyListeners();
   }
@@ -762,6 +805,10 @@ class ChatProvider with ChangeNotifier {
     _subscriptionSub?.cancel();
     _roomParticipantSub?.cancel();
     _batchTimer?.cancel();
+    for (var timer in _typingTimers.values) {
+      timer.cancel();
+    }
+    _typingTimers.clear();
     super.dispose();
   }
 
@@ -918,9 +965,12 @@ class ChatProvider with ChangeNotifier {
         if (_toPersist.isNotEmpty) {
           final messages = List<ChatMessage>.from(_toPersist);
           _toPersist.clear();
-          _pendingIds.clear(); // Clear after DB write starts, not before
-          DatabaseService().insertMessagesBatch(messages).catchError((e) {
+          final idsToClear = Set<String>.from(_pendingIds);
+          DatabaseService().insertMessagesBatch(messages).then((_) {
+            _pendingIds.removeAll(idsToClear);
+          }).catchError((e) {
             debugPrint('DB BATCH INSERT ERROR: $e');
+            _pendingIds.removeAll(idsToClear);
           });
         } else {
           _pendingIds.clear();

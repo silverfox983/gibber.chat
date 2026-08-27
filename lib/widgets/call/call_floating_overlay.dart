@@ -1,7 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../providers/call_provider.dart';
 
@@ -76,7 +75,7 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
                   _snapToEdge(MediaQuery.of(context).size);
                 },
                 onTap: () {
-                  context.pushNamed('call_screen');
+                  call.expandCall();
                 },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
@@ -147,7 +146,7 @@ class _CallFloatingOverlayState extends State<CallFloatingOverlay> {
                 ),
               const SizedBox(width: 2),
               GestureDetector(
-                onTap: () => context.pushNamed('call_screen'),
+                onTap: () => call.expandCall(),
                 child: Icon(
                   Icons.open_in_full_rounded,
                   size: 12,

@@ -225,8 +225,11 @@ class _ConversationTile extends StatelessWidget {
 
   Widget _buildSubtitle(BuildContext context) {
     if (conv.isTyping) {
+      final typingLabel = (conv.isGroup && conv.typingUser != null && conv.typingUser!.isNotEmpty)
+          ? '${conv.typingUser} is typing...'
+          : 'Typing...';
       return Text(
-        'Typing...',
+        typingLabel,
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.bold,

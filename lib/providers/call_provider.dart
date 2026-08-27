@@ -1325,10 +1325,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     bool isVideo = true,
     String? protocol,
   }) async {
-    _lastError = null;
-    final activeProtocol = protocol ?? 'XMPP';
-
-    // Prevent starting a new call while cleanup is in progress
+    // Prevent starting a new call while another is active or cleanup is in progress
+    if (_state != CallState.idle) {
+      debugPrint('CallProvider: Cannot start call - already in state $_state');
+      return;
+    }
     if (_isCleaningUp) {
       debugPrint('CallProvider: Cannot start call - cleanup in progress');
       _lastError = 'Call cleanup in progress, please wait';
@@ -1337,8 +1338,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       return;
     }
 
-    _displayedError = null;
     _lastError = null;
+    final activeProtocol = protocol ?? 'XMPP';
+    _displayedError = null;
     _callDirection = CallDirection.outgoing;
     if (activeProtocol == 'IRC') {
       _lastError = 'Voice and video calling are not supported for IRC chats.';
@@ -2029,17 +2031,22 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     if (type == 'answer') {
       debugPrint('CallProvider: Setting remote answer, state: $_state');
 
-      // Prevent duplicate processing of the initial session-accept,
-      // but allow renegotiation answers when call is already active
-      if (_remoteAnswerProcessed && _state != CallState.active) {
-        debugPrint(
-          'CallProvider: Already processed remote answer, ignoring duplicate',
-        );
+      if (_state == CallState.active && _remoteAnswerProcessed) {
+        debugPrint('CallProvider: Processing renegotiation answer in active call');
+        try {
+          await _rtcManager.setRemoteDescription(
+            RTCSessionDescription(sdp, 'answer'),
+          );
+        } catch (e) {
+          debugPrint('CallProvider: Renegotiation answer failed: $e');
+        }
         return;
       }
 
-      if (_state == CallState.active) {
-        debugPrint('CallProvider: Already active, ignoring duplicate answer');
+      if (_remoteAnswerProcessed) {
+        debugPrint(
+          'CallProvider: Already processed remote answer, ignoring duplicate',
+        );
         return;
       }
 
@@ -2468,6 +2475,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // Reset all state
     _remoteJid = null;
+    if (_sessionId != null) {
+      try { (_authService?.getJingleService(_callAccountId ?? '') ?? _authService?.jingleSignaling)?.cleanupSession(_sessionId!); } catch (_) {}
+    }
     _sessionId = null;
     _callAccountId = null;
     _isMicMuted = false;

@@ -7,7 +7,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -142,6 +141,7 @@ class _MainChatScreenState extends State<MainChatScreen> {
   ChatMessage? _replyToMessage;
   Timer? _typingDebouncer;
   String? _lastSentChatState;
+  DateTime? _lastComposingSent;
   bool _showScrollToBottom = false;
   bool _isTypingMsg = false;
   final Set<String> _requestedQuoteBackfills = {};
@@ -250,13 +250,23 @@ class _MainChatScreenState extends State<MainChatScreen> {
 
           final newState = hasText ? 'composing' : 'active';
 
-          if (newState != _lastSentChatState) {
+          final now = DateTime.now();
+          if (newState == 'composing' && _lastSentChatState == 'composing') {
+            if (_lastComposingSent == null || now.difference(_lastComposingSent!).inSeconds < 5) {
+              return;
+            }
+          }
+
+          if (newState != _lastSentChatState || newState == 'composing') {
             _authService.sendChatState(
               activeChat.id,
               newState,
               isGroup: activeChat.isGroup,
             );
             _lastSentChatState = newState;
+            if (newState == 'composing') {
+              _lastComposingSent = now;
+            }
           }
 
           if (newState == 'composing') {
@@ -4436,67 +4446,6 @@ class _MainChatScreenState extends State<MainChatScreen> {
               ),
             ],
           ),
-        );
-      },
-    );
-  }
-}
-
-class _TypingIndicator extends StatefulWidget {
-  @override
-  State<_TypingIndicator> createState() => _TypingIndicatorState();
-}
-
-class _TypingIndicatorState extends State<_TypingIndicator>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(3, (index) {
-            // Bouncing sine wave
-            final delay = index * 0.2;
-            final value = ((_controller.value - delay) % 1.0);
-            // 0.0 -> 0.5 is half-sine wave (up and down)
-            final double bounce = value < 0.5
-                ? math.sin(value * 2 * math.pi)
-                : 0.0;
-
-            return Transform.translate(
-              offset: Offset(0, -bounce * 4), // Bounce up 4 pixels
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                width: 5,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.primary.withValues(alpha: 0.8),
-                  shape: BoxShape.circle,
-                ),
-              ),
-            );
-          }),
         );
       },
     );

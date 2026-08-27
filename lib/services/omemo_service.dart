@@ -1035,7 +1035,9 @@ class OmemoService {
     if (sidStr == null) return null;
 
     final store = SQLiteSignalStore();
-    final address = SignalProtocolAddress(bareFrom, int.parse(sidStr));
+    final sidInt = int.tryParse(sidStr);
+    if (sidInt == null) return null;
+    final address = SignalProtocolAddress(bareFrom, sidInt);
     final cipher = SessionCipher(store, store, store, store, address);
 
     try {

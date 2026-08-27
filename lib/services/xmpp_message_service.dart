@@ -629,7 +629,7 @@ class XmppMessageService {
         );
         encryptedList = (enc != null && enc.isNotEmpty) ? enc : null;
         if (encryptedList == null) {
-          debugPrint('XMPP: OMEMO encryption failed for location to $toId, sending plaintext');
+          throw Exception('OMEMO Encryption Failed for location to $toId: no devices');
         }
       } else if (isOmemo && isGroup) {
         final participants = _d.omemoService.getGroupParticipants(toId);
@@ -646,6 +646,7 @@ class XmppMessageService {
         encryptedList = null;
       }
 
+      final encryptionType = encryptedList != null ? 'omemo' : null;
       if (encryptedList != null) {
         for (var enc in encryptedList) {
           msg.addChild(enc);
@@ -681,6 +682,7 @@ class XmppMessageService {
           latitude: latitude,
           longitude: longitude,
           locationLabel: label,
+          encryptionType: encryptionType,
         ),
       );
     } else {

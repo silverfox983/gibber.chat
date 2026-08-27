@@ -307,18 +307,40 @@ class _CallOverlay extends StatelessWidget {
     return Consumer<CallProvider>(
       builder: (context, call, _) {
         if (call.state == CallState.idle) return const SizedBox.shrink();
+
+        final Widget child;
         if (call.isMinimized) {
-          return const CallFloatingOverlay();
+          child = const CallFloatingOverlay();
+        } else {
+          child = PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, _) {
+              if (!didPop) {
+                call.minimizeCall();
+              }
+            },
+            child: const CallScreen(),
+          );
         }
-        // Full call screen — intercept back button to minimize instead of popping
-        return PopScope(
-          canPop: false,
-          onPopInvokedWithResult: (didPop, _) {
-            if (!didPop) {
-              call.minimizeCall();
-            }
+
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (Widget child, Animation<double> animation) {
+            final isExpanded = child is PopScope;
+            return SlideTransition(
+              position: Tween<Offset>(
+                begin: isExpanded ? const Offset(0, 1) : const Offset(0, -0.3),
+                end: isExpanded ? Offset.zero : Offset.zero,
+              ).animate(animation),
+              child: FadeTransition(opacity: animation, child: child),
+            );
           },
-          child: const CallScreen(),
+          child: KeyedSubtree(
+            key: ValueKey(call.isMinimized ? 'minimized' : 'expanded'),
+            child: child,
+          ),
         );
       },
     );

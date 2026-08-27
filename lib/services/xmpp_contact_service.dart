@@ -730,8 +730,8 @@ class XmppContactService {
 
   Future<void> _saveStatus(ContactStatus status, String? message) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('my_status_index', ContactStatus.values.indexOf(status));
-    await prefs.setString('my_status_message', message ?? '');
+    await prefs.setInt('my_presence_status', ContactStatus.values.indexOf(status));
+    await prefs.setString('my_presence_message', message ?? '');
   }
 
   void acceptSubscription(String jid, {String? accountId}) {
@@ -766,10 +766,15 @@ class XmppContactService {
     final normalizedJid = jid.split('/').first.toLowerCase();
     final userAtDomain = xmpp.Jid.fromFullJid(jid).userAtDomain;
 
-    final presence = xmpp.PresenceStanza();
-    presence.toJid = xmpp.Jid.fromFullJid(normalizedJid);
-    presence.type = xmpp.PresenceType.UNSUBSCRIBED;
-    conn.writeStanza(presence);
+    final unsubed = xmpp.PresenceStanza();
+    unsubed.toJid = xmpp.Jid.fromFullJid(normalizedJid);
+    unsubed.type = xmpp.PresenceType.UNSUBSCRIBED;
+    conn.writeStanza(unsubed);
+
+    final unsub = xmpp.PresenceStanza();
+    unsub.toJid = xmpp.Jid.fromFullJid(normalizedJid);
+    unsub.type = xmpp.PresenceType.UNSUBSCRIBE;
+    conn.writeStanza(unsub);
 
     debugPrint('SOCIAL: Declined subscription from $normalizedJid');
     _d.pendingSubscriptionRequests.removeWhere((req) => req['jid'] == normalizedJid || req['jid'] == userAtDomain);
@@ -894,6 +899,16 @@ class XmppContactService {
 
     iq.addChild(query);
     conn.writeStanza(iq);
+
+    final unsub = xmpp.PresenceStanza();
+    unsub.toJid = xmpp.Jid.fromFullJid(normalizedJid);
+    unsub.type = xmpp.PresenceType.UNSUBSCRIBE;
+    conn.writeStanza(unsub);
+
+    final unsubed = xmpp.PresenceStanza();
+    unsubed.toJid = xmpp.Jid.fromFullJid(normalizedJid);
+    unsubed.type = xmpp.PresenceType.UNSUBSCRIBED;
+    conn.writeStanza(unsubed);
 
     debugPrint('SOCIAL: Removed $normalizedJid from roster.');
 

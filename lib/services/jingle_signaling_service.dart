@@ -1199,6 +1199,8 @@ class JingleSignalingService {
     _writeStanza(iq);
   }
 
+  void cleanupSession(String sessionId) => _cleanupSession(sessionId);
+
   void _cleanupSession(String sessionId) {
     debugPrint('Jingle: Cleaning up session state for $sessionId');
     _sessionContentMap.remove(sessionId);

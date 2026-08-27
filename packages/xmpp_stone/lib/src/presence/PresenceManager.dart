@@ -174,10 +174,8 @@ class PresenceManager implements PresenceApi {
   }
 
   void _connectionStateHandler(XmppConnectionState state) {
-    if (state == XmppConnectionState.Ready) {
-      //_getRosters();
-      _sendInitialPresence();
-    }
+    // Initial presence is sent by the application layer (AuthService.updateMyStatus)
+    // which includes proper show/status/avatar hash. No need to send empty presence here.
   }
 
   void _sendInitialPresence() {
