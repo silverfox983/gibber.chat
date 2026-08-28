@@ -130,6 +130,7 @@ class AuthService with ChangeNotifier {
   void Function(String jid, String? avatarId)? _onAvatarMetadataReceived;
   void Function(String jid, String nickname)? _onNicknameReceived;
   void Function(String jid, DateTime lastInteraction)? _onLastInteractionReceived;
+  void Function(String jid, String? bannerUrl)? _onBannerUrlReceived;
 
   final StreamController<Map<String, String?>> _moodStreamController =
       StreamController<Map<String, String?>>.broadcast();
@@ -146,6 +147,10 @@ class AuthService with ChangeNotifier {
   final StreamController<Map<String, String?>> _avatarUpdateStreamController =
       StreamController<Map<String, String?>>.broadcast();
   Stream<Map<String, String?>> get avatarUpdateStream => _avatarUpdateStreamController.stream;
+
+  final StreamController<Map<String, String?>> _bannerUpdateStreamController =
+      StreamController<Map<String, String?>>.broadcast();
+  Stream<Map<String, String?>> get bannerUpdateStream => _bannerUpdateStreamController.stream;
 
   final List<Map<String, String>> _pendingSubscriptionRequests = [];
   List<Map<String, String>> get currentSubscriptionRequests => List.unmodifiable(_pendingSubscriptionRequests);
@@ -390,6 +395,9 @@ class AuthService with ChangeNotifier {
     };
     _onLastInteractionReceived = (jid, lastInteraction) {
       _lastInteractionStreamController.add({'jid': jid, 'lastInteraction': lastInteraction.toIso8601String()});
+    };
+    _onBannerUrlReceived = (jid, bannerUrl) {
+      _bannerUpdateStreamController.add({'jid': jid, 'bannerUrl': bannerUrl});
     };
   }
 
@@ -1848,8 +1856,10 @@ class AuthService with ChangeNotifier {
     String? filePath,
     String? replyToId,
     bool isGroup = false,
+    bool isSpoiler = false,
+    String? spoilerHint,
   }) =>
-      _messageService.sendMessage(accountId, toId, text, type: type, fileName: fileName, filePath: filePath, replyToId: replyToId, isGroup: isGroup);
+      _messageService.sendMessage(accountId, toId, text, type: type, fileName: fileName, filePath: filePath, replyToId: replyToId, isGroup: isGroup, isSpoiler: isSpoiler, spoilerHint: spoilerHint);
 
   Future<void> sendLocationMessage(
     String accountId,
@@ -2593,8 +2603,8 @@ class _AuthContactDeps implements AuthServiceContactDeps {
   Future<void> loadSavedAccounts() => _auth.loadSavedAccounts();
   Future<void> saveSubscriptionRequests() => _auth.saveSubscriptionRequests();
   Future<void> setPresence(ContactStatus status, String? message) => _auth.setPresence(status, message);
-  Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup = false, String? replyToId, MessageType type = MessageType.text}) =>
-      _auth.sendMessage(accountId, toJid, text, fileName: fileName, filePath: filePath, isGroup: isGroup, replyToId: replyToId, type: type);
+  Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup = false, String? replyToId, MessageType type = MessageType.text, bool isSpoiler = false, String? spoilerHint}) =>
+      _auth.sendMessage(accountId, toJid, text, fileName: fileName, filePath: filePath, isGroup: isGroup, replyToId: replyToId, type: type, isSpoiler: isSpoiler, spoilerHint: spoilerHint);
   Future<void> connectXmpp({required String user, required String domain, required String pass, required int port, String? host, String? accountId, SavedAccount? configData}) =>
       _auth.connectXmpp(user: user, domain: domain, pass: pass, port: port, host: host, accountId: accountId, configData: configData);
   Future<void> logout() => _auth.logout();
@@ -2645,6 +2655,8 @@ class _AuthStanzaDeps implements AuthServiceStanzaDeps {
   set onNicknameReceived(void Function(String jid, String nickname)? fn) => _auth._onNicknameReceived = fn;
   void Function(String jid, DateTime lastInteraction)? get onLastInteractionReceived => _auth._onLastInteractionReceived;
   set onLastInteractionReceived(void Function(String jid, DateTime lastInteraction)? fn) => _auth._onLastInteractionReceived = fn;
+  void Function(String jid, String? bannerUrl)? get onBannerUrlReceived => _auth._onBannerUrlReceived;
+  set onBannerUrlReceived(void Function(String jid, String? bannerUrl)? fn) => _auth._onBannerUrlReceived = fn;
 }
 
 class _AuthVCardDeps implements AuthServiceVCardDeps {
@@ -2713,6 +2725,6 @@ class _AuthUploadDeps implements AuthServiceUploadDeps {
   Map<String, xmpp.Connection> get xmppConnections => _auth._xmppConnections;
   String? get activeAccountId => _auth.activeAccountId;
   Map<String, HttpUploadService> get uploadServices => _auth._uploadServices;
-  Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup = false, String? replyToId, MessageType type = MessageType.text}) =>
-      _auth._messageService.sendMessage(accountId, toJid, text, fileName: fileName, filePath: filePath, isGroup: isGroup, replyToId: replyToId, type: type);
+  Future<void> sendMessage(String accountId, String toJid, String text, {String? fileName, String? filePath, bool isGroup = false, String? replyToId, MessageType type = MessageType.text, bool isSpoiler = false, String? spoilerHint}) =>
+      _auth._messageService.sendMessage(accountId, toJid, text, fileName: fileName, filePath: filePath, isGroup: isGroup, replyToId: replyToId, type: type, isSpoiler: isSpoiler, spoilerHint: spoilerHint);
 }

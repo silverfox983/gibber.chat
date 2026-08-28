@@ -32,6 +32,8 @@ class XmppMessageService {
     String? fileName,
     String? replyToId,
     bool isGroup = false,
+    bool isSpoiler = false,
+    String? spoilerHint,
   }) async {
     final id = accountId ?? _d.activeAccountId;
     final conn = _d.xmppConnections[id];
@@ -48,6 +50,8 @@ class XmppMessageService {
         fileName: fileName,
         replyToId: replyToId,
         isGroup: isGroup,
+        isSpoiler: isSpoiler,
+        spoilerHint: spoilerHint,
       );
 
       _d.messageStreamController.add(
@@ -66,6 +70,8 @@ class XmppMessageService {
           isGroup: isGroup,
           status: MessageStatus.sent,
           encryptionType: isOmemo ? 'omemo' : null,
+          isSpoiler: isSpoiler,
+          spoilerHint: spoilerHint,
         ),
       );
     } else {
@@ -111,6 +117,8 @@ class XmppMessageService {
     String? fileName,
     String? replyToId,
     bool isGroup = false,
+    bool isSpoiler = false,
+    String? spoilerHint,
   }) async {
     final id = accountId ?? _d.activeAccountId;
     final conn = _d.xmppConnections[id]!;
@@ -192,6 +200,10 @@ class XmppMessageService {
       reply.addAttribute(xmpp.XmppAttribute('to', targetJid));
       reply.addAttribute(xmpp.XmppAttribute('id', replyToId));
       msg.addChild(reply);
+    }
+
+    if (isSpoiler) {
+      XmppMessageEnhancements.addSpoiler(msg, hint: spoilerHint);
     }
 
     if (!isGroup) {
@@ -522,6 +534,8 @@ class XmppMessageService {
     String? filePath,
     String? replyToId,
     bool isGroup = false,
+    bool isSpoiler = false,
+    String? spoilerHint,
   }) async {
     final conn = _d.xmppConnections[accountId];
     if (conn != null &&
@@ -536,6 +550,8 @@ class XmppMessageService {
         fileName: fileName,
         replyToId: replyToId,
         isGroup: isGroup,
+        isSpoiler: isSpoiler,
+        spoilerHint: spoilerHint,
       );
     } else {
       final qid = await _d.offlineQueue.enqueue(
@@ -563,6 +579,8 @@ class XmppMessageService {
           fileName: fileName,
           isGroup: isGroup,
           status: MessageStatus.sending,
+          isSpoiler: isSpoiler,
+          spoilerHint: spoilerHint,
         ),
       );
       debugPrint('XMPP: Message queued offline via sendMessage (id: $qid, target: $toId)');

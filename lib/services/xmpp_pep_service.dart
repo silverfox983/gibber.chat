@@ -278,6 +278,104 @@ class XmppPepService {
     conn.writeStanza(iq);
   }
 
+  Future<void> publishBanner(
+    String accountId,
+    Uint8List imageBytes, {
+    String mimeType = 'image/png',
+  }) async {
+    final conn = _connections[accountId];
+    if (conn == null) return;
+
+    final bareJid = _xmppJids[accountId]?.split('/').first ?? '';
+    if (bareJid.isEmpty) return;
+
+    final sha1Hash = _sha1Hex(imageBytes);
+
+    final iq = xmpp.IqStanza(
+      'banner_pub_${DateTime.now().microsecondsSinceEpoch}',
+      xmpp.IqStanzaType.SET,
+    );
+    iq.toJid = xmpp.Jid.fromFullJid(bareJid);
+
+    final pubsub = xmpp.XmppElement();
+    pubsub.name = 'pubsub';
+    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+
+    final publish = xmpp.XmppElement();
+    publish.name = 'publish';
+    publish.addAttribute(xmpp.XmppAttribute('node', 'urn:xmpp:banner:0'));
+
+    final item = xmpp.XmppElement();
+    item.name = 'item';
+    item.addAttribute(xmpp.XmppAttribute('id', sha1Hash));
+
+    final bannerEl = xmpp.XmppElement();
+    bannerEl.name = 'url';
+    bannerEl.textValue = '';
+    item.addChild(bannerEl);
+    publish.addChild(item);
+
+    final publishOptions = xmpp.XmppElement();
+    publishOptions.name = 'publish-options';
+    final xForm = xmpp.XmppElement();
+    xForm.name = 'x';
+    xForm.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
+    xForm.addAttribute(xmpp.XmppAttribute('type', 'submit'));
+    final formType = xmpp.XmppElement()..name = 'field';
+    formType.addAttribute(xmpp.XmppAttribute('var', 'FORM_TYPE'));
+    formType.addAttribute(xmpp.XmppAttribute('type', 'hidden'));
+    final formTypeVal = xmpp.XmppElement()..name = 'value'..textValue = 'http://jabber.org/protocol/pubsub#node_config';
+    formType.addChild(formTypeVal);
+    xForm.addChild(formType);
+    final accessModel = xmpp.XmppElement()..name = 'field';
+    accessModel.addAttribute(xmpp.XmppAttribute('var', 'pubsub#access_model'));
+    final accessVal = xmpp.XmppElement()..name = 'value'..textValue = 'open';
+    accessModel.addChild(accessVal);
+    xForm.addChild(accessModel);
+    publishOptions.addChild(xForm);
+
+    pubsub.addChild(publish);
+    pubsub.addChild(publishOptions);
+    iq.addChild(pubsub);
+
+    conn.writeStanza(iq);
+    debugPrint('PEP: Published banner (hash: $sha1Hash)');
+  }
+
+  Future<String?> fetchBanner(String accountId, String bareJid) async {
+    final conn = _connections[accountId];
+    if (conn == null) return null;
+
+    final iq = xmpp.IqStanza(
+      'banner_fetch_${DateTime.now().microsecondsSinceEpoch}',
+      xmpp.IqStanzaType.GET,
+    );
+    iq.toJid = xmpp.Jid.fromFullJid(bareJid);
+
+    final pubsub = xmpp.XmppElement();
+    pubsub.name = 'pubsub';
+    pubsub.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub'));
+    final items = xmpp.XmppElement();
+    items.name = 'items';
+    items.addAttribute(xmpp.XmppAttribute('node', 'urn:xmpp:banner:0'));
+    pubsub.addChild(items);
+    iq.addChild(pubsub);
+
+    try {
+      final res = await _sendIq(iq, conn);
+      final pubsubRes = res.getChild('pubsub');
+      final item = pubsubRes?.getChild('items')?.children.firstWhere(
+        (e) => e.name == 'item',
+        orElse: () => xmpp.XmppElement(),
+      );
+      final urlEl = item?.getChild('url');
+      return urlEl?.textValue;
+    } catch (e) {
+      debugPrint('PEP: Banner fetch failed for $bareJid: $e');
+      return null;
+    }
+  }
+
   Future<void> publishVCard4(
     String accountId, {
     String? fn,

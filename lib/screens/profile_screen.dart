@@ -24,6 +24,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late TextEditingController _nickController;
   bool _isSaving = false;
   Uint8List? _avatarBytes;
+  String? _bannerUrl;
 
   late TextEditingController _bioController;
   late TextEditingController _emailController;
@@ -234,6 +235,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _pickBanner() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+    if (result != null && result.files.single.path != null && !kIsWeb) {
+      final file = File(result.files.single.path!);
+      final bytes = await file.readAsBytes();
+      if (_selectedAccountId != null && mounted) {
+        final authService = Provider.of<AuthService>(context, listen: false);
+        final uploadService = authService.activeUploadService;
+        if (uploadService != null) {
+          final slot = await uploadService.requestUploadSlot(
+            'banner_${DateTime.now().millisecondsSinceEpoch}.png',
+            bytes.length,
+            contentType: 'image/png',
+          );
+          if (slot != null) {
+            final uploaded = await uploadService.uploadBytes(slot['put']!, bytes, 'image/png');
+            if (uploaded) {
+              final url = slot['get']!;
+              await authService.pepService.publishBanner(_selectedAccountId!, bytes);
+              setState(() => _bannerUrl = url);
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Banner updated!'), backgroundColor: Colors.green),
+              );
+            }
+          }
+        }
+      }
+    } else if (result != null && kIsWeb && result.files.single.bytes != null) {
+      final bytes = result.files.single.bytes!;
+      if (_selectedAccountId != null && mounted) {
+        final authService = Provider.of<AuthService>(context, listen: false);
+        final uploadService = authService.activeUploadService;
+        if (uploadService != null) {
+          final slot = await uploadService.requestUploadSlot(
+            'banner_${DateTime.now().millisecondsSinceEpoch}.png',
+            bytes.length,
+            contentType: 'image/png',
+          );
+          if (slot != null) {
+            final uploaded = await uploadService.uploadBytes(slot['put']!, bytes, 'image/png');
+            if (uploaded) {
+              final url = slot['get']!;
+              await authService.pepService.publishBanner(_selectedAccountId!, bytes);
+              setState(() => _bannerUrl = url);
+            }
+          }
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
@@ -298,6 +351,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Column(
                 children: [
                   const SizedBox(height: 20),
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      GestureDetector(
+                        onTap: _pickBanner,
+                        child: Container(
+                          width: double.infinity,
+                          height: 120,
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.1),
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(16),
+                              topRight: Radius.circular(16),
+                            ),
+                            image: _bannerUrl != null
+                                ? DecorationImage(image: NetworkImage(_bannerUrl!), fit: BoxFit.cover)
+                                : null,
+                          ),
+                          child: _bannerUrl == null
+                              ? Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.panorama_rounded, color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.5), size: 32),
+                                      const SizedBox(height: 4),
+                                      Text('Tap to add banner', style: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.5), fontSize: 12)),
+                                    ],
+                                  ),
+                                )
+                              : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
                   GestureDetector(
                     onTap: _pickAvatar,
                     child: Stack(

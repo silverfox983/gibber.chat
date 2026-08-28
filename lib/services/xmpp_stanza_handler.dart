@@ -194,6 +194,29 @@ class XmppStanzaHandler {
       );
     }
 
+    // MDS displayed marker (urn:xmpp:mds:display:0)
+    final mdsDisplayed = stanza.getChild('displayed');
+    if (mdsDisplayed != null &&
+        mdsDisplayed.getAttribute('xmlns')?.value == 'urn:xmpp:mds:display:0') {
+      final roomJid = mdsDisplayed.getAttribute('jid')?.value;
+      final stanzaIdEl = stanza.getChild('stanza-id');
+      final stanzaId = stanzaIdEl?.getAttribute('id')?.value;
+      final fromJid = stanza.fromJid?.fullJid ?? '';
+      if (roomJid != null) {
+        debugPrint('MDS: Received displayed marker from $fromJid for room $roomJid (stanza-id: $stanzaId)');
+        _d.jingleEventController.add(
+          JingleEvent(
+            action: JingleAction.transportInfo,
+            sessionId: 'mds_displayed',
+            fromJid: fromJid,
+            reason: stanzaId ?? roomJid,
+            sdp: roomJid,
+            accountId: accountId,
+          ),
+        );
+      }
+    }
+
     final reactions = stanza.getChild('reactions');
     if (reactions != null &&
         reactions.getAttribute('xmlns')?.value == 'urn:xmpp:reactions:0') {
@@ -349,6 +372,8 @@ class XmppStanzaHandler {
         final threadId = XmppMessageEnhancements.parseThreadId(stanza);
         final encryptionInfo = XmppMessageEnhancements.parseEncryptionIndicator(stanza);
         final noStore = XmppMessageEnhancements.hasNoStoreHint(stanza);
+        final isSpoiler = XmppMessageEnhancements.hasSpoiler(stanza);
+        final spoilerHint = XmppMessageEnhancements.parseSpoilerHint(stanza);
 
         _d.messageStreamController.add(
           ChatMessage(
@@ -369,6 +394,8 @@ class XmppStanzaHandler {
             encryptionNamespace: encryptionInfo?.namespace,
             encryptionName: encryptionInfo?.name,
             noStore: noStore,
+            isSpoiler: isSpoiler,
+            spoilerHint: spoilerHint,
           ),
         );
       }
@@ -412,6 +439,8 @@ class XmppStanzaHandler {
         final encryptionInfo = XmppMessageEnhancements.parseEncryptionIndicator(stanza);
         final noStore = XmppMessageEnhancements.hasNoStoreHint(stanza);
         final noPermStore = XmppMessageEnhancements.hasNoPermanentStoreHint(stanza);
+        final isSpoiler = XmppMessageEnhancements.hasSpoiler(stanza);
+        final spoilerHint = XmppMessageEnhancements.parseSpoilerHint(stanza);
 
         final geoEl = stanza.getChild('geo');
         final isLocation = geoEl != null && geoEl.getAttribute('xmlns')?.value == 'http://jabber.org/protocol/geoloc';
@@ -432,7 +461,7 @@ class XmppStanzaHandler {
             isSent: false,
             type: isRetraction
                 ? MessageType.system
-                : (isLocation ? MessageType.location : _classifyMessage(finalBody, stanza)),
+                : (isLocation ? MessageType.location : _classifyMessage(finalBody!, stanza)),
             senderId: bareJid,
             senderName: bareJid.split('@').first,
             conversationId: bareJid,
@@ -449,6 +478,8 @@ class XmppStanzaHandler {
             threadId: threadId,
             noStore: noStore,
             noPermanentStore: noPermStore,
+            isSpoiler: isSpoiler,
+            spoilerHint: spoilerHint,
           ),
         );
       }
@@ -687,6 +718,23 @@ class XmppStanzaHandler {
                 _d.onLastInteractionReceived?.call(bareJid, dt);
               }
             }
+          }
+        }
+      }
+    }
+
+    // Banner PEP notifications (urn:xmpp:banner:0)
+    if (eventEl != null) {
+      final bannerItems = eventEl.getChild('items');
+      if (bannerItems != null &&
+          bannerItems.getAttribute('node')?.value == 'urn:xmpp:banner:0') {
+        final bareJid = stanza.fromJid?.fullJid?.split('/').first.toLowerCase() ?? '';
+        for (var item in (bannerItems.children ?? []).where((c) => c.name == 'item')) {
+          final urlEl = item.getChild('url');
+          if (bareJid.isNotEmpty) {
+            final bannerUrl = urlEl?.textValue;
+            debugPrint('PEP: Received banner URL from $bareJid: $bannerUrl');
+            _d.onBannerUrlReceived?.call(bareJid, bannerUrl);
           }
         }
       }

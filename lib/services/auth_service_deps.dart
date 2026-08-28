@@ -98,6 +98,7 @@ abstract class AuthServiceStanzaDeps {
   void Function(String jid, String? avatarId)? onAvatarMetadataReceived;
   void Function(String jid, String nickname)? onNicknameReceived;
   void Function(String jid, DateTime lastInteraction)? onLastInteractionReceived;
+  void Function(String jid, String? bannerUrl)? onBannerUrlReceived;
 }
 
 abstract class AuthServiceVCardDeps {

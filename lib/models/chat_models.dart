@@ -116,6 +116,7 @@ class ChatMessage {
   bool isEdited;
   DateTime? editTimestamp;
   final String? forwardedFrom;
+  bool isRetracted;
   final String? encryptionType;
   final double? latitude;
   final double? longitude;
@@ -126,6 +127,8 @@ class ChatMessage {
   final String? encryptionName;
   final bool noStore;
   final bool noPermanentStore;
+  final bool isSpoiler;
+  final String? spoilerHint;
 
   ChatMessage({
     required this.id,
@@ -149,6 +152,7 @@ class ChatMessage {
     this.isEdited = false,
     this.editTimestamp,
     this.forwardedFrom,
+    this.isRetracted = false,
     this.encryptionType,
     this.latitude,
     this.longitude,
@@ -159,6 +163,8 @@ class ChatMessage {
     this.encryptionName,
     this.noStore = false,
     this.noPermanentStore = false,
+    this.isSpoiler = false,
+    this.spoilerHint,
   }) : conversationId = conversationId?.split('/').first.toLowerCase(),
        reactions = _dedupeReactionMap(reactions ?? const {});
 
@@ -184,6 +190,7 @@ class ChatMessage {
       'reactions_json': reactions.isEmpty ? null : _encodeReactions(reactions),
       'is_edited': isEdited ? 1 : 0,
       'edit_timestamp': editTimestamp?.toIso8601String(),
+      'is_retracted': isRetracted ? 1 : 0,
       'reactions': reactions.isNotEmpty ? jsonEncode(reactions) : null,
       'forwarded_from': forwardedFrom,
       'encryption_type': encryptionType,
@@ -196,6 +203,8 @@ class ChatMessage {
       'encryption_name': encryptionName,
       'no_store': noStore ? 1 : 0,
       'no_permanent_store': noPermanentStore ? 1 : 0,
+      'is_spoiler': isSpoiler ? 1 : 0,
+      'spoiler_hint': spoilerHint,
     };
   }
 
@@ -276,6 +285,7 @@ class ChatMessage {
       replacesId: map['replaces_id'],
       reactions: _decodeReactions(map['reactions_json']),
       isEdited: map['is_edited'] == 1,
+      isRetracted: map['is_retracted'] == 1,
       editTimestamp: map['edit_timestamp'] != null
           ? DateTime.tryParse(map['edit_timestamp'])
           : null,
@@ -290,6 +300,8 @@ class ChatMessage {
       encryptionName: map['encryption_name'] as String?,
       noStore: (map['no_store'] ?? 0) == 1,
       noPermanentStore: (map['no_permanent_store'] ?? 0) == 1,
+      isSpoiler: (map['is_spoiler'] ?? 0) == 1,
+      spoilerHint: map['spoiler_hint'] as String?,
     );
   }
 }

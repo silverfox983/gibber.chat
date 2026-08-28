@@ -549,6 +549,8 @@ class ChatProvider with ChangeNotifier {
         _handleReceipt(event.fromJid, event.reason!);
       } else if (event.sessionId == 'marker') {
         _handleMarker(event.fromJid, event.reason!);
+      } else if (event.sessionId == 'mds_displayed') {
+        _handleMdsDisplayed(event.fromJid, event.sdp ?? event.reason!);
       } else if (event.sessionId == 'error') {
         _handleMessageError(event.fromJid, event.reason!, event.sdp);
       }
@@ -780,6 +782,27 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
+  void _handleMdsDisplayed(String fromJid, String roomJid) {
+    final senderBareJid = fromJid.split('/').first.toLowerCase();
+    final roomBareJid = roomJid.split('/').first.toLowerCase();
+    final index = _conversations.indexWhere((c) => c.id == roomBareJid);
+    if (index == -1) return;
+
+    bool updated = false;
+    for (int i = 0; i < _conversations[index].messages.length; i++) {
+      final msg = _conversations[index].messages[i];
+      if (!msg.isSent &&
+          msg.senderId != null &&
+          msg.senderId!.split('/').first.toLowerCase() == senderBareJid &&
+          msg.status != MessageStatus.read) {
+        _conversations[index].messages[i].status = MessageStatus.read;
+        DatabaseService().updateMessageStatus(msg.id, MessageStatus.read);
+        updated = true;
+      }
+    }
+    if (updated) notifyListeners();
+  }
+
   void _handleMessageError(String fromJid, String msgId, String? errorText) {
     final bareJid = fromJid.split('/').first.toLowerCase();
     final index = _conversations.indexWhere((c) => c.id == bareJid);
@@ -892,9 +915,27 @@ class ChatProvider with ChangeNotifier {
           );
 
           if (existingMsgIdx != -1) {
-            // UPDATE: Reuse the existing message if it's the same ID (e.g. MAM result vs Live result)
-            // OR replace if it's a correction
-            _conversations[index].messages[existingMsgIdx] = message;
+            if (message.isRetracted) {
+              // RETRACTION: Replace original message text in-place with tombstone
+              final original = _conversations[index].messages[existingMsgIdx];
+              original.text = 'Message retracted';
+              original.isRetracted = true;
+              _toPersist.add(original);
+            } else {
+              // UPDATE: Reuse the existing message if it's the same ID (e.g. MAM result vs Live result)
+              // OR replace if it's a correction
+              _conversations[index].messages[existingMsgIdx] = message;
+              _toPersist.add(message);
+            }
+            return;
+          }
+
+          // --- 1b. Orphan retraction: original not yet in memory, store as tombstone ---
+          if (message.isRetracted && message.replacesId != null) {
+            _conversations[index].messages.add(message);
+            _conversations[index].messages.sort(
+              (a, b) => a.timestamp.compareTo(b.timestamp),
+            );
             _toPersist.add(message);
             return;
           }
@@ -913,7 +954,7 @@ class ChatProvider with ChangeNotifier {
             (a, b) => a.timestamp.compareTo(b.timestamp),
           );
 
-          if (targetId != _activeConversationId && !message.isSent) {
+          if (targetId != _activeConversationId && !message.isSent && !message.isRetracted) {
             _conversations[index].unreadCount++;
             DatabaseService().incrementUnreadCount(targetId);
             _showNotification(

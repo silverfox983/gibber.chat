@@ -89,6 +89,32 @@ class XmppMessageEnhancements {
         e.getAttribute('xmlns')?.value == 'urn:xmpp:hints');
   }
 
+  static void addSpoiler(xmpp.MessageStanza msg, {String? hint}) {
+    final spoiler = xmpp.XmppElement();
+    spoiler.name = 'spoiler';
+    spoiler.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:spoiler:0'));
+    if (hint != null && hint.isNotEmpty) {
+      spoiler.textValue = hint;
+    }
+    msg.addChild(spoiler);
+  }
+
+  static String? parseSpoilerHint(xmpp.MessageStanza stanza) {
+    for (var child in stanza.children.whereType<xmpp.XmppElement>()) {
+      if (child.name == 'spoiler' &&
+          child.getAttribute('xmlns')?.value == 'urn:xmpp:spoiler:0') {
+        return child.textValue ?? '';
+      }
+    }
+    return null;
+  }
+
+  static bool hasSpoiler(xmpp.MessageStanza stanza) {
+    return stanza.children.any((e) =>
+        e.name == 'spoiler' &&
+        e.getAttribute('xmlns')?.value == 'urn:xmpp:spoiler:0');
+  }
+
   static String? parseThreadId(xmpp.MessageStanza stanza) {
     for (var child in stanza.children.whereType<xmpp.XmppElement>()) {
       if (child.name == 'thread') {

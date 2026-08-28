@@ -37,6 +37,9 @@ class _ChatViewState extends State<ChatView> {
   final TextEditingController _msgSearchController = TextEditingController();
   bool _showScrollToBottom = false;
   bool _isSearchingMessages = false;
+  bool _isSpoilerMode = false;
+  final TextEditingController _spoilerHintController = TextEditingController();
+  final Set<String> _revealedSpoilers = {};
   AudioRecorder? _audioRecorder;
 
 
@@ -55,6 +58,7 @@ class _ChatViewState extends State<ChatView> {
     _messageController.dispose();
     _searchController.dispose();
     _msgSearchController.dispose();
+    _spoilerHintController.dispose();
     _scrollController.dispose();
     _audioRecorder?.dispose();
     super.dispose();
@@ -361,6 +365,131 @@ class _ChatViewState extends State<ChatView> {
         ? Colors.white
         : Theme.of(context).colorScheme.onSurface;
 
+    final isSpoilerRevealed = _revealedSpoilers.contains(msg.id);
+
+    Widget contentWidget;
+    if (msg.isSpoiler && !isSpoilerRevealed) {
+      final hint = (msg.spoilerHint != null && msg.spoilerHint!.isNotEmpty) ? msg.spoilerHint! : 'Spoiler';
+      contentWidget = GestureDetector(
+        onTap: () {
+          setState(() {
+            _revealedSpoilers.add(msg.id!);
+          });
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(16).copyWith(
+              bottomRight: isMe ? const Radius.circular(4) : null,
+              bottomLeft: !isMe ? const Radius.circular(4) : null,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.visibility_off_rounded, size: 16, color: textColor.withValues(alpha: 0.7)),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      hint,
+                      style: TextStyle(
+                        color: textColor.withValues(alpha: 0.7),
+                        fontSize: 15,
+                        fontStyle: FontStyle.italic,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Tap to reveal',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: textColor.withValues(alpha: 0.4),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else {
+      contentWidget = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(16).copyWith(
+            bottomRight: isMe ? const Radius.circular(4) : null,
+            bottomLeft: !isMe ? const Radius.circular(4) : null,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (msg.isSpoiler && isSpoilerRevealed)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.visibility_rounded, size: 12, color: textColor.withValues(alpha: 0.5)),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        (msg.spoilerHint != null && msg.spoilerHint!.isNotEmpty) ? msg.spoilerHint! : 'Spoiler',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: textColor.withValues(alpha: 0.5),
+                          fontStyle: FontStyle.italic,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (msg.text.isNotEmpty)
+              Text(
+                msg.text,
+                style: TextStyle(color: textColor, fontSize: 15),
+              ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  DateFormat('HH:mm').format(msg.timestamp),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: textColor.withValues(alpha: 0.5),
+                  ),
+                ),
+                if (isMe) ...[
+                  const SizedBox(width: 4),
+                  Icon(
+                    msg.status == MessageStatus.read
+                        ? Icons.done_all_rounded
+                        : msg.status == MessageStatus.delivered
+                            ? Icons.done_all_rounded
+                            : msg.status == MessageStatus.sent
+                                ? Icons.done_rounded
+                                : Icons.error_outline_rounded,
+                    size: 14,
+                    color: textColor.withValues(alpha: 0.5),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 2),
       alignment: alignment,
@@ -370,53 +499,7 @@ class _ChatViewState extends State<ChatView> {
         ),
         child: GestureDetector(
           onLongPress: () => _showMessageActions(context, msg, textColor),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: BorderRadius.circular(16).copyWith(
-                bottomRight: isMe ? const Radius.circular(4) : null,
-                bottomLeft: !isMe ? const Radius.circular(4) : null,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (msg.text.isNotEmpty)
-                  Text(
-                    msg.text,
-                    style: TextStyle(color: textColor, fontSize: 15),
-                  ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      DateFormat('HH:mm').format(msg.timestamp),
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: textColor.withValues(alpha: 0.5),
-                      ),
-                    ),
-                    if (isMe) ...[
-                      const SizedBox(width: 4),
-                      Icon(
-                        msg.status == MessageStatus.read
-                            ? Icons.done_all_rounded
-                            : msg.status == MessageStatus.delivered
-                                ? Icons.done_all_rounded
-                                : msg.status == MessageStatus.sent
-                                    ? Icons.done_rounded
-                                    : Icons.error_outline_rounded,
-                        size: 14,
-                        color: textColor.withValues(alpha: 0.5),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
+          child: contentWidget,
         ),
       ),
     );
@@ -497,39 +580,77 @@ class _ChatViewState extends State<ChatView> {
       ),
       child: SafeArea(
         top: false,
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: TextField(
-                controller: _messageController,
-                decoration: InputDecoration(
-                  hintText: 'Message...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
+            if (_isSpoilerMode)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: TextField(
+                  controller: _spoilerHintController,
+                  decoration: InputDecoration(
+                    hintText: 'Spoiler hint (optional)',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    isDense: true,
                   ),
-                  filled: true,
-                  fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
+                    decoration: InputDecoration(
+                      hintText: _isSpoilerMode ? 'Spoiler message...' : 'Message...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                    ),
                   ),
                 ),
-
-              ),
-            ),
-            const SizedBox(width: 8),
-            IconButton(
-              icon: const Icon(Icons.mood_rounded),
-              onPressed: () => _showMoodPicker(context),
-              color: Colors.grey,
-              tooltip: 'Set mood',
-            ),
-            IconButton(
-              icon: const Icon(Icons.send_rounded),
-              onPressed: _sendMessage,
-              color: AppColors.primary,
-              tooltip: 'Send',
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: Icon(
+                    Icons.visibility_off_rounded,
+                    color: _isSpoilerMode ? AppColors.primary : Colors.grey,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _isSpoilerMode = !_isSpoilerMode;
+                      if (!_isSpoilerMode) {
+                        _spoilerHintController.clear();
+                      }
+                    });
+                  },
+                  tooltip: 'Toggle spoiler',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.mood_rounded),
+                  onPressed: () => _showMoodPicker(context),
+                  color: Colors.grey,
+                  tooltip: 'Set mood',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.send_rounded),
+                  onPressed: _sendMessage,
+                  color: AppColors.primary,
+                  tooltip: 'Send',
+                ),
+              ],
             ),
           ],
         ),
@@ -617,12 +738,22 @@ class _ChatViewState extends State<ChatView> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
+    final isSpoiler = _isSpoilerMode;
+    final spoilerHint = _spoilerHintController.text.trim();
+
     await widget.authService.sendMessage(
       widget.authService.activeAccountId ?? '',
       widget.conversation.id,
       text,
+      isSpoiler: isSpoiler,
+      spoilerHint: spoilerHint.isNotEmpty ? spoilerHint : null,
+      isGroup: widget.conversation.isGroup,
     );
     _messageController.clear();
+    _spoilerHintController.clear();
+    setState(() {
+      _isSpoilerMode = false;
+    });
     _scrollToBottom();
   }
 

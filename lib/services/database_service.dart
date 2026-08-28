@@ -29,7 +29,7 @@ class DatabaseService {
     }
     return await openDatabase(
       path,
-      version: 20,
+      version: 21,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -58,7 +58,11 @@ class DatabaseService {
             encryption_type TEXT,
             latitude REAL,
             longitude REAL,
-            location_label TEXT
+            location_label TEXT,
+            mentioned INTEGER DEFAULT 0,
+            is_spoiler INTEGER DEFAULT 0,
+            spoiler_hint TEXT,
+            is_retracted INTEGER DEFAULT 0
           )
         ''');
         await db.execute(
@@ -428,6 +432,11 @@ class DatabaseService {
           try { await db.execute('ALTER TABLE conversations ADD COLUMN last_activity INTEGER'); } catch (_) {}
           try { await db.execute('ALTER TABLE messages ADD COLUMN mentioned INTEGER DEFAULT 0'); } catch (_) {}
         }
+        if (oldVersion < 21) {
+          try { await db.execute('ALTER TABLE messages ADD COLUMN is_spoiler INTEGER DEFAULT 0'); } catch (_) {}
+          try { await db.execute('ALTER TABLE messages ADD COLUMN spoiler_hint TEXT'); } catch (_) {}
+          try { await db.execute('ALTER TABLE messages ADD COLUMN is_retracted INTEGER DEFAULT 0'); } catch (_) {}
+        }
       },
     );
   }
@@ -679,13 +688,15 @@ class DatabaseService {
         sender_id, sender_name, account_id, protocol, conversation_id,
         is_group, status, reply_to_id, replaces_id, is_edited,
         edit_timestamp, reactions, reactions_json, reply_preview,
-        forwarded_from, encryption_type, latitude, longitude, location_label, mentioned
+        forwarded_from, encryption_type, latitude, longitude, location_label, mentioned,
+        is_retracted
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?,
+        ?
       )
       ON CONFLICT(id) DO UPDATE SET
         status = CASE
@@ -700,7 +711,7 @@ class DatabaseService {
         map['edit_timestamp'], map['reactions'], map['reactions_json'],
         map['reply_preview'], map['forwarded_from'], map['encryption_type'],
         map['latitude'], map['longitude'], map['location_label'],
-        map['mentioned'],
+        map['mentioned'], map['is_retracted'],
       ],
     );
   }
