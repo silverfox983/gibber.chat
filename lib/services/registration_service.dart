@@ -5,10 +5,11 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/registration_models.dart';
+import 'iq_request_manager.dart';
 
 class RegistrationService {
   final xmpp.Connection? _connection;
-  final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
+  final IqRequestManager _iqReqs = IqRequestManager();
 
   late StreamSubscription<xmpp.AbstractStanza?> _subscription;
 
@@ -24,19 +25,12 @@ class RegistrationService {
     if (_connection != null) {
       _subscription.cancel();
     }
-    for (final completer in _pendingIqs.values) {
-      if (!completer.isCompleted) completer.completeError('Service disposed');
-    }
-    _pendingIqs.clear();
+    _iqReqs.failAll('Service disposed');
   }
 
   void _handleStanza(xmpp.AbstractStanza? stanza) {
     if (stanza is xmpp.IqStanza) {
-      final id = stanza.id;
-      if (id != null && _pendingIqs.containsKey(id)) {
-        _pendingIqs[id]!.complete(stanza);
-        _pendingIqs.remove(id);
-      }
+      _iqReqs.complete(stanza.id, stanza);
     }
   }
 
@@ -48,16 +42,11 @@ class RegistrationService {
     final id = iq.id ?? 'reg_${xmpp.AbstractStanza.getRandomId()}';
     iq.id = id;
     final completer = Completer<xmpp.IqStanza>();
-    _pendingIqs[id] = completer;
+    _iqReqs.register(id, completer);
     _connection.writeStanza(iq);
 
     Future.delayed(const Duration(seconds: 15), () {
-      if (_pendingIqs.containsKey(id)) {
-        _pendingIqs[id]!.completeError(
-          TimeoutException('IQ request timed out'),
-        );
-        _pendingIqs.remove(id);
-      }
+      _iqReqs.fail(id, TimeoutException('IQ request timed out'));
     });
 
     return completer.future;

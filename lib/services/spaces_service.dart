@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/space_models.dart';
+import 'iq_request_manager.dart';
 import 'xmpp_room_service.dart';
 
 class SpacesService extends ChangeNotifier {
@@ -12,7 +13,7 @@ class SpacesService extends ChangeNotifier {
   String? Function(xmpp.Connection)? _accountIdForConnection;
   xmpp.Connection get connection => _connection;
   
-  final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
+  final IqRequestManager _iqReqs = IqRequestManager();
 
   // ── Bounded LRU caches with TTL ──────────────────────────────────────────
   final _discoverCache  = _BoundedCache<String, List<SpaceNode>>(maxSize: 20, ttl: const Duration(minutes: 30));
@@ -129,20 +130,13 @@ class SpacesService extends ChangeNotifier {
     _contentCache.clear();
     _subscription.cancel();
     _liveItemController.close();
-    for (final completer in _pendingIqs.values) {
-      if (!completer.isCompleted) completer.completeError('Service disposed');
-    }
-    _pendingIqs.clear();
+    _iqReqs.failAll('Service disposed');
     super.dispose();
   }
 
   void _handleStanza(xmpp.AbstractStanza? stanza) {
     if (stanza is xmpp.IqStanza) {
-      final id = stanza.id;
-      if (id != null && _pendingIqs.containsKey(id)) {
-        _pendingIqs[id]!.complete(stanza);
-        _pendingIqs.remove(id);
-      }
+      _iqReqs.complete(stanza.id, stanza);
     }
 
     // XEP-0060 §12: Real-time PubSub event delivery via <message>
@@ -273,13 +267,13 @@ class SpacesService extends ChangeNotifier {
       }
 
       final completer = Completer<xmpp.IqStanza>();
-      _pendingIqs[id] = completer;
+      _iqReqs.register(id, completer);
       _connection.writeStanza(iq);
 
       try {
         return await completer.future.timeout(timeout);
       } catch (e) {
-        _pendingIqs.remove(id);
+        _iqReqs.forget(id);
         if (attempt >= retries) {
           debugPrint('IQ failed after ${retries + 1} attempts to ${iq.toJid!.fullJid}: $e');
           if (e is xmpp.IqStanza) {

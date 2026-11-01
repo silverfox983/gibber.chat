@@ -3,10 +3,11 @@ import 'package:flutter/foundation.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/transport_models.dart';
 import 'database_service.dart';
+import 'iq_request_manager.dart';
 
 class TransportService {
   final xmpp.Connection _connection;
-  final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
+  final IqRequestManager _iqReqs = IqRequestManager();
   late StreamSubscription<xmpp.AbstractStanza?> _subscription;
   DatabaseService? _db;
   String? _accountId;
@@ -27,19 +28,12 @@ class TransportService {
 
   void dispose() {
     _subscription.cancel();
-    for (final completer in _pendingIqs.values) {
-      if (!completer.isCompleted) completer.completeError('Service disposed');
-    }
-    _pendingIqs.clear();
+    _iqReqs.failAll('Service disposed');
   }
 
   void _handleStanza(xmpp.AbstractStanza? stanza) {
     if (stanza is xmpp.IqStanza) {
-      final id = stanza.id;
-      if (id != null && _pendingIqs.containsKey(id)) {
-        _pendingIqs[id]!.complete(stanza);
-        _pendingIqs.remove(id);
-      }
+      _iqReqs.complete(stanza.id, stanza);
     }
   }
 
@@ -57,13 +51,13 @@ class TransportService {
       }
 
       final completer = Completer<xmpp.IqStanza>();
-      _pendingIqs[id] = completer;
+      _iqReqs.register(id, completer);
       _connection.writeStanza(iq);
 
       try {
         return await completer.future.timeout(const Duration(seconds: 15));
       } catch (e) {
-        _pendingIqs.remove(id);
+        _iqReqs.forget(id);
         if (attempt >= retries) {
           debugPrint('Transport IQ failed after ${retries + 1} attempts to ${iq.toJid!.fullJid}: $e');
           rethrow;
