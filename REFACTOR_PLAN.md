@@ -51,12 +51,22 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
       CompleterMap helper.
 - [x] Gate: core tests all pass ("+12"), analyzer 0 lib errors.
 
-## Phase 3 — AuthService decomposition (public API preserved)
+## Phase 3 — AuthService decomposition (public API preserved)  — in progress
 
-- [ ] Split `connectXmpp` (1,122 lines) into `XmppSessionManager` + per-state wiring functions.
-- [ ] Merge `auth_service_deps.dart` interfaces and legacy `XmppContactServiceDependencies` into one
-      deps surface; sub-services stop writing `AuthService` private fields (emit events instead).
-- [ ] Centralize duplicate mappings: presence enum maps, message-send OMEMO/OTR branches.
+- [x] `connectXmpp` no longer contains the giant nested listeners:
+  - state listener body → `_onXmppConnectionState` (verbatim, `7d98799`)
+  - stanza dispatcher body (~770 lines) → `_dispatchXmppStanza` (`e76d0f3`)
+  - roster listener → `_handleRosterItems`; presence listener → `_handlePresenceUpdate`
+    (typed `xmpp.Buddy` / `xmpp.PresenceData`) (`c2e6f32`)
+- [x] `XmppSessionLookup` implemented by AuthService (Phase 2 groundwork).
+- [ ] Ready-branch service setup (jingle/upload/discovery/sync wiring) → separate
+      `_setupAccountServices` — next extraction target.
+- [ ] Merge `auth_service_deps.dart` interfaces and legacy `XmppContactServiceDependencies`
+      into one deps surface; sub-services stop writing AuthService private fields
+      (emit events instead).
+- [ ] Centralize duplicate mappings: presence enum maps, OMEMO/OTR message-send branches.
+- [ ] `_discoveryCompleters`/`_roomInfoCompleters` typed maps still raw — fold into a small
+      CompleterMap helper alongside IqRequestManager.
 
 ## Phase 4 — Call stack
 
