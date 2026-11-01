@@ -141,17 +141,6 @@ class SpacesService extends ChangeNotifier {
     super.dispose();
   }
 
-  void _handleStanza(xmpp.AbstractStanza? stanza) {
-    if (stanza is xmpp.IqStanza) {
-      _iqReqs.complete(stanza.id, stanza);
-    }
-
-    // XEP-0060 §12: Real-time PubSub event delivery via <message>
-    if (stanza is xmpp.MessageStanza) {
-      _handlePubSubEvent(stanza);
-    }
-  }
-
   void _handlePubSubEvent(xmpp.MessageStanza msg) {
     // PubSub servers deliver events as:
     // <message from='pubsub.domain' to='user@domain'>
@@ -560,6 +549,46 @@ class SpacesService extends ChangeNotifier {
     final finalResult = uniqueSpaces.values.toList();
     _discoverCache[domain] = finalResult;
     return finalResult;
+  }
+
+  /// Lightweight, bounded discovery for landing-page previews of EXTERNAL
+  /// PubSub services (federated servers such as movim.eu's community hub).
+  ///
+  /// Unlike [discoverAllSpaces] this never crawls sub-services: it lists the
+  /// service's own nodes and enriches only the first [limit] of them.
+  Future<List<SpaceNode>> discoverPreviewSpaces(
+    String serviceDomain, {
+    int limit = 6,
+    bool forceRefresh = false,
+  }) async {
+    final cacheKey = 'preview|$serviceDomain';
+    if (!forceRefresh && _discoverCache.containsKey(cacheKey)) {
+      final cached = _discoverCache[cacheKey]!;
+      return cached.take(limit).toList();
+    }
+
+    try {
+      final spaces = await fetchSpaces(serviceDomain);
+      if (spaces.isEmpty) {
+        _discoverCache[cacheKey] = const [];
+        return const [];
+      }
+
+      final preview = spaces.take(limit).toList();
+      final enriched = <SpaceNode>[];
+      for (final space in preview) {
+        try {
+          enriched.add(await fetchSpaceDetails(space));
+        } catch (_) {
+          enriched.add(space);
+        }
+      }
+      _discoverCache[cacheKey] = enriched;
+      return enriched;
+    } catch (e) {
+      debugPrint('SpacesService: preview discovery failed for $serviceDomain: $e');
+      return const [];
+    }
   }
 
   Future<List<SpaceNode>> fetchSpacesByTag(String tag, List<String> pubsubServices) async {

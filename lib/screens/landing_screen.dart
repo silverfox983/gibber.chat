@@ -73,21 +73,49 @@ class _LandingScreenState extends State<LandingScreen>
 
   AuthService? _authRef;
 
+  /// Well-known public PubSub services whose communities appear alongside the
+  /// local server's own Spaces on the landing page.
+  static const List<String> _federatedSpaceSources = [
+    'pubsub.movim.eu',
+  ];
+
   Future<List<SpaceNode>> _loadSpacesPreview() async {
     final auth = _authRef!;
     final service = auth.spacesService;
     if (service == null) return const [];
-    final domain = service.connection.fullJid?.domain;
-    if (domain == null || domain.isEmpty) return const [];
-    try {
-      final spaces = await service
-          .discoverAllSpaces(domain, forceRefresh: false)
-          .timeout(const Duration(seconds: 14), onTimeout: (() => <SpaceNode>[]));
-      return spaces.take(6).toList();
-    } catch (_) {
-      return const [];
+    final localDomain = service.connection.fullJid.domain;
+    if (localDomain == null || localDomain.isEmpty) return const [];
+
+    // Local server spaces (full crawl, capped for the preview).
+    final localList = await service
+        .discoverAllSpaces(localDomain, forceRefresh: false)
+        .timeout(const Duration(seconds: 14), onTimeout: (() => <SpaceNode>[]))
+        .catchError((_) => <SpaceNode>[]);
+    final local = localList.take(3).toList();
+
+    // Federated spaces: light, bounded discovery on known community hubs.
+    final externals = <SpaceNode>[];
+    for (final domain in _federatedSpaceSources) {
+      try {
+        externals.addAll(await service
+            .discoverPreviewSpaces(domain, limit: 6, forceRefresh: false)
+            .timeout(const Duration(seconds: 16), onTimeout: (() => <SpaceNode>[])));
+      } catch (_) {
+        // The hub may be unreachable from this server (no S2S / offline) —
+        // the preview degrades to local-only content.
+      }
     }
+
+    final merged = <SpaceNode>[];
+    final seen = <String>{};
+    for (final space in [...local, ...externals]) {
+      final key = '${space.domain.toLowerCase()}|${space.node.toLowerCase()}';
+      if (seen.add(key)) merged.add(space);
+    }
+    return merged.take(9).toList();
   }
+
+  String _localConnectionDomain() => _authRef?.spacesService?.connection.fullJid.domain ?? '';
 
   @override
   void initState() {
@@ -1035,9 +1063,9 @@ class _LandingScreenState extends State<LandingScreen>
     final spaces = _previewSpaces;
     final loadingSpaces = connected && !_spacesPreviewLoaded && _spacesPreviewLoading;
 
-    Widget spaceCard(SpaceNode space) {
-      final color = Xep0392Service.generateColor(space.domain);
-      final title = space.name;
+    Widget spaceCard(SpaceNode space, {required bool isLocal}) {
+      final color = Xep0392Service.generateColor(space.domain + space.node);
+      final title = space.name.isEmpty ? space.node : space.name;
       final desc = space.description ?? '';
       final members = space.numSubscribers ?? space.memberCount ?? 0;
       return InkWell(
@@ -1081,6 +1109,32 @@ class _LandingScreenState extends State<LandingScreen>
                     ),
                 ],
               ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isLocal ? Icons.home_rounded : Icons.public_rounded,
+                      size: 11,
+                      color: color,
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        isLocal ? 'this server' : '@${space.domain}',
+                        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w700),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               if (desc.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -1096,6 +1150,10 @@ class _LandingScreenState extends State<LandingScreen>
       );
     }
 
+    final localDomain = _localConnectionDomain();
+    bool isLocalSpace(SpaceNode space) =>
+        localDomain.isEmpty || space.domain.toLowerCase() == localDomain.toLowerCase();
+
     String stateText;
     if (!connected) {
       stateText = 'Connecting to the server...';
@@ -1104,7 +1162,7 @@ class _LandingScreenState extends State<LandingScreen>
     } else if (spaces.isEmpty) {
       stateText = 'No public spaces discovered on this server yet — create the first one!';
     } else {
-      stateText = 'Public spaces on this server, discovered live over PubSub.';
+      stateText = 'Public spaces — from this server and the open federation, discovered live over PubSub.';
     }
 
     return Container(
@@ -1155,7 +1213,7 @@ class _LandingScreenState extends State<LandingScreen>
               mainAxisSpacing: 14,
               crossAxisSpacing: 14,
               childAspectRatio: isMobile ? 3.4 : 2.1,
-              children: spaces.take(6).map(spaceCard).toList(),
+              children: spaces.take(9).map((space) => spaceCard(space, isLocal: isLocalSpace(space))).toList(),
             ),
           if (spaces.isEmpty || loadingSpaces) ...[
             const SizedBox(height: 10),
