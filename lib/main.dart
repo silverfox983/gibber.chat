@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'services/db_init_native.dart' if (dart.library.html) 'services/db_init_web.dart';
@@ -19,6 +20,7 @@ import './services/miner_service.dart';
 import './services/entitlement_service.dart';
 import './services/backend_config.dart';
 import './services/gateway_service.dart';
+import './services/visitor_service.dart';
 import './providers/theme_provider.dart';
 import './theme/app_theme.dart';
 import './services/desktop_lifecycle_service.dart';
@@ -93,6 +95,7 @@ class _ChatAppState extends State<ChatApp> {
   EntitlementService? _entitlementService;
   BackendConfig? _backendConfig;
   GatewayService? _gatewayService;
+  GuestAccount? _guestAccount;
   final AccountStatusNotificationService _accountStatusNotifications =
       AccountStatusNotificationService.instance;
 
@@ -181,6 +184,18 @@ class _ChatAppState extends State<ChatApp> {
       try {
         await _authService!.loadSavedAccounts();
         await _authService!.autoLogin();
+        if (kIsWeb &&
+            !_authService!.isAuthenticated &&
+            _authService!.xmppConnecting != true) {
+          // Local-first: everyone gets signed into a disposable guest
+          // account automatically, so the landing page + join flows work
+          // without a sign-up wall.
+          GuestAccount? guest = await VisitorService().ensureGuestAccount(
+            authService: _authService!,
+            backendConfig: _backendConfig!,
+          );
+          _guestAccount = guest;
+        }
       } catch (e, stack) {
         debugPrint('AUTO-LOGIN FAILED: $e\n$stack');
       }

@@ -96,13 +96,14 @@ GoRouter createAppRouter({
     refreshListenable: _AuthRefreshNotifier(authService),
     redirect: (context, state) {
       final isAuthenticated = authService.isAuthenticated;
-      final isOnLanding = state.matchedLocation == '/';
       final isOnLogin = state.matchedLocation == '/login';
       final isOnRegister = state.matchedLocation == '/register';
       final isOnAuthRoute = state.matchedLocation.startsWith('/app');
 
       if (!isAuthenticated && isOnAuthRoute) return '/login';
-      if (isAuthenticated && (isOnLogin || isOnLanding || isOnRegister)) return '/app';
+      // The landing page stays available for signed-in users (guests see the
+      // room/spaces previews); only auth screens hand over to the app.
+      if (isAuthenticated && (isOnLogin || isOnRegister)) return '/app';
 
       return null;
     },

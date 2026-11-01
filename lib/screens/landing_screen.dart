@@ -9,7 +9,9 @@ import '../services/popular_rooms_service.dart';
 import '../services/xep_0392_service.dart';
 import '../services/auth_service.dart';
 import '../services/pending_join_service.dart';
+import '../models/space_models.dart';
 import '../models/join_intent.dart';
+import 'dart:async';
 import 'package:provider/provider.dart';
 
 /// Section anchor so nav links can target the rooms list.
@@ -32,6 +34,60 @@ class _LandingScreenState extends State<LandingScreen>
   String? _selectedNetwork;
   List<PopularRoom> _rooms = const <PopularRoom>[];
   bool _roomsLoaded = false;
+  Timer? _signInTimer;
+  BuildContext? _signInDialogContext;
+
+  // Spaces preview (fed by the auto-connected guest session)
+  List<SpaceNode> _previewSpaces = const <SpaceNode>[];
+  bool _spacesPreviewLoading = false;
+  bool _spacesPreviewLoaded = false;
+
+  String get _guestLabel {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final jid = auth.activeAccountId;
+    if (jid == null || jid.isEmpty) return 'guest';
+    return jid.split('@').first;
+  }
+
+  void _onAuthChanged() {
+    final auth = _authRef;
+    if (auth == null || !mounted) return;
+    if (auth.xmppConnected && !_spacesPreviewLoaded && !_spacesPreviewLoading) {
+      _spacesPreviewLoading = true;
+      _loadSpacesPreview().then((spaces) {
+        if (!mounted) return;
+        setState(() {
+          _previewSpaces = spaces;
+          _spacesPreviewLoaded = true;
+          _spacesPreviewLoading = false;
+        });
+      });
+    } else if (!auth.xmppConnected && _spacesPreviewLoaded) {
+      setState(() {
+        _previewSpaces = const <SpaceNode>[];
+        _spacesPreviewLoaded = false;
+        _spacesPreviewLoading = false;
+      });
+    }
+  }
+
+  AuthService? _authRef;
+
+  Future<List<SpaceNode>> _loadSpacesPreview() async {
+    final auth = _authRef!;
+    final service = auth.spacesService;
+    if (service == null) return const [];
+    final domain = service.connection.fullJid?.domain;
+    if (domain == null || domain.isEmpty) return const [];
+    try {
+      final spaces = await service
+          .discoverAllSpaces(domain, forceRefresh: false)
+          .timeout(const Duration(seconds: 14), onTimeout: (() => <SpaceNode>[]));
+      return spaces.take(6).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
 
   @override
   void initState() {
@@ -56,10 +112,16 @@ class _LandingScreenState extends State<LandingScreen>
         });
       }
     });
+
+    _authRef = Provider.of<AuthService>(context, listen: false);
+    _authRef!.addListener(_onAuthChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onAuthChanged());
   }
 
   @override
   void dispose() {
+    _signInTimer?.cancel();
+    _authRef?.removeListener(_onAuthChanged);
     _orbController.dispose();
     _pulseController.dispose();
     _fadeController.dispose();
@@ -83,14 +145,16 @@ class _LandingScreenState extends State<LandingScreen>
             child: CustomScrollView(
               controller: _scrollController,
               slivers: [
-                SliverToBoxAdapter(child: _buildNavBar(isDark, isMobile)),
-                SliverToBoxAdapter(child: _buildHero(isDark, isMobile)),
-                SliverToBoxAdapter(child: _buildTrendingRooms(isDark, isMobile)),
-                SliverToBoxAdapter(child: _buildFeatures(isDark, isMobile)),
-                SliverToBoxAdapter(child: _buildHowItWorks(isDark, isMobile)),
-                SliverToBoxAdapter(child: _buildFreeLocal(isDark, isMobile)),
-                SliverToBoxAdapter(child: _buildSecurity(isDark, isMobile)),
-                SliverToBoxAdapter(child: _buildFooter(isDark)),
+  SliverToBoxAdapter(child: _buildNavBar(isDark, isMobile)),
+  SliverToBoxAdapter(child: _buildHero(isDark, isMobile)),
+  SliverToBoxAdapter(child: _buildRoomStatsStrip(isDark, isMobile)),
+  SliverToBoxAdapter(child: _buildTrendingRooms(isDark, isMobile)),
+  SliverToBoxAdapter(child: _buildSpacesPreview(isDark, isMobile)),
+  SliverToBoxAdapter(child: _buildFeatures(isDark, isMobile)),
+  SliverToBoxAdapter(child: _buildHowItWorks(isDark, isMobile)),
+  SliverToBoxAdapter(child: _buildFreeLocal(isDark, isMobile)),
+  SliverToBoxAdapter(child: _buildSecurity(isDark, isMobile)),
+  SliverToBoxAdapter(child: _buildFooter(isDark)),
               ],
             ),
           ),
@@ -565,6 +629,58 @@ class _LandingScreenState extends State<LandingScreen>
     );
   }
 
+  /// Shows a brief sign-in progress dialog while the automatic guest account
+  /// is being created, then navigates. Falls back silently on timeout.
+  void _awaitSignInThen(void Function() navigate) {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    if (auth.isAuthenticated) {
+      navigate();
+      return;
+    }
+    void listener() {
+      if (!auth.isAuthenticated) return;
+      auth.removeListener(listener);
+      _signInTimer?.cancel();
+      if (_signInDialogContext != null && _signInDialogContext!.mounted) {
+        Navigator.of(_signInDialogContext!, rootNavigator: true).pop();
+        _signInDialogContext = null;
+      }
+      navigate();
+    }
+
+    auth.addListener(listener);
+    _signInTimer = Timer(const Duration(seconds: 30), () => auth.removeListener(listener));
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        _signInDialogContext = dialogContext;
+        return AlertDialog(
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          content: SizedBox(
+            width: 220,
+            child: Row(
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Text(
+                    'Signing you in automatically...',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ).then((_) => auth.removeListener(listener));
+  }
+
   void _joinChat([PopularRoom? room]) {
     final auth = Provider.of<AuthService>(context, listen: false);
     if (room != null) {
@@ -578,7 +694,18 @@ class _LandingScreenState extends State<LandingScreen>
       }
       PendingJoinService.instance.set(intent);
     }
-    context.go(auth.isAuthenticated ? '/app' : '/register');
+    if (auth.isAuthenticated) {
+      context.go('/app');
+      return;
+    }
+    _awaitSignInThen(() {
+      final pendingIntent = PendingJoinService.instance.pending;
+      if (pendingIntent != null) {
+        context.goNamed('joinRoom', queryParameters: {'room': pendingIntent.encode()});
+        return;
+      }
+      context.go('/app');
+    });
   }
 
   Widget _networkChip({
@@ -826,6 +953,225 @@ class _LandingScreenState extends State<LandingScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildRoomStatsStrip(bool isDark, bool isMobile) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final networks = _networksByActivity().length;
+    final totalUsers = _rooms.fold<int>(0, (sum, r) => sum + r.users);
+
+    final stats = [
+      (Icons.local_fire_department_rounded, '${_rooms.length}', 'active rooms'),
+      (Icons.hub_rounded, '$networks', 'networks'),
+      (Icons.people_alt_rounded, totalUsers >= 1000 ? '${(totalUsers / 1000).toStringAsFixed(1)}k' : '$totalUsers', 'people online'),
+      (Icons.tag_rounded, '24/7', 'open to everyone'),
+    ];
+
+    Widget stat(IconData icon, String value, String label) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: primary.withValues(alpha: 0.18)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: primary, size: 22),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: onSurface,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                Text(
+                  label,
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 11.5, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 64, vertical: isMobile ? 4 : 8),
+      child: isMobile
+          ? SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [for (final s in stats) Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: stat(s.$1, s.$2, s.$3),
+              )]),
+            )
+          : Row(
+              children: [
+                for (final s in stats) Expanded(child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 7),
+                  child: stat(s.$1, s.$2, s.$3),
+                )),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildSpacesPreview(bool isDark, bool isMobile) {
+    final auth = Provider.of<AuthService>(context);
+    final primary = Theme.of(context).colorScheme.primary;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final onSurfaceVariant = Theme.of(context).colorScheme.onSurfaceVariant;
+    final connected = auth.xmppConnected;
+    final spaces = _previewSpaces;
+    final loadingSpaces = connected && !_spacesPreviewLoaded && _spacesPreviewLoading;
+
+    Widget spaceCard(SpaceNode space) {
+      final color = Xep0392Service.generateColor(space.domain);
+      final title = space.name;
+      final desc = space.description ?? '';
+      final members = space.numSubscribers ?? space.memberCount ?? 0;
+      return InkWell(
+        onTap: () => _awaitSignInThen(() {
+          context.goNamed('spaceDetail', extra: {'space': space});
+        }),
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerLow.withValues(alpha: 0.7),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: color.withValues(alpha: 0.25)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 15,
+                    backgroundColor: color.withValues(alpha: 0.2),
+                    child: Text(
+                      title.isEmpty ? '·' : title.substring(0, 1).toUpperCase(),
+                      style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 13),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(color: onSurface, fontWeight: FontWeight.w800, fontSize: 14.5),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                  if (members > 0)
+                    Text(
+                      '$members members',
+                      style: TextStyle(color: onSurfaceVariant, fontSize: 11),
+                    ),
+                ],
+              ),
+              if (desc.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  desc,
+                  style: TextStyle(fontSize: 12, height: 1.4, color: onSurfaceVariant),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    String stateText;
+    if (!connected) {
+      stateText = 'Connecting to the server...';
+    } else if (spaces.isEmpty && loadingSpaces) {
+      stateText = 'Discovering spaces...';
+    } else if (spaces.isEmpty) {
+      stateText = 'No public spaces discovered on this server yet — create the first one!';
+    } else {
+      stateText = 'Public spaces on this server, discovered live over PubSub.';
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 64, vertical: isMobile ? 40 : 64),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.grid_view_rounded, color: primary, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Spaces',
+                      style: TextStyle(
+                        fontSize: isMobile ? 24 : 32,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.8,
+                        color: onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      stateText + (auth.isAuthenticated ? ' · Signed in as ${_guestLabel}' : ''),
+                      style: TextStyle(fontSize: 14, color: onSurfaceVariant, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          if (spaces.isNotEmpty)
+            GridView.count(
+              crossAxisCount: isMobile ? 1 : 3,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 14,
+              crossAxisSpacing: 14,
+              childAspectRatio: isMobile ? 3.4 : 2.1,
+              children: spaces.take(6).map(spaceCard).toList(),
+            ),
+          if (spaces.isEmpty || loadingSpaces) ...[
+            const SizedBox(height: 10),
+            Center(
+              child: loadingSpaces
+                  ? Container(
+                      width: 24,
+                      height: 24,
+                      margin: const EdgeInsets.only(top: 6),
+                      child: const CircularProgressIndicator(strokeWidth: 2.5),
+                    )
+                  : null,
+            ),
+          ],
+        ],
+      ),
     );
   }
 
