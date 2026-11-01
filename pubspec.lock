@@ -1280,9 +1280,10 @@ packages:
   sip_ua:
     dependency: "direct main"
     description:
-      path: "packages/sip_ua"
-      relative: true
-    source: path
+      name: sip_ua
+      sha256: "09b107901365d25779a9dbdb7d8396cdd76d1c48dc367155a3dc9021126fbab7"
+      url: "https://pub.dev"
+    source: hosted
     version: "1.1.0"
   sky_engine:
     dependency: transitive
