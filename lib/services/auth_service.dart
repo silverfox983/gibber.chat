@@ -1265,7 +1265,574 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
           // to prevent duplicate message emissions and avoid redundant OTR/OMEMO decryption overlaps.
 
           _xmppStanzaSubs[id]?.cancel();
+          _xmppStanzaSubs[id]?.cancel();
           _xmppStanzaSubs[id] = conn.inStanzasStream.listen((stanza) async {
+              await _dispatchXmppStanza(stanza, id: id, conn: conn);
+          });
+
+          notifyListeners();
+        } else if (state == xmpp.XmppConnectionState.AuthenticationFailure) {
+          _xmppConnecting = false;
+          _lastDiagnostic =
+              'Authentication failed. Check your username and password.';
+          ConnectionLifecycleService.instance.unregisterConnection(id);
+          conn.dispose();
+          _xmppProxies[id]?.stop();
+          if (!connectionCompleter.isCompleted) {
+            connectionCompleter.completeError(Exception(_lastDiagnostic));
+          }
+        } else if (state ==
+            xmpp.XmppConnectionState.AuthenticationNotSupported) {
+          _xmppConnecting = false;
+          _lastDiagnostic =
+              'Server does not support any compatible authentication method.';
+          ConnectionLifecycleService.instance.unregisterConnection(id);
+          conn.dispose();
+          _xmppProxies[id]?.stop();
+          if (!connectionCompleter.isCompleted) {
+            connectionCompleter.completeError(Exception(_lastDiagnostic));
+          }
+        } else if (state == xmpp.XmppConnectionState.StartTlsFailed) {
+          _xmppConnecting = false;
+          _lastDiagnostic =
+              'TLS handshake failed. The server may not support secure connections on this port.';
+          ConnectionLifecycleService.instance.unregisterConnection(id);
+          conn.dispose();
+          _xmppProxies[id]?.stop();
+          if (!connectionCompleter.isCompleted) {
+            connectionCompleter.completeError(Exception(_lastDiagnostic));
+          }
+        } else if (state == xmpp.XmppConnectionState.Closed ||
+            state == xmpp.XmppConnectionState.ForcefullyClosed) {
+          _xmppConnecting = false;
+          xmpp.PingManager.removeInstance(conn);
+          _presenceSubs[id]?.cancel();
+          _presenceSubs.remove(id);
+          _rosterSubs[id]?.cancel();
+          _rosterSubs.remove(id);
+          _xmppMessageSubs[id]?.cancel();
+          _xmppMessageSubs.remove(id);
+          _jingleEventSubs[id]?.cancel();
+          _jingleEventSubs.remove(id);
+          _xmppStanzaSubs[id]?.cancel();
+          _xmppStanzaSubs.remove(id);
+          if (!_authenticatedAccountIds.contains(id)) {
+            _lastDiagnostic = state == xmpp.XmppConnectionState.ForcefullyClosed
+                ? 'Connection was forcefully closed by the server.'
+                : 'Connection closed before authentication completed.';
+            ConnectionLifecycleService.instance.unregisterConnection(id);
+            conn.dispose();
+            _xmppProxies[id]?.stop();
+            if (!connectionCompleter.isCompleted) {
+              connectionCompleter.completeError(Exception(_lastDiagnostic));
+            }
+          }
+        } else if (state == xmpp.XmppConnectionState.Resumed) {
+          debugPrint('XMPP Account $id: Stream Management resumed — flushing pending messages and rejoining MUC rooms');
+          _flushPendingMessages(id);
+          await _roomService.autoJoinRooms(id);
+          // Re-broadcast presence on resumption
+          updateMyStatus(_myStatus, message: _myStatusMessage);
+        }
+  }
+
+
+  void sendChatState(
+    String targetJid,
+    String state, {
+    String? accountId,
+    bool isGroup = false,
+  }) =>
+      _messageService.sendChatState(targetJid, state, accountId: accountId, isGroup: isGroup);
+
+  Future<void> forwardMessage(
+    ChatMessage original,
+    List<String> targetChatIds, {
+    String? accountId,
+    String? targetProtocol,
+  }) =>
+      _messageService.forwardMessage(original, targetChatIds, accountId: accountId, targetProtocol: targetProtocol);
+
+  Future<List<Map<String, String>>> discoverMucRooms(String accountId, String serviceJid) async =>
+      _roomService.discoverMucRooms(accountId, serviceJid);
+
+  Future<Map<String, dynamic>> getMucRoomInfo(String accountId, String roomJid) async =>
+      _roomService.getMucRoomInfo(accountId, roomJid);
+
+  Future<void> requestRoomConfig(String accountId, String roomJid) async =>
+      _roomService.requestRoomConfig(accountId, roomJid);
+
+  Future<void> submitRoomConfig(String accountId, String roomJid, Map<String, String> fields) async =>
+      _roomService.submitRoomConfig(accountId, roomJid, fields);
+
+  Future<Map<String, dynamic>?> fetchRoomConfig(String accountId, String roomJid) async =>
+      _roomService.fetchRoomConfig(accountId, roomJid);
+
+  Future<List<Map<String, String>>> fetchRoomAffiliations(String accountId, String roomJid, String affiliation) async =>
+      _roomService.fetchRoomAffiliations(accountId, roomJid, affiliation);
+
+  Future<void> setMucRole(String accountId, String roomJid, String nick, String role, {String? reason}) async =>
+      _roomService.setMucRole(accountId, roomJid, nick, role, reason: reason);
+
+  Future<void> setMucAffiliation(String accountId, String roomJid, String userJid, String affiliation, {String? reason}) async =>
+      _roomService.setMucAffiliation(accountId, roomJid, userJid, affiliation, reason: reason);
+
+  Future<void> sendXmppSubject(String roomJid, String subject, {String? accountId}) async =>
+      _roomService.sendXmppSubject(roomJid, subject, accountId: accountId);
+
+  Future<void> kickUser(String accountId, String roomJid, String nick, {String? reason}) async =>
+      _roomService.kickUser(accountId, roomJid, nick, reason: reason);
+
+  Future<void> banUser(String accountId, String roomJid, String userJid, {String? reason}) async =>
+      _roomService.banUser(accountId, roomJid, userJid, reason: reason);
+
+  List<Map<String, dynamic>> getAuthenticatedAccounts() {
+    return _authenticatedAccountIds
+        .map((id) => {'id': id, 'protocol': 'XMPP'})
+        .toList();
+  }
+
+  String getContactName(String accountId, String jid) {
+    final contact = _currentContacts.where((c) => c.id == jid).firstOrNull;
+    if (contact != null) return contact.name;
+
+    // Cheogram phone number normalization for display
+    if (jid.contains('@cheogram.com')) {
+      return jid.split('@').first;
+    }
+
+    return jid;
+  }
+
+  Future<void> _loadJoinedRooms() async {
+    await _roomService.loadJoinedRooms();
+
+    // Migrate old spaces from SharedPreferences to SQLite if needed
+    final prefs = await SharedPreferences.getInstance();
+    final spacesList = prefs.getStringList('joined_spaces');
+    final db = DatabaseService();
+    if (spacesList != null && spacesList.isNotEmpty) {
+      for (final s in spacesList) {
+        final parts = s.split('|');
+        if (parts.length >= 3) {
+          final space = SpaceNode(domain: parts[0], node: parts[1], name: parts[2]);
+          await db.upsertSpace(space, isJoined: true);
+        }
+      }
+      await prefs.remove('joined_spaces');
+    }
+
+    final loaded = await db.getJoinedSpaces();
+    _cachedJoinedSpaces
+      ..clear()
+      ..addAll(loaded);
+    _emitJoinedSpaces();
+  }
+  Future<void> _autoJoinRooms(String accountId) async => await _roomService.autoJoinRooms(accountId);
+
+  Future<String?> createXmppRoom(String roomJid, String nick, {String? accountId}) async =>
+      _roomService.createXmppRoom(roomJid, nick, accountId: accountId);
+
+  Future<String?> configureXmppRoom(
+    String roomJid, {
+    String? accountId,
+    String? name,
+    String? description,
+    bool isPublic = true,
+    bool isPersistent = true,
+    bool isMembersOnly = false,
+    bool allowMemberInvites = true,
+    bool changeSubject = true,
+    int historyLength = 50,
+  }) async =>
+      _roomService.configureXmppRoom(
+        roomJid,
+        accountId: accountId,
+        name: name,
+        description: description,
+        isPublic: isPublic,
+        isPersistent: isPersistent,
+        isMembersOnly: isMembersOnly,
+        allowMemberInvites: allowMemberInvites,
+        changeSubject: changeSubject,
+        historyLength: historyLength,
+      );
+
+  Future<String?> joinXmppRoom(String roomJid, String nick, {String? accountId, String? password}) async =>
+      _roomService.joinXmppRoom(roomJid, nick, accountId: accountId, password: password);
+
+  Future<void> logout() async {
+    for (var entry in _xmppConnections.entries) {
+      xmpp.PingManager.removeInstance(entry.value);
+      ConnectionLifecycleService.instance.unregisterConnection(entry.key);
+      _connectionStateSubs[entry.key]?.cancel();
+      _connectionStateSubs.remove(entry.key);
+      _presenceSubs[entry.key]?.cancel();
+      _presenceSubs.remove(entry.key);
+      _rosterSubs[entry.key]?.cancel();
+      _rosterSubs.remove(entry.key);
+      _xmppMessageSubs[entry.key]?.cancel();
+      _xmppMessageSubs.remove(entry.key);
+      _jingleEventSubs[entry.key]?.cancel();
+      _jingleEventSubs.remove(entry.key);
+      _xmppStanzaSubs[entry.key]?.cancel();
+      _xmppStanzaSubs.remove(entry.key);
+      entry.value.dispose();
+    }
+    _xmppConnections.clear();
+
+    for (var proxy in _xmppProxies.values) {
+      proxy.stop();
+    }
+    _xmppProxies.clear();
+
+    _activeAccountId = null;
+    _authenticatedAccountIds.clear();
+    _currentContacts.clear();
+    _contactStreamController.add([]);
+
+    notifyListeners();
+  }
+
+  // Mappings
+  xmpp.PresenceShowElement _mapShowToPresence(ContactStatus status) {
+    switch (status) {
+      case ContactStatus.online:
+        return xmpp.PresenceShowElement.CHAT;
+      case ContactStatus.away:
+        return xmpp.PresenceShowElement.AWAY;
+      case ContactStatus.xa:
+        return xmpp.PresenceShowElement.XA;
+      case ContactStatus.dnd:
+        return xmpp.PresenceShowElement.DND;
+      case ContactStatus.offline:
+        return xmpp.PresenceShowElement.XA;
+    }
+  }
+
+  bool _isUnavailableStatus(ContactStatus status) => status == ContactStatus.offline;
+
+  ContactStatus _mapPresenceToShow(xmpp.PresenceShowElement? show) {
+    if (show == null || show == xmpp.PresenceShowElement.CHAT) {
+      return ContactStatus.online;
+    } else if (show == xmpp.PresenceShowElement.AWAY) {
+      return ContactStatus.away;
+    } else if (show == xmpp.PresenceShowElement.XA) {
+      return ContactStatus.xa;
+    } else if (show == xmpp.PresenceShowElement.DND) {
+      return ContactStatus.dnd;
+    }
+    return ContactStatus.offline;
+  }
+
+  void _handleXmppStreamError(dynamic e) {
+    debugPrint('XMPP Stream Error: $e');
+    _xmppConnecting = false;
+    _lastDiagnostic = 'XMPP stream error: $e';
+    notifyListeners();
+  }
+
+  // Legacy compatibility for single-account UI parts
+  Future<bool> autoLogin() => _contactService.autoLogin();
+
+  Future<String> testSocketConnection(String host, int port) =>
+      _contactService.testSocketConnection(host, port);
+
+  void _enableCarbons(String accountId) => _syncService.enableCarbons(accountId);
+
+  Future<void> fetchXmppHistory(String jid, {String? accountId, DateTime? since}) =>
+      _contactService.fetchXmppHistory(jid, accountId: accountId, since: since);
+
+  void _syncAllXmppData(String accountId, xmpp.Connection conn) =>
+      _syncService.syncAllXmppData(accountId, conn);
+
+  void logCallEvent(String targetId, String text, bool isSent, {String? filePath, MessageType type = MessageType.call}) =>
+      _contactService.logCallEvent(targetId, text, isSent, filePath: filePath, type: type);
+
+  Future<List<Map<String, dynamic>>> fetchIceServers(String accountId) =>
+      _contactService.fetchIceServers(accountId);
+
+  // --- ROSTER & CONTACT MANAGEMENT (XEP-0164, XEP-0191) ---
+
+  // XEP-0030: Service Discovery (XEP-0030)
+  Future<void> _discoverServiceFeatures(String accountId, String domain) async {
+    final result = await _syncService.discoverServiceFeatures(accountId, domain);
+    _discoveredPubsubServices[accountId] = result.pubsubServices;
+    _discoveredMucServices[accountId] = result.mucServices;
+    if (result.pubsubServices.isNotEmpty) {
+      debugPrint('DISCO: Discovered PubSub services for $accountId: ${result.pubsubServices}');
+    }
+    if (result.mucServices.isNotEmpty) {
+      debugPrint('DISCO: Discovered MUC services for $accountId: ${result.mucServices}');
+    }
+    notifyListeners();
+  }
+
+  // --- Space Management (Bookmarks / Persistence) ---
+
+  List<SpaceNode> get joinedSpaces => _cachedJoinedSpaces;
+
+  void _emitJoinedSpaces() {
+    _joinedSpacesStreamController.add(joinedSpaces);
+  }
+
+  Future<void> joinPersistedSpace(
+    String domain,
+    String node,
+    String name,
+  ) async {
+    final index = _cachedJoinedSpaces.indexWhere((s) => s.domain == domain && s.node == node);
+    if (index == -1) {
+      final space = SpaceNode(domain: domain, node: node, name: name, isSubscribed: true);
+      _cachedJoinedSpaces.add(space);
+      await DatabaseService().upsertSpace(space, isJoined: true);
+      _emitJoinedSpaces();
+      notifyListeners();
+    }
+  }
+
+  Future<void> leavePersistedSpace(String domain, String node) async {
+    _cachedJoinedSpaces.removeWhere((s) => s.domain == domain && s.node == node);
+    await DatabaseService().deleteSpace(domain, node);
+    _emitJoinedSpaces();
+    notifyListeners();
+  }
+
+  Future<void> updatePersistedSpace(SpaceNode space) async {
+    final index = _cachedJoinedSpaces.indexWhere((s) => s.domain == space.domain && s.node == space.node);
+    if (index != -1) {
+      _cachedJoinedSpaces[index] = space;
+      await DatabaseService().upsertSpace(space, isJoined: true);
+      _emitJoinedSpaces();
+      notifyListeners();
+    }
+  }
+
+  // --- Profile Management ---
+
+  Future<void> createProfile(String name, {String? bio}) =>
+      _contactService.createProfile(name, bio: bio);
+
+  // --- Backup / Restore ---
+
+  Future<Map<String, String>> exportAccountSecrets() => _contactService.exportAccountSecrets();
+  Future<void> importAccountSecrets(Map<String, String> secrets) => _contactService.importAccountSecrets(secrets);
+  Future<void> importSavedAccounts(List<SavedAccount> accounts) => _contactService.importSavedAccounts(accounts);
+  List<Map<String, dynamic>> exportContacts() => _contactService.exportContacts();
+  Future<void> importContacts(List<dynamic> contactsJson) => _contactService.importContacts(contactsJson);
+  Future<Map<String, dynamic>> exportSettings() => _contactService.exportSettings();
+  Future<void> importSettings(Map<String, dynamic> settings) => _contactService.importSettings(settings);
+
+  void _fetchAllVCards(String accountId) {
+    final jids = _currentContacts
+        .where((c) => c.protocol == 'XMPP')
+        .map((c) => c.id.split('/').first)
+        .toSet();
+
+    final now = DateTime.now();
+    for (var jid in jids) {
+      final cacheKey = '$accountId:$jid';
+      final lastFetch = _vCardLastFetch[cacheKey];
+      if (lastFetch != null && now.difference(lastFetch).inMinutes < 5) {
+        debugPrint('AuthService: Skipping vCard fetch for $jid (fetched ${now.difference(lastFetch).inMinutes} min ago)');
+        continue;
+      }
+      Future.delayed(
+        Duration(milliseconds: 100 + (jids.toList().indexOf(jid) * 50)),
+        () => fetchContactVCard(jid, accountId: accountId),
+      );
+    }
+  }
+
+  Future<void> _loadCachedVCards(String accountId) async {
+    final db = DatabaseService();
+    final database = await db.database;
+    final results = await database.query('contact_vcards');
+    for (final cached in results) {
+      final jid = cached['jid'] as String?;
+      if (jid == null) continue;
+      final contactIndex = _currentContacts.indexWhere(
+        (c) => c.id.toLowerCase().split('/').first == jid.toLowerCase(),
+      );
+      if (contactIndex != -1) {
+        final contact = _currentContacts[contactIndex];
+        if (cached['full_name'] != null && (contact as dynamic).name == jid) {
+          _currentContacts[contactIndex].name = cached['full_name'] as String;
+        }
+        if (cached['avatar_data'] != null) {
+          try {
+            final avatarBytes = base64Decode(cached['avatar_data'] as String);
+            AvatarCacheService().saveAvatar(jid, avatarBytes);
+          } catch (_) {}
+        }
+      }
+    }
+    debugPrint('AuthService: Loaded ${results.length} cached vCards for $accountId');
+  }
+
+  // --- SOCIAL INTELLIGENCE: CONTACT MANAGEMENT ---
+
+  final StreamController<List<String>> _blockedContactsController =
+      StreamController<List<String>>.broadcast();
+  Stream<List<String>> get blockedContacts => _blockedContactsController.stream;
+  StreamController<List<String>> get blockedContactsController => _blockedContactsController;
+  final List<String> _currentBlockedContacts = [];
+  List<String> get currentBlockedContacts => _currentBlockedContacts;
+
+  /// Fetches the list of blocked contacts (XEP-0191)
+  Future<void> fetchBlockedContacts({String? accountId}) =>
+      _contactService.fetchBlockedContacts(accountId: accountId);
+
+  /// Updates our own presence status (XEP-0030/RFC 6121)
+  Future<void> updatePresence(ContactStatus status, {String? message, String? accountId}) =>
+      _contactService.updatePresence(status, message: message, accountId: accountId);
+
+  /// Refreshes all contact vCards and presence
+  void refreshContacts({String? accountId}) {
+    final accId = accountId ?? _activeAccountId ?? '';
+    _fetchAllVCards(accId);
+  }
+
+  /// Track a sent message originId for carbon deduplication (with automatic pruning)
+  void trackSentOriginId(String originId, String accountId) {
+    _pruneSentOriginIds();
+    _sentOriginIds[originId] = accountId;
+    _sentOriginIdTimestamps[originId] = DateTime.now();
+  }
+
+  /// Accepts an incoming friend request (XEP-0163)
+  void acceptSubscription(String jid, {String? accountId}) =>
+      _contactService.acceptSubscription(jid, accountId: accountId);
+
+  /// Declines or cancels a friend request
+  void declineSubscription(String jid, {String? accountId}) =>
+      _contactService.declineSubscription(jid, accountId: accountId);
+
+  /// Blocks a contact using XEP-0191 (Blocking Command)
+  Future<void> blockContact(String jid, {String? accountId}) =>
+      _contactService.blockContact(jid, accountId: accountId);
+
+  /// Unblocks a contact using XEP-0191
+  Future<void> unblockContact(String jid, {String? accountId}) =>
+      _contactService.unblockContact(jid, accountId: accountId);
+
+  /// Renames a contact in the roster (Roster Push)
+  Future<void> renameContact(String jid, String newName, {String? accountId}) =>
+      _contactService.renameContact(jid, newName, accountId: accountId);
+
+  /// Completely removes a contact from the roster
+  Future<void> removeContact(String jid, {String? accountId}) =>
+      _contactService.removeContact(jid, accountId: accountId);
+
+  /// Sends a friend request (XEP-0163)
+  void addContact(String jid, {String? nickname, String? group, String? accountId}) =>
+      _contactService.addContact(jid, nickname: nickname, group: group, accountId: accountId);
+
+  Future<List<String>> getBlockList({String? accountId}) =>
+      _contactService.getBlockList(accountId: accountId);
+
+  // --- XEP-0166: Privacy Lists ---
+  bool isPrivacyListsSupported({String? accountId}) {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) return false;
+    final conn = _xmppConnections[acc];
+    if (conn == null) return false;
+    return PrivacyListsManager.getInstance(conn).isPrivacyListsSupported();
+  }
+
+  Future<List<String>> getPrivacyLists({String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) throw Exception('No active account');
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    final result = await manager.getAllLists();
+    return result.allPrivacyLists ?? [];
+  }
+
+  Future<String?> getActivePrivacyList({String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) return null;
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    final result = await manager.getAllLists();
+    return result.activeList;
+  }
+
+  Future<String?> getDefaultPrivacyList({String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) return null;
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    final result = await manager.getAllLists();
+    return result.defaultList;
+  }
+
+  Future<void> setActivePrivacyList(String name, {String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) throw Exception('No active account');
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    await manager.setActiveList(name);
+  }
+
+  Future<void> createPrivacyList(String name, List<Map<String, dynamic>> items, {String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) throw Exception('No active account');
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    final privacyItems = items.map((item) {
+      final controlStanzas = <xmpp.PrivacyControlStanza>[];
+      if (item['block_messages'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.MESSAGE);
+      if (item['block_iq'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.IQ);
+      if (item['block_presence_in'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.PRESENCE_IN);
+      if (item['block_presence_out'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.PRESENCE_OUT);
+      return xmpp.PrivacyListItem(
+        type: _parsePrivacyType(item['type'] as String?),
+        value: item['value'] as String?,
+        action: item['action'] == 'allow' ? xmpp.PrivacyAction.ALLOW : xmpp.PrivacyAction.DENY,
+        order: item['order'] as int? ?? 0,
+        controlStanzas: controlStanzas,
+      );
+    }).toList();
+    await manager.createPrivacyList(xmpp.PrivacyList(name, privacyItems));
+  }
+
+  xmpp.PrivacyType _parsePrivacyType(String? type) {
+    switch (type) {
+      case 'jid': return xmpp.PrivacyType.JID;
+      case 'group': return xmpp.PrivacyType.GROUP;
+      case 'subscription': return xmpp.PrivacyType.SUBSCRIPTION;
+      default: return xmpp.PrivacyType.JID;
+    }
+  }
+
+  Future<void> removePrivacyList(String name, {String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) throw Exception('No active account');
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    await manager.removePrivacyList(name);
+  }
+
+  Future<List<Map<String, dynamic>>> getPrivacyListItems(String name, {String? accountId}) async {
+    final acc = accountId ?? activeAccountId;
+    if (acc == null) throw Exception('No active account');
+    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
+    final items = await manager.getListByName(name);
+    return items.map((item) {
+      final ctrl = item.controlStanzas ?? [];
+      return {
+        'value': item.value ?? '',
+        'type': item.type?.name.toLowerCase() ?? 'jid',
+        'action': item.action.name.toLowerCase(),
+        'order': item.order,
+        'block_messages': ctrl.contains(PrivacyControlStanza.MESSAGE),
+        'block_iq': ctrl.contains(PrivacyControlStanza.IQ),
+        'block_presence_in': ctrl.contains(PrivacyControlStanza.PRESENCE_IN),
+        'block_presence_out': ctrl.contains(PrivacyControlStanza.PRESENCE_OUT),
+      };
+    }).toList();
+  }
+
+  Future<void> clearAllData() => _contactService.clearAllData();
+  Future<void> _dispatchXmppStanza(xmpp.AbstractStanza? stanza, {
+    required String id,
+    required xmpp.Connection conn,
+  }) async {
             // Single-dispatch bus: route every stanza to per-account
             // SpacesService (its own IQ correlation + PubSub events) so it does
             // not need a second inStanzasStream subscription.
@@ -2034,567 +2601,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
                 _vcardService.handleVCardSetResult(iqId, !isError, errorText);
               }
             }
-          });
-
-          notifyListeners();
-        } else if (state == xmpp.XmppConnectionState.AuthenticationFailure) {
-          _xmppConnecting = false;
-          _lastDiagnostic =
-              'Authentication failed. Check your username and password.';
-          ConnectionLifecycleService.instance.unregisterConnection(id);
-          conn.dispose();
-          _xmppProxies[id]?.stop();
-          if (!connectionCompleter.isCompleted) {
-            connectionCompleter.completeError(Exception(_lastDiagnostic));
-          }
-        } else if (state ==
-            xmpp.XmppConnectionState.AuthenticationNotSupported) {
-          _xmppConnecting = false;
-          _lastDiagnostic =
-              'Server does not support any compatible authentication method.';
-          ConnectionLifecycleService.instance.unregisterConnection(id);
-          conn.dispose();
-          _xmppProxies[id]?.stop();
-          if (!connectionCompleter.isCompleted) {
-            connectionCompleter.completeError(Exception(_lastDiagnostic));
-          }
-        } else if (state == xmpp.XmppConnectionState.StartTlsFailed) {
-          _xmppConnecting = false;
-          _lastDiagnostic =
-              'TLS handshake failed. The server may not support secure connections on this port.';
-          ConnectionLifecycleService.instance.unregisterConnection(id);
-          conn.dispose();
-          _xmppProxies[id]?.stop();
-          if (!connectionCompleter.isCompleted) {
-            connectionCompleter.completeError(Exception(_lastDiagnostic));
-          }
-        } else if (state == xmpp.XmppConnectionState.Closed ||
-            state == xmpp.XmppConnectionState.ForcefullyClosed) {
-          _xmppConnecting = false;
-          xmpp.PingManager.removeInstance(conn);
-          _presenceSubs[id]?.cancel();
-          _presenceSubs.remove(id);
-          _rosterSubs[id]?.cancel();
-          _rosterSubs.remove(id);
-          _xmppMessageSubs[id]?.cancel();
-          _xmppMessageSubs.remove(id);
-          _jingleEventSubs[id]?.cancel();
-          _jingleEventSubs.remove(id);
-          _xmppStanzaSubs[id]?.cancel();
-          _xmppStanzaSubs.remove(id);
-          if (!_authenticatedAccountIds.contains(id)) {
-            _lastDiagnostic = state == xmpp.XmppConnectionState.ForcefullyClosed
-                ? 'Connection was forcefully closed by the server.'
-                : 'Connection closed before authentication completed.';
-            ConnectionLifecycleService.instance.unregisterConnection(id);
-            conn.dispose();
-            _xmppProxies[id]?.stop();
-            if (!connectionCompleter.isCompleted) {
-              connectionCompleter.completeError(Exception(_lastDiagnostic));
-            }
-          }
-        } else if (state == xmpp.XmppConnectionState.Resumed) {
-          debugPrint('XMPP Account $id: Stream Management resumed — flushing pending messages and rejoining MUC rooms');
-          _flushPendingMessages(id);
-          await _roomService.autoJoinRooms(id);
-          // Re-broadcast presence on resumption
-          updateMyStatus(_myStatus, message: _myStatusMessage);
-        }
   }
-
-
-  void sendChatState(
-    String targetJid,
-    String state, {
-    String? accountId,
-    bool isGroup = false,
-  }) =>
-      _messageService.sendChatState(targetJid, state, accountId: accountId, isGroup: isGroup);
-
-  Future<void> forwardMessage(
-    ChatMessage original,
-    List<String> targetChatIds, {
-    String? accountId,
-    String? targetProtocol,
-  }) =>
-      _messageService.forwardMessage(original, targetChatIds, accountId: accountId, targetProtocol: targetProtocol);
-
-  Future<List<Map<String, String>>> discoverMucRooms(String accountId, String serviceJid) async =>
-      _roomService.discoverMucRooms(accountId, serviceJid);
-
-  Future<Map<String, dynamic>> getMucRoomInfo(String accountId, String roomJid) async =>
-      _roomService.getMucRoomInfo(accountId, roomJid);
-
-  Future<void> requestRoomConfig(String accountId, String roomJid) async =>
-      _roomService.requestRoomConfig(accountId, roomJid);
-
-  Future<void> submitRoomConfig(String accountId, String roomJid, Map<String, String> fields) async =>
-      _roomService.submitRoomConfig(accountId, roomJid, fields);
-
-  Future<Map<String, dynamic>?> fetchRoomConfig(String accountId, String roomJid) async =>
-      _roomService.fetchRoomConfig(accountId, roomJid);
-
-  Future<List<Map<String, String>>> fetchRoomAffiliations(String accountId, String roomJid, String affiliation) async =>
-      _roomService.fetchRoomAffiliations(accountId, roomJid, affiliation);
-
-  Future<void> setMucRole(String accountId, String roomJid, String nick, String role, {String? reason}) async =>
-      _roomService.setMucRole(accountId, roomJid, nick, role, reason: reason);
-
-  Future<void> setMucAffiliation(String accountId, String roomJid, String userJid, String affiliation, {String? reason}) async =>
-      _roomService.setMucAffiliation(accountId, roomJid, userJid, affiliation, reason: reason);
-
-  Future<void> sendXmppSubject(String roomJid, String subject, {String? accountId}) async =>
-      _roomService.sendXmppSubject(roomJid, subject, accountId: accountId);
-
-  Future<void> kickUser(String accountId, String roomJid, String nick, {String? reason}) async =>
-      _roomService.kickUser(accountId, roomJid, nick, reason: reason);
-
-  Future<void> banUser(String accountId, String roomJid, String userJid, {String? reason}) async =>
-      _roomService.banUser(accountId, roomJid, userJid, reason: reason);
-
-  List<Map<String, dynamic>> getAuthenticatedAccounts() {
-    return _authenticatedAccountIds
-        .map((id) => {'id': id, 'protocol': 'XMPP'})
-        .toList();
-  }
-
-  String getContactName(String accountId, String jid) {
-    final contact = _currentContacts.where((c) => c.id == jid).firstOrNull;
-    if (contact != null) return contact.name;
-
-    // Cheogram phone number normalization for display
-    if (jid.contains('@cheogram.com')) {
-      return jid.split('@').first;
-    }
-
-    return jid;
-  }
-
-  Future<void> _loadJoinedRooms() async {
-    await _roomService.loadJoinedRooms();
-
-    // Migrate old spaces from SharedPreferences to SQLite if needed
-    final prefs = await SharedPreferences.getInstance();
-    final spacesList = prefs.getStringList('joined_spaces');
-    final db = DatabaseService();
-    if (spacesList != null && spacesList.isNotEmpty) {
-      for (final s in spacesList) {
-        final parts = s.split('|');
-        if (parts.length >= 3) {
-          final space = SpaceNode(domain: parts[0], node: parts[1], name: parts[2]);
-          await db.upsertSpace(space, isJoined: true);
-        }
-      }
-      await prefs.remove('joined_spaces');
-    }
-
-    final loaded = await db.getJoinedSpaces();
-    _cachedJoinedSpaces
-      ..clear()
-      ..addAll(loaded);
-    _emitJoinedSpaces();
-  }
-  Future<void> _autoJoinRooms(String accountId) async => await _roomService.autoJoinRooms(accountId);
-
-  Future<String?> createXmppRoom(String roomJid, String nick, {String? accountId}) async =>
-      _roomService.createXmppRoom(roomJid, nick, accountId: accountId);
-
-  Future<String?> configureXmppRoom(
-    String roomJid, {
-    String? accountId,
-    String? name,
-    String? description,
-    bool isPublic = true,
-    bool isPersistent = true,
-    bool isMembersOnly = false,
-    bool allowMemberInvites = true,
-    bool changeSubject = true,
-    int historyLength = 50,
-  }) async =>
-      _roomService.configureXmppRoom(
-        roomJid,
-        accountId: accountId,
-        name: name,
-        description: description,
-        isPublic: isPublic,
-        isPersistent: isPersistent,
-        isMembersOnly: isMembersOnly,
-        allowMemberInvites: allowMemberInvites,
-        changeSubject: changeSubject,
-        historyLength: historyLength,
-      );
-
-  Future<String?> joinXmppRoom(String roomJid, String nick, {String? accountId, String? password}) async =>
-      _roomService.joinXmppRoom(roomJid, nick, accountId: accountId, password: password);
-
-  Future<void> logout() async {
-    for (var entry in _xmppConnections.entries) {
-      xmpp.PingManager.removeInstance(entry.value);
-      ConnectionLifecycleService.instance.unregisterConnection(entry.key);
-      _connectionStateSubs[entry.key]?.cancel();
-      _connectionStateSubs.remove(entry.key);
-      _presenceSubs[entry.key]?.cancel();
-      _presenceSubs.remove(entry.key);
-      _rosterSubs[entry.key]?.cancel();
-      _rosterSubs.remove(entry.key);
-      _xmppMessageSubs[entry.key]?.cancel();
-      _xmppMessageSubs.remove(entry.key);
-      _jingleEventSubs[entry.key]?.cancel();
-      _jingleEventSubs.remove(entry.key);
-      _xmppStanzaSubs[entry.key]?.cancel();
-      _xmppStanzaSubs.remove(entry.key);
-      entry.value.dispose();
-    }
-    _xmppConnections.clear();
-
-    for (var proxy in _xmppProxies.values) {
-      proxy.stop();
-    }
-    _xmppProxies.clear();
-
-    _activeAccountId = null;
-    _authenticatedAccountIds.clear();
-    _currentContacts.clear();
-    _contactStreamController.add([]);
-
-    notifyListeners();
-  }
-
-  // Mappings
-  xmpp.PresenceShowElement _mapShowToPresence(ContactStatus status) {
-    switch (status) {
-      case ContactStatus.online:
-        return xmpp.PresenceShowElement.CHAT;
-      case ContactStatus.away:
-        return xmpp.PresenceShowElement.AWAY;
-      case ContactStatus.xa:
-        return xmpp.PresenceShowElement.XA;
-      case ContactStatus.dnd:
-        return xmpp.PresenceShowElement.DND;
-      case ContactStatus.offline:
-        return xmpp.PresenceShowElement.XA;
-    }
-  }
-
-  bool _isUnavailableStatus(ContactStatus status) => status == ContactStatus.offline;
-
-  ContactStatus _mapPresenceToShow(xmpp.PresenceShowElement? show) {
-    if (show == null || show == xmpp.PresenceShowElement.CHAT) {
-      return ContactStatus.online;
-    } else if (show == xmpp.PresenceShowElement.AWAY) {
-      return ContactStatus.away;
-    } else if (show == xmpp.PresenceShowElement.XA) {
-      return ContactStatus.xa;
-    } else if (show == xmpp.PresenceShowElement.DND) {
-      return ContactStatus.dnd;
-    }
-    return ContactStatus.offline;
-  }
-
-  void _handleXmppStreamError(dynamic e) {
-    debugPrint('XMPP Stream Error: $e');
-    _xmppConnecting = false;
-    _lastDiagnostic = 'XMPP stream error: $e';
-    notifyListeners();
-  }
-
-  // Legacy compatibility for single-account UI parts
-  Future<bool> autoLogin() => _contactService.autoLogin();
-
-  Future<String> testSocketConnection(String host, int port) =>
-      _contactService.testSocketConnection(host, port);
-
-  void _enableCarbons(String accountId) => _syncService.enableCarbons(accountId);
-
-  Future<void> fetchXmppHistory(String jid, {String? accountId, DateTime? since}) =>
-      _contactService.fetchXmppHistory(jid, accountId: accountId, since: since);
-
-  void _syncAllXmppData(String accountId, xmpp.Connection conn) =>
-      _syncService.syncAllXmppData(accountId, conn);
-
-  void logCallEvent(String targetId, String text, bool isSent, {String? filePath, MessageType type = MessageType.call}) =>
-      _contactService.logCallEvent(targetId, text, isSent, filePath: filePath, type: type);
-
-  Future<List<Map<String, dynamic>>> fetchIceServers(String accountId) =>
-      _contactService.fetchIceServers(accountId);
-
-  // --- ROSTER & CONTACT MANAGEMENT (XEP-0164, XEP-0191) ---
-
-  // XEP-0030: Service Discovery (XEP-0030)
-  Future<void> _discoverServiceFeatures(String accountId, String domain) async {
-    final result = await _syncService.discoverServiceFeatures(accountId, domain);
-    _discoveredPubsubServices[accountId] = result.pubsubServices;
-    _discoveredMucServices[accountId] = result.mucServices;
-    if (result.pubsubServices.isNotEmpty) {
-      debugPrint('DISCO: Discovered PubSub services for $accountId: ${result.pubsubServices}');
-    }
-    if (result.mucServices.isNotEmpty) {
-      debugPrint('DISCO: Discovered MUC services for $accountId: ${result.mucServices}');
-    }
-    notifyListeners();
-  }
-
-  // --- Space Management (Bookmarks / Persistence) ---
-
-  List<SpaceNode> get joinedSpaces => _cachedJoinedSpaces;
-
-  void _emitJoinedSpaces() {
-    _joinedSpacesStreamController.add(joinedSpaces);
-  }
-
-  Future<void> joinPersistedSpace(
-    String domain,
-    String node,
-    String name,
-  ) async {
-    final index = _cachedJoinedSpaces.indexWhere((s) => s.domain == domain && s.node == node);
-    if (index == -1) {
-      final space = SpaceNode(domain: domain, node: node, name: name, isSubscribed: true);
-      _cachedJoinedSpaces.add(space);
-      await DatabaseService().upsertSpace(space, isJoined: true);
-      _emitJoinedSpaces();
-      notifyListeners();
-    }
-  }
-
-  Future<void> leavePersistedSpace(String domain, String node) async {
-    _cachedJoinedSpaces.removeWhere((s) => s.domain == domain && s.node == node);
-    await DatabaseService().deleteSpace(domain, node);
-    _emitJoinedSpaces();
-    notifyListeners();
-  }
-
-  Future<void> updatePersistedSpace(SpaceNode space) async {
-    final index = _cachedJoinedSpaces.indexWhere((s) => s.domain == space.domain && s.node == space.node);
-    if (index != -1) {
-      _cachedJoinedSpaces[index] = space;
-      await DatabaseService().upsertSpace(space, isJoined: true);
-      _emitJoinedSpaces();
-      notifyListeners();
-    }
-  }
-
-  // --- Profile Management ---
-
-  Future<void> createProfile(String name, {String? bio}) =>
-      _contactService.createProfile(name, bio: bio);
-
-  // --- Backup / Restore ---
-
-  Future<Map<String, String>> exportAccountSecrets() => _contactService.exportAccountSecrets();
-  Future<void> importAccountSecrets(Map<String, String> secrets) => _contactService.importAccountSecrets(secrets);
-  Future<void> importSavedAccounts(List<SavedAccount> accounts) => _contactService.importSavedAccounts(accounts);
-  List<Map<String, dynamic>> exportContacts() => _contactService.exportContacts();
-  Future<void> importContacts(List<dynamic> contactsJson) => _contactService.importContacts(contactsJson);
-  Future<Map<String, dynamic>> exportSettings() => _contactService.exportSettings();
-  Future<void> importSettings(Map<String, dynamic> settings) => _contactService.importSettings(settings);
-
-  void _fetchAllVCards(String accountId) {
-    final jids = _currentContacts
-        .where((c) => c.protocol == 'XMPP')
-        .map((c) => c.id.split('/').first)
-        .toSet();
-
-    final now = DateTime.now();
-    for (var jid in jids) {
-      final cacheKey = '$accountId:$jid';
-      final lastFetch = _vCardLastFetch[cacheKey];
-      if (lastFetch != null && now.difference(lastFetch).inMinutes < 5) {
-        debugPrint('AuthService: Skipping vCard fetch for $jid (fetched ${now.difference(lastFetch).inMinutes} min ago)');
-        continue;
-      }
-      Future.delayed(
-        Duration(milliseconds: 100 + (jids.toList().indexOf(jid) * 50)),
-        () => fetchContactVCard(jid, accountId: accountId),
-      );
-    }
-  }
-
-  Future<void> _loadCachedVCards(String accountId) async {
-    final db = DatabaseService();
-    final database = await db.database;
-    final results = await database.query('contact_vcards');
-    for (final cached in results) {
-      final jid = cached['jid'] as String?;
-      if (jid == null) continue;
-      final contactIndex = _currentContacts.indexWhere(
-        (c) => c.id.toLowerCase().split('/').first == jid.toLowerCase(),
-      );
-      if (contactIndex != -1) {
-        final contact = _currentContacts[contactIndex];
-        if (cached['full_name'] != null && (contact as dynamic).name == jid) {
-          _currentContacts[contactIndex].name = cached['full_name'] as String;
-        }
-        if (cached['avatar_data'] != null) {
-          try {
-            final avatarBytes = base64Decode(cached['avatar_data'] as String);
-            AvatarCacheService().saveAvatar(jid, avatarBytes);
-          } catch (_) {}
-        }
-      }
-    }
-    debugPrint('AuthService: Loaded ${results.length} cached vCards for $accountId');
-  }
-
-  // --- SOCIAL INTELLIGENCE: CONTACT MANAGEMENT ---
-
-  final StreamController<List<String>> _blockedContactsController =
-      StreamController<List<String>>.broadcast();
-  Stream<List<String>> get blockedContacts => _blockedContactsController.stream;
-  StreamController<List<String>> get blockedContactsController => _blockedContactsController;
-  final List<String> _currentBlockedContacts = [];
-  List<String> get currentBlockedContacts => _currentBlockedContacts;
-
-  /// Fetches the list of blocked contacts (XEP-0191)
-  Future<void> fetchBlockedContacts({String? accountId}) =>
-      _contactService.fetchBlockedContacts(accountId: accountId);
-
-  /// Updates our own presence status (XEP-0030/RFC 6121)
-  Future<void> updatePresence(ContactStatus status, {String? message, String? accountId}) =>
-      _contactService.updatePresence(status, message: message, accountId: accountId);
-
-  /// Refreshes all contact vCards and presence
-  void refreshContacts({String? accountId}) {
-    final accId = accountId ?? _activeAccountId ?? '';
-    _fetchAllVCards(accId);
-  }
-
-  /// Track a sent message originId for carbon deduplication (with automatic pruning)
-  void trackSentOriginId(String originId, String accountId) {
-    _pruneSentOriginIds();
-    _sentOriginIds[originId] = accountId;
-    _sentOriginIdTimestamps[originId] = DateTime.now();
-  }
-
-  /// Accepts an incoming friend request (XEP-0163)
-  void acceptSubscription(String jid, {String? accountId}) =>
-      _contactService.acceptSubscription(jid, accountId: accountId);
-
-  /// Declines or cancels a friend request
-  void declineSubscription(String jid, {String? accountId}) =>
-      _contactService.declineSubscription(jid, accountId: accountId);
-
-  /// Blocks a contact using XEP-0191 (Blocking Command)
-  Future<void> blockContact(String jid, {String? accountId}) =>
-      _contactService.blockContact(jid, accountId: accountId);
-
-  /// Unblocks a contact using XEP-0191
-  Future<void> unblockContact(String jid, {String? accountId}) =>
-      _contactService.unblockContact(jid, accountId: accountId);
-
-  /// Renames a contact in the roster (Roster Push)
-  Future<void> renameContact(String jid, String newName, {String? accountId}) =>
-      _contactService.renameContact(jid, newName, accountId: accountId);
-
-  /// Completely removes a contact from the roster
-  Future<void> removeContact(String jid, {String? accountId}) =>
-      _contactService.removeContact(jid, accountId: accountId);
-
-  /// Sends a friend request (XEP-0163)
-  void addContact(String jid, {String? nickname, String? group, String? accountId}) =>
-      _contactService.addContact(jid, nickname: nickname, group: group, accountId: accountId);
-
-  Future<List<String>> getBlockList({String? accountId}) =>
-      _contactService.getBlockList(accountId: accountId);
-
-  // --- XEP-0166: Privacy Lists ---
-  bool isPrivacyListsSupported({String? accountId}) {
-    final acc = accountId ?? activeAccountId;
-    if (acc == null) return false;
-    final conn = _xmppConnections[acc];
-    if (conn == null) return false;
-    return PrivacyListsManager.getInstance(conn).isPrivacyListsSupported();
-  }
-
-  Future<List<String>> getPrivacyLists({String? accountId}) async {
-    final acc = accountId ?? activeAccountId;
-    if (acc == null) throw Exception('No active account');
-    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
-    final result = await manager.getAllLists();
-    return result.allPrivacyLists ?? [];
-  }
-
-  Future<String?> getActivePrivacyList({String? accountId}) async {
-    final acc = accountId ?? activeAccountId;
-    if (acc == null) return null;
-    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
-    final result = await manager.getAllLists();
-    return result.activeList;
-  }
-
-  Future<String?> getDefaultPrivacyList({String? accountId}) async {
-    final acc = accountId ?? activeAccountId;
-    if (acc == null) return null;
-    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
-    final result = await manager.getAllLists();
-    return result.defaultList;
-  }
-
-  Future<void> setActivePrivacyList(String name, {String? accountId}) async {
-    final acc = accountId ?? activeAccountId;
-    if (acc == null) throw Exception('No active account');
-    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
-    await manager.setActiveList(name);
-  }
-
-  Future<void> createPrivacyList(String name, List<Map<String, dynamic>> items, {String? accountId}) async {
-    final acc = accountId ?? activeAccountId;
-    if (acc == null) throw Exception('No active account');
-    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
-    final privacyItems = items.map((item) {
-      final controlStanzas = <xmpp.PrivacyControlStanza>[];
-      if (item['block_messages'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.MESSAGE);
-      if (item['block_iq'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.IQ);
-      if (item['block_presence_in'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.PRESENCE_IN);
-      if (item['block_presence_out'] == true) controlStanzas.add(xmpp.PrivacyControlStanza.PRESENCE_OUT);
-      return xmpp.PrivacyListItem(
-        type: _parsePrivacyType(item['type'] as String?),
-        value: item['value'] as String?,
-        action: item['action'] == 'allow' ? xmpp.PrivacyAction.ALLOW : xmpp.PrivacyAction.DENY,
-        order: item['order'] as int? ?? 0,
-        controlStanzas: controlStanzas,
-      );
-    }).toList();
-    await manager.createPrivacyList(xmpp.PrivacyList(name, privacyItems));
-  }
-
-  xmpp.PrivacyType _parsePrivacyType(String? type) {
-    switch (type) {
-      case 'jid': return xmpp.PrivacyType.JID;
-      case 'group': return xmpp.PrivacyType.GROUP;
-      case 'subscription': return xmpp.PrivacyType.SUBSCRIPTION;
-      default: return xmpp.PrivacyType.JID;
-    }
-  }
-
-  Future<void> removePrivacyList(String name, {String? accountId}) async {
-    final acc = accountId ?? activeAccountId;
-    if (acc == null) throw Exception('No active account');
-    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
-    await manager.removePrivacyList(name);
-  }
-
-  Future<List<Map<String, dynamic>>> getPrivacyListItems(String name, {String? accountId}) async {
-    final acc = accountId ?? activeAccountId;
-    if (acc == null) throw Exception('No active account');
-    final manager = PrivacyListsManager.getInstance(_xmppConnections[acc]!);
-    final items = await manager.getListByName(name);
-    return items.map((item) {
-      final ctrl = item.controlStanzas ?? [];
-      return {
-        'value': item.value ?? '',
-        'type': item.type?.name.toLowerCase() ?? 'jid',
-        'action': item.action.name.toLowerCase(),
-        'order': item.order,
-        'block_messages': ctrl.contains(PrivacyControlStanza.MESSAGE),
-        'block_iq': ctrl.contains(PrivacyControlStanza.IQ),
-        'block_presence_in': ctrl.contains(PrivacyControlStanza.PRESENCE_IN),
-        'block_presence_out': ctrl.contains(PrivacyControlStanza.PRESENCE_OUT),
-      };
-    }).toList();
-  }
-
-  Future<void> clearAllData() => _contactService.clearAllData();
 }
 
 class _AuthContactDeps implements AuthServiceContactDeps {
