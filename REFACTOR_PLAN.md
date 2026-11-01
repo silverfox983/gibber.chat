@@ -140,18 +140,21 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
       makes `:memory:` non-isolating across instances; tests use distinct temp files).
 - [x] +3 integration tests (`chat_provider_db_test.dart`): provider persists through the injected
       instance; separate injected instances do not share rows; fresh provider starts empty.
-- [x] Remaining service-layer `DatabaseService()` reach-ins injected (`15418fc`): contact
-      service and stanza handler go through `AuthServiceContactDeps`/`AuthServiceStanzaDeps`
-      `databaseService`; AuthService holds a single `_db` (public `databaseService` accessor);
-      deps impls delegate instead of re-constructing; `OfflineQueueService` is no longer a
-      factory singleton (constructor injection).
-      Remaining direct DB users (deliberately left): `chat_settings_screen` (2),
+- [x] Service-layer AND screen-layer `DatabaseService()` reach-ins eliminated:
+  - services (`15418fc`): contact service + stanza handler via deps interfaces; AuthService owns
+    a single `_db` (`databaseService` accessor); deps impls delegate; `OfflineQueueService`
+    de-singletoned with constructor injection.
+  - screens (`042e734`): `chat_settings_screen` + `account_preferences_screen` use new
+    `ChatProvider` APIs (`updateConversationSettings`, `updateConversationWallpaper`,
+    `clearAllLocalData`) — provider notifies listeners itself; `DatabaseService()` no longer
+    appears anywhere in `lib/` outside the DatabaseService module and ChatProvider's constructor
+    default.
+      Note: `clearAllData` semantics intentionally unchanged (shared by delete + restore flows).
+- [x] Remaining direct DB users (deliberately left): `chat_settings_screen` (2),
       `account_preferences_screen` (1) — these belong to the repository phase.
 - [ ] Model split: UI-state vs persistence payload in `Conversation` (typing flags, unread
       count live alongside DB row mapping); unify reaction key ('reactions_json' + 'reactions'
       dual write in ChatMessage.toMap).
-- [ ] Repository abstraction (mock-able chat repo) — deferred until provider tests need a fake;
-      injection point now exists.
 
 ## Notes
 
