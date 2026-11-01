@@ -74,6 +74,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _rtcManager = WebRTCManager();
   }
 
+  JingleSignalingService? _jingleSignaling(String? accountId) =>
+      _jingleSignaling(accountId);
+
   void _resetMultiPeerManager() {
     _multiPeerManager?.dispose();
     _multiPeerManager = MultiPeerWebRTCManager();
@@ -727,7 +730,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     await _multiPeerManager!.initLocalStream(isVideo: _isVideo);
     _localRenderer.srcObject = _multiPeerManager!.localStream;
 
-    final signaling = _authService?.getJingleService(accountId ?? '') ?? _authService?.jingleSignaling;
+    final signaling = _jingleSignaling(accountId);
     if (signaling == null) return;
 
     _multiPeerManager!.onIceCandidate = (peerId, candidate) {
@@ -818,8 +821,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     await _resetRtcManager();
 
     final signaling =
-        _authService?.getJingleService(accountId ?? '') ??
-        _authService?.jingleSignaling;
+        _jingleSignaling(accountId);
     if (signaling == null) {
       debugPrint(
         'CallProvider: No Jingle service found for account $accountId',
@@ -943,7 +945,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           debugPrint('CallProvider: Ignoring self-echo propose for session ${event.sessionId}');
           break;
         }
-        final signaling = _authService?.getJingleService(event.accountId ?? '') ?? _authService?.jingleSignaling;
+        final signaling = _jingleSignaling(event.accountId);
         await receiveCall(
           event.fromJid,
           event.sessionId,
@@ -1132,7 +1134,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     // BUSY CHECK: If we are already in a call, reject this one
     if (_state != CallState.idle && _sessionId != sessionId) {
       debugPrint('CallProvider: Already in a call, rejecting new incoming call from $fromJid');
-      final signaling = _authService?.getJingleService(accountId ?? '') ?? _authService?.jingleSignaling;
+      final signaling = _jingleSignaling(accountId);
       if (signaling != null) {
         final isGateway = isPstnGatewayJid(fromJid);
         if (isGateway) {
@@ -1243,7 +1245,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       return;
     }
 
-    final signaling = _authService?.getJingleService(_callAccountId ?? '') ?? _authService?.jingleSignaling;
+    final signaling = _jingleSignaling(_callAccountId);
     if (signaling != null && _remoteJid != null && _sessionId != null) {
       signaling.sendContentModify(_remoteJid!, _sessionId!, senders);
     }
@@ -1351,7 +1353,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
 
     if (success) {
-      final signaling = _authService?.getJingleService(_callAccountId ?? '') ?? _authService?.jingleSignaling;
+      final signaling = _jingleSignaling(_callAccountId);
       if (signaling != null && _remoteJid != null && _sessionId != null) {
         signaling.sendScreenShareInfo(_remoteJid!, _sessionId!, isNowStarting);
       }
@@ -1451,8 +1453,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     await _resetRtcManager();
 
     final signaling =
-        _authService?.getJingleService(accountId ?? '') ??
-        _authService?.jingleSignaling;
+        _jingleSignaling(accountId);
     if (signaling == null) {
       debugPrint(
         'CallProvider: No Jingle service found for account $accountId',
@@ -1604,8 +1605,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
 
     final signaling =
-        _authService?.getJingleService(_callAccountId ?? '') ??
-        _authService?.jingleSignaling;
+        _jingleSignaling(_callAccountId);
     if (signaling == null) {
       debugPrint('CallProvider: ERROR - No signaling service');
       return;
@@ -2078,8 +2078,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
             renegotiate: true,
           );
           final signaling =
-              _authService?.getJingleService(_callAccountId ?? '') ??
-              _authService?.jingleSignaling;
+              _jingleSignaling(_callAccountId);
           if (signaling != null && _remoteJid != null && _sessionId != null) {
             _sendSessionAcceptViaAppropriateChannel(
               signaling: signaling,
@@ -2258,8 +2257,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
 
     final signaling =
-        _authService?.getJingleService(_callAccountId ?? '') ??
-        _authService?.jingleSignaling;
+        _jingleSignaling(_callAccountId);
 
     // Capture state before cleanup
     final targetJid = _remoteJid;
@@ -2314,8 +2312,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _isCleaningUp = true;
 
     final signaling =
-        _authService?.getJingleService(_callAccountId ?? '') ??
-        _authService?.jingleSignaling;
+        _jingleSignaling(_callAccountId);
 
     // Capture state before cleanup
     final targetJid = _remoteJid;
@@ -2367,8 +2364,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // Jingle call transfer (XEP-0251) - send transfer signaling
     final signaling =
-        _authService?.getJingleService(_callAccountId ?? '') ??
-        _authService?.jingleSignaling;
+        _jingleSignaling(_callAccountId);
     if (signaling != null && _remoteJid != null && _sessionId != null) {
       signaling.sendTransferRequest(_remoteJid!, _sessionId!, targetJid);
       _log('Call transfer requested to $targetJid', isSent: true);
@@ -2493,7 +2489,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     // Reset all state
     _remoteJid = null;
     if (_sessionId != null) {
-      try { (_authService?.getJingleService(_callAccountId ?? '') ?? _authService?.jingleSignaling)?.cleanupSession(_sessionId!); } catch (_) {}
+      try { (_jingleSignaling(_callAccountId))?.cleanupSession(_sessionId!); } catch (_) {}
     }
     _sessionId = null;
     _callAccountId = null;
