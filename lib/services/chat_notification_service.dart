@@ -15,27 +15,32 @@ class ChatNotificationService {
   Future<void> initialize() async {
     if (_initialized) return;
     if (kIsWeb) return;
+    try {
+      const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const ios = DarwinInitializationSettings(
+        requestAlertPermission: false,
+        requestBadgePermission: false,
+        requestSoundPermission: false,
+      );
+      const initSettings = InitializationSettings(android: android, iOS: ios);
 
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const ios = DarwinInitializationSettings(
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
-    );
-    const initSettings = InitializationSettings(android: android, iOS: ios);
-
-    await _plugin.initialize(settings: initSettings);
-    await _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(AndroidNotificationChannel(
-          'chat_messages',
-          'Chat Messages',
-          description: 'Notifications for incoming chat messages',
-          importance: Importance.high,
-          playSound: true,
-          enableVibration: true,
-        ));
-    _initialized = true;
+      await _plugin.initialize(settings: initSettings);
+      await _plugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(AndroidNotificationChannel(
+            'chat_messages',
+            'Chat Messages',
+            description: 'Notifications for incoming chat messages',
+            importance: Importance.high,
+            playSound: true,
+            enableVibration: true,
+          ));
+      _initialized = true;
+    } catch (e) {
+      // Notifications must never abort app startup (e.g. missing platform
+      // implementation in tests or plugin errors on some devices).
+      debugPrint('ChatNotificationService: initialization skipped: $e');
+    }
   }
 
   int _getConversationNotificationId(String conversationId) {

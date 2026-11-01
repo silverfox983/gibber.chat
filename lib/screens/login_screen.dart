@@ -217,8 +217,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
         if (!widget.isAddingAccount) ...[
           Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 4,
               children: [
                 Text(
                   "Don't have an account? ",
@@ -245,8 +247,10 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: 16),
           Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 4,
               children: [
                 TextButton(
                   onPressed: () => _showLegalDialog(context, 'terms'),

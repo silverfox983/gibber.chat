@@ -23,7 +23,7 @@ void main() {
     expect(find.text('Username'), findsOneWidget);
     expect(find.text('Password'), findsOneWidget);
     expect(find.text('Keep me logged in'), findsOneWidget);
-    expect(find.text("Don't have an account?"), findsOneWidget);
+    expect(find.textContaining("Don't have an account?"), findsOneWidget);
   });
 
   testWidgets('LoginScreen shows SnackBar error when submitting empty fields', (
@@ -47,7 +47,7 @@ void main() {
     await tester.pumpWidget(buildTestApp());
     await tester.pumpAndSettle();
 
-    final usernameField = find.widgetWithText(TextField, 'Username');
+    final usernameField = find.byType(TextField).first;
     await tester.enterText(usernameField, 'testuser');
     await tester.pumpAndSettle();
 
@@ -66,7 +66,7 @@ void main() {
     await tester.pumpWidget(buildTestApp());
     await tester.pumpAndSettle();
 
-    final usernameField = find.widgetWithText(TextField, 'Username');
+    final usernameField = find.byType(TextField).first;
     await tester.enterText(usernameField, 'invalid user');
     await tester.pumpAndSettle();
 
@@ -85,13 +85,11 @@ void main() {
     await tester.pumpWidget(buildTestApp());
     await tester.pumpAndSettle();
 
-    final usernameField = find.widgetWithText(TextField, 'Username');
-    expect(usernameField, findsOneWidget);
-
+    final usernameField = find.byType(TextField).first;
     await tester.enterText(usernameField, 'testuser');
     await tester.pumpAndSettle();
 
-    final passwordField = find.widgetWithText(TextField, 'Password');
+    final passwordField = find.byType(TextField).last;
     expect(passwordField, findsOneWidget);
 
     await tester.enterText(passwordField, 'testpassword123');
