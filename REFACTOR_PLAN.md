@@ -51,7 +51,7 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
       CompleterMap helper.
 - [x] Gate: core tests all pass ("+12"), analyzer 0 lib errors.
 
-## Phase 3 — AuthService decomposition (public API preserved)  — in progress
+## Phase 3 — AuthService decomposition (public API preserved)  ✅
 
 - [x] `connectXmpp` no longer contains the giant nested listeners:
   - state listener body → `_onXmppConnectionState` (verbatim, `7d98799`)
@@ -70,12 +70,15 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
       (`8ab3f67`, `73fe3e3`).
 - [x] Shared presence mapping (`presence_mapping.dart`) replaces duplicated
       `_mapShowToPresence`/`_mapPresenceToShow`/dead `mapPresenceToShow` (`d39173f`).
-- [ ] Remaining (Phase 3 close-out): `_AuthContactDeps`-style write-back setters
-      (`set myStatus/myStatusMessage/xmppConnecting/lastDiagnostic/currentProfile`, stanza-callback
-      registration) — sub-services should emit events or receive callbacks via ctor instead of
-      writing AuthService privates. Behavior-affecting; do one seam at a time.
-- [ ] Centralize OMEMO/OTR message-send branches in XmppMessageService (4 decrypt spots in
-      stanza handler remain).
+- [x] Deps write-back setters eliminated — replaced with intent-revealing interface methods
+      (`updatePresenceStatus`, `reportDiagnostic`, `reportStreamError`, `updateCurrentProfile`);
+      6 dead setter declarations removed; sub-services no longer write AuthService private fields
+      through the deps surface (`cc3fa98`, `17b9c46`).
+- [x] Single `_decryptOmemoBody` helper replaces 4 duplicated OMEMO decrypt/rebuild/placeholder
+      blocks in the stanza handler (`a6e2c4b`).
+- Known follow-ups (not blockers): `_parseSfs` in stanza handler is unwired feature code from
+  the XEP commit — wire it when SFS ingest lands (Phase 5/6); OMEMO/OTR send branches in
+  XmppMessageService still have separate paths — candidate for later consolidation.
 
 ## Phase 4 — Call stack
 
