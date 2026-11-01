@@ -160,6 +160,11 @@ Component "spaces.gibberapp.online" "pubsub"
 -- Component secrets are loaded from environment variables or slidge-providers.conf
 include "slidge-providers.conf"
 
+-- External-component listener: allow gateway containers (Slidge) to connect.
+-- Default binds only to localhost, which would break container deployments.
+component_ports = { 5347 }
+component_interface = "*"
+
 -- Per-user dynamically-provisioned Slidge gateways
 include "slidge-user-components.conf"
 

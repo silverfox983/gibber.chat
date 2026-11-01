@@ -1,0 +1,95 @@
+{
+	email {$GIBBER_ADMIN_EMAIL:admin@gibberapp.online}
+}
+
+{$GIBBER_SITE:gibberapp.online} {
+
+	reverse_proxy /api/* gibber-backend:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Host {host}
+	}
+
+	reverse_proxy /auth/* gibber-backend:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Host {host}
+	}
+
+	reverse_proxy /health gibber-backend:8080
+
+	reverse_proxy /config gibber-backend:8080
+
+	reverse_proxy /register gibber-backend:8080
+	reverse_proxy /register/check gibber-backend:8080
+
+	reverse_proxy /xmpp-websocket gibber-backend:8080 {
+		header_up Connection {>Connection}
+		header_up Upgrade {>Upgrade}
+	}
+
+	reverse_proxy /http-bind gibber-backend:8080
+
+	reverse_proxy /upload gibber-backend:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Host {host}
+	}
+
+	reverse_proxy /miner/* gibber-backend:8080
+	reverse_proxy /payments/* gibber-backend:8080
+	reverse_proxy /subscription/* gibber-backend:8080
+	reverse_proxy /gateways/* gibber-backend:8080
+	reverse_proxy /user/* gibber-backend:8080
+	reverse_proxy /entitlements/* gibber-backend:8080
+	reverse_proxy /redeem gibber-backend:8080
+	reverse_proxy /pricing gibber-backend:8080
+	reverse_proxy /codes gibber-backend:8080
+	reverse_proxy /password/* gibber-backend:8080
+
+	# Account deletion endpoint
+	reverse_proxy /account/* gibber-backend:8080
+
+	# SFU (Janus WebSocket)
+	reverse_proxy /janus janus:8188 {
+		header_up Connection {>Connection}
+		header_up Upgrade {>Upgrade}
+	}
+
+	# SFU API endpoints
+	reverse_proxy /sfu/* gibber-backend:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Host {host}
+	}
+
+	# Static web frontend (Flutter web build)
+	root * /srv/gibber-web
+	try_files {path} /index.html
+
+	@jsFiles {
+		path *.js
+	}
+	header @jsFiles Content-Type "application/javascript"
+
+	@wasmFiles {
+		path *.wasm
+	}
+	header @wasmFiles Content-Type "application/wasm"
+
+	file_server
+
+	# Upload size limit (for HTTP File Upload)
+	request_body {
+		max_size 50MB
+	}
+
+	# Security headers
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /data/access.log
+	}
+}

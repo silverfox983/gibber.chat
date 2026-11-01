@@ -1,0 +1,294 @@
+# =============================================================================
+# Gibber — full web application stack with ALL Slidge gateway transports.
+# =============================================================================
+#
+# What this brings up:
+#   prosody         XMPP server (clients + S2S + websockets) and the
+#                   external-component listener the gateways register on
+#   gibber-backend  REST + websocket proxy + account provisioning + gateway mgmt
+#   web-build       one-shot Flutter web build (output shared via web_build)
+#   caddy           TLS edge: static web app + API/XMPP-websocket reverse proxy
+#   janus           WebRTC SFU for group calls
+#   coturn          TURN/STUN for peer connections
+#   slidgram        Telegram gateway      (profile: telegram / slidge)
+#   slidcord        Discord gateway      (profile: discord  / slidge)
+#   slidirc         IRC gateway          (profile: irc      / slidge)
+#   matridge        Matrix gateway       (profile: matrix   / slidge)
+#   slidge-whatsapp WhatsApp gateway     (profile: whatsapp / slidge)
+#
+# Usage:
+#   cp .env.example .env      # then EDIT THE SECRETS
+#   docker compose up -d                          # core webapp only
+#   docker compose --profile slidge up -d         # core + ALL gateways
+#   docker compose --profile irc up -d            # core + IRC only (landing
+#                                                 #  page trending rooms need
+#                                                 #  this for the join flow)
+#
+# After the first start, gateways register with Prosody automatically. Verify
+# with `docker compose logs slidirc` (the join flow on the website resolves
+# the IRC gateway through the backend /gateways endpoint).
+
+name: gibber
+
+services:
+  # ===========================================================================
+  # XMPP server
+  # ===========================================================================
+  prosody:
+    build: ./gibber-backend/prosody
+    container_name: gibber-prosody
+    restart: unless-stopped
+    ports:
+      - "5222:5222"   # Client-to-server (plain; web clients use the websocket)
+      - "5269:5269"   # Server-to-server federation
+      - "5280:5280"   # BOSH / prosody admin HTTP
+      - "5281:5281"   # BOSH HTTPS
+    volumes:
+      - ./gibber-backend/config/prosody.cfg.lua:/etc/prosody/prosody.cfg.lua:ro
+      - ./gibber-backend/config/slidge-user-components.conf:/etc/prosody/slidge-user-components.conf:ro
+      - ./gibber-backend/config/slidge-providers.conf.lua:/etc/prosody/slidge-providers.conf:ro
+      - prosody_data:/var/lib/prosody
+      - prosody_certs:/etc/prosody/certs
+      - acme_data:/root/.acme.sh
+    environment:
+      DOMAIN: ${GIBBER_SITE:-gibberapp.online}
+      NAMECHEAP_USERNAME: ${NAMECHEAP_USERNAME:-}
+      NAMECHEAP_API_KEY: ${NAMECHEAP_API_KEY:-}
+      CLOUDFLARE_EMAIL: ${CLOUDFLARE_EMAIL:-}
+      CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY:-}
+      CLOUDFLARE_GLOBAL_API_KEY: ${CLOUDFLARE_GLOBAL_API_KEY:-}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      # Gateway component secrets — MUST MATCH the values on the gateway
+      # containers below.
+      SLIDIRC_SECRET: ${SLIDIRC_SECRET:-change-me-irc-secret}
+      SLIDGRAM_SECRET: ${SLIDGRAM_SECRET:-change-me-telegram-secret}
+      SLIDCORD_SECRET: ${SLIDCORD_SECRET:-change-me-discord-secret}
+      MATRIDGE_SECRET: ${MATRIDGE_SECRET:-change-me-matrix-secret}
+      SLIDGWHATSAPP_SECRET: ${SLIDGEWHATSAPP_SECRET:-change-me-whatsapp-secret}
+    networks: [gibber]
+    healthcheck:
+      test: ["CMD", "pidof", "prosody"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # ===========================================================================
+  # Backend (REST API, XMPP websocket proxy, account provisioning)
+  # ===========================================================================
+  gibber-backend:
+    build: ./gibber-backend
+    container_name: gibber-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # Direct API access (caddy is the TLS front)
+    volumes:
+      - backend_data:/app/data
+      - ./gibber-backend/config/prosody.cfg.lua:/app/config/prosody.cfg.lua:ro
+      - prosody_data:/var/lib/prosody
+      - web_build:/app/web
+    environment:
+      GIBBER_DB_PATH: /app/data/gibber_backend.db
+      GIBBER_PROSODY_CONFIG: /app/config/prosody.cfg.lua
+      GIBBER_HOST: 0.0.0.0
+      GIBBER_PORT: 8080
+      GIBBER_ADMIN_KEY: ${GIBBER_ADMIN_KEY:-gibber-admin-key-change-in-production}
+      GIBBER_REGISTRATION_MODE: ${GIBBER_REGISTRATION_MODE:-xmpp}
+      GIBBER_PROSODY_URL: http://prosody:5280
+      GIBBER_ENABLE_SASL2: 1
+      GIBBER_USE_DOCKER: 1
+      GIBBER_JWT_SECRET: ${GIBBER_JWT_SECRET:-change-me-in-production-use-a-strong-random-string}
+      GIBBER_WEB_DIR: /app/web
+      GIBBER_JANUS_URL: ws://janus:8188
+      GIBBER_JANUS_API_KEY: ${GIBBER_JANUS_API_KEY:-janus-api-key-change-in-production}
+      GIBBER_TURN_URL: turn:${GIBBER_SITE:-gibberapp.online}:3478
+      GIBBER_TURN_USER: ${GIBBER_TURN_USER:-gibber}
+      GIBBER_TURN_PASS: ${GIBBER_TURN_PASS:-gibber-turn-secret-change-in-production}
+      GIBBER_GIPHY_API_KEY: ${GIBBER_GIPHY_API_KEY:-}
+      GIBBER_PUSH_SECRET: ${GIBBER_PUSH_SECRET:-gibber-push-trigger-secret-change-in-production}
+      GIBBER_SLIDGE_SECRET: ${GIBBER_SLIDGE_SECRET:-change-me-in-production}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      BTCPAY_URL: ${BTCPAY_URL:-}
+      BTCPAY_API_KEY: ${BTCPAY_API_KEY:-}
+      BTCPAY_STORE_ID: ${BTCPAY_STORE_ID:-}
+    depends_on:
+      prosody:
+        condition: service_healthy
+    networks: [gibber]
+
+  # ===========================================================================
+  # Flutter web build (one-shot; result served by caddy/backend)
+  # ===========================================================================
+  web-build:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    image: gibber-web:latest
+    volumes:
+      - web_build:/web
+    restart: "no"
+
+  # ===========================================================================
+  # TLS edge: static web app + reverse proxy
+  # ===========================================================================
+  caddy:
+    image: caddy:2-alpine
+    container_name: gibber-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./docker/Caddyfile.compose:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - web_build:/srv/gibber-web:ro
+    environment:
+      GIBBER_SITE: ${GIBBER_SITE:-gibberapp.online}
+      GIBBER_ADMIN_EMAIL: ${GIBBER_ADMIN_EMAIL:-admin@gibberapp.online}
+    depends_on:
+      gibber-backend:
+        condition: service_started
+      web-build:
+        condition: service_completed_successfully
+    networks: [gibber]
+
+  # ===========================================================================
+  # Media cluster
+  # ===========================================================================
+  janus:
+    image: canyan/janus-gateway:latest
+    container_name: gibber-janus
+    restart: unless-stopped
+    ports:
+      - "8188:8188"                    # Janus WebSocket
+      - "8088:8088"                    # Janus HTTP API
+      - "10000-10020:10000-10020/udp"  # RTP media
+    volumes:
+      - ./gibber-backend/config/janus:/etc/janus:ro
+    environment:
+      JANUS_LOG_LEVEL: "5"
+    networks: [gibber]
+
+  coturn:
+    image: coturn/coturn:latest
+    container_name: gibber-coturn
+    restart: unless-stopped
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
+      - "5349:5349"
+      - "5349:5349/udp"
+      - "49152-49200:49152-49200/udp"
+    command:
+      - --realm=${GIBBER_SITE:-gibberapp.online}
+      - --server-name=${GIBBER_SITE:-gibberapp.online}
+      - --lt-cred-mech
+      - --user=${GIBBER_TURN_USER:-gibber}:${GIBBER_TURN_PASS:-gibber-turn-secret-change-in-production}
+      - --no-multicast-peers
+      - --no-cli
+    networks: [gibber]
+
+  # ===========================================================================
+  # Slidge gateways (enable with --profile slidge, or per-protocol profiles)
+  # ===========================================================================
+  slidgram:
+    image: ghcr.io/regretfulswan/slidgram:latest
+    container_name: gibber-slidgram
+    restart: unless-stopped
+    profiles: [telegram, slidge]
+    environment:
+      SLIDGE_COMPONENT_JID: telegram.${GIBBER_SITE:-gibberapp.online}
+      SLIDGE_COMPONENT_SECRET: ${SLIDGRAM_SECRET:-change-me-telegram-secret}
+      SLIDGE_XMPP_SERVER: prosody
+      SLIDGE_XMPP_PORT: "5347"
+      SLIDGE_REGISTRATION_OPEN: ${SLIDGRAM_OPEN:-true}
+      TG_API_ID: ${TG_API_ID:-}
+      TG_API_HASH: ${TG_API_HASH:-}
+    networks: [gibber]
+    depends_on:
+      prosody:
+        condition: service_healthy
+
+  slidcord:
+    image: ghcr.io/regretfulswan/slidcord:latest
+    container_name: gibber-slidcord
+    restart: unless-stopped
+    profiles: [discord, slidge]
+    environment:
+      SLIDGE_COMPONENT_JID: discord.${GIBBER_SITE:-gibberapp.online}
+      SLIDGE_COMPONENT_SECRET: ${SLIDCORD_SECRET:-change-me-discord-secret}
+      SLIDGE_XMPP_SERVER: prosody
+      SLIDGE_XMPP_PORT: "5347"
+      SLIDGE_REGISTRATION_OPEN: ${SLIDCORD_OPEN:-true}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+    networks: [gibber]
+    depends_on:
+      prosody:
+        condition: service_healthy
+
+  slidirc:
+    image: ghcr.io/regretfulswan/slidirc:latest
+    container_name: gibber-slidirc
+    restart: unless-stopped
+    profiles: [irc, slidge]
+    environment:
+      SLIDGE_COMPONENT_JID: irc.${GIBBER_SITE:-gibberapp.online}
+      SLIDGE_COMPONENT_SECRET: ${SLIDIRC_SECRET:-change-me-irc-secret}
+      SLIDGE_XMPP_SERVER: prosody
+      SLIDGE_XMPP_PORT: "5347"
+      SLIDGE_REGISTRATION_OPEN: ${SLIDIRC_OPEN:-true}
+      IRC_SERVER_HOSTNAME: ${IRC_SERVER_HOSTNAME:-irc.libera.chat}
+      IRC_SERVER_PORT: ${IRC_SERVER_PORT:-6697}
+    networks: [gibber]
+    depends_on:
+      prosody:
+        condition: service_healthy
+
+  matridge:
+    image: ghcr.io/regretfulswan/matridge:latest
+    container_name: gibber-matridge
+    restart: unless-stopped
+    profiles: [matrix, slidge]
+    environment:
+      SLIDGE_COMPONENT_JID: matrix.${GIBBER_SITE:-gibberapp.online}
+      SLIDGE_COMPONENT_SECRET: ${MATRIDGE_SECRET:-change-me-matrix-secret}
+      SLIDGE_XMPP_SERVER: prosody
+      SLIDGE_XMPP_PORT: "5347"
+      SLIDGE_REGISTRATION_OPEN: ${MATRIDGE_OPEN:-true}
+      MATRIX_HOMESERVER: ${MATRIX_HOMESERVER:-https://matrix.org}
+    networks: [gibber]
+    depends_on:
+      prosody:
+        condition: service_healthy
+
+  slidge-whatsapp:
+    image: ghcr.io/regretfulswan/slidge-whatsapp:latest
+    container_name: gibber-slidge-whatsapp
+    restart: unless-stopped
+    profiles: [whatsapp, slidge]
+    environment:
+      SLIDGE_COMPONENT_JID: whatsapp.${GIBBER_SITE:-gibberapp.online}
+      SLIDGE_COMPONENT_SECRET: ${SLIDGEWHATSAPP_SECRET:-change-me-whatsapp-secret}
+      SLIDGE_XMPP_SERVER: prosody
+      SLIDGE_XMPP_PORT: "5347"
+      SLIDGE_REGISTRATION_OPEN: ${SLIDGEWHATSAPP_OPEN:-true}
+      WA_PHONE_NUMBER: ${WA_PHONE_NUMBER:-}
+    networks: [gibber]
+    depends_on:
+      prosody:
+        condition: service_healthy
+
+volumes:
+  prosody_data:
+  prosody_certs:
+  acme_data:
+  backend_data:
+  web_build:
+  caddy_data:
+  caddy_config:
+
+networks:
+  gibber:
+    driver: bridge
