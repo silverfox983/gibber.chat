@@ -80,22 +80,26 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
   the XEP commit — wire it when SFS ingest lands (Phase 5/6); OMEMO/OTR send branches in
   XmppMessageService still have separate paths — candidate for later consolidation.
 
-## Phase 4 — Call stack  — opened
+## Phase 4 — Call stack  — in progress
 
 - [x] Shared `ice_config.dart`: single source for the ICE fallback list + default RTC
       configuration; duplicated constants deleted from both WebRTC managers (`747c4dd`).
       Hardcoded openrelay creds still live there pending backend `iceServers` provisioning.
-- [ ] `CallProvider` (2,609 lines) → call state machine + per-transport controllers
-      (Jingle/XMPP, SIP, Janus, mesh):
-  1. First pass: extract WebRTC-manager creation into a managed factory (provider currently
-     `new`s `WebRTCManager` at 4 sites and `MultiPeerWebRTCManager` at 2).
-  2. Split by transport: `XmppCallController` (offer/answer/ICE via signaling), `SipCallController`,
-     `GroupCallController` (Janus + mesh). Keep `CallProvider` as state/notifier façade.
-  3. Audio-level stream: throttle `notifyListeners()` per stats tick (call_provider ~805-812,
-     ~1511-1527) — full app rebuild per frame today.
-  4. Dedupe: offer/send logic duplicated between `_startXmppCallInternal` and `startCall`;
-     audio-level listener setup duplicated in `_startXmppCallInternal`/`acceptCall`.
-- [ ] PSTN gateway detection (`_isPstnGatewayJid`) — move heuristics to a testable unit.
+- [x] PSTN gateway detection extracted to `lib/utils/pstn_gateway.dart` (+4 unit tests, `9158add`);
+      gateway-routing send logic consolidated into `_sendJingleInitiateViaAppropriateChannel` /
+      `_sendSessionAcceptViaAppropriateChannel` (4 sites deduped; 500ms ICE-gathering grace for
+      gateways preserved) (`0a487c2`).
+- [x] Managed manager lifecycle: `_resetRtcManager()` / `_resetMultiPeerManager()` consolidate the
+      5 duplicated dispose+recreate sites, disposing before recreating (`45af99d`).
+- [x] Audio-level `notifyListeners()` throttled in a single shared `_onRtcAudioLevels`
+      (value change ≥0.05, talk-while-muted flag change, or 150ms cadence — previously every
+      stats tick rebuilt the whole app; 3 duplicated listeners deleted) (`843a025`).
+- [ ] Full split by transport: `XmppCallController` (offer/answer/ICE via signaling),
+      `SipCallController`, `GroupCallController` (Janus + mesh). Keep `CallProvider` as
+      state/notifier façade. Remaining duplication: audio-level listener ordering differences
+      in acceptCall vs start path are now unified; `_setupRtcListeners` (270 lines) still
+      provider-internal — extraction target for the transport split.
+- [ ] SIP service bootstrap (`_initializeSipService`) and Janus/SFU wiring are next seams to lift.
 
 ## Phase 5 — UI
 
