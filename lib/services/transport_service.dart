@@ -11,6 +11,13 @@ class TransportService {
   DatabaseService? _db;
   String? _accountId;
 
+  /// Gateway component jids currently being paired/tracked: messages from
+  /// these bare components are routed to [pairingEvents] instead of the chat
+  /// pipeline (or in addition to it — the sheet decides).
+  final Set<String> _trackedGateways = {};
+
+  final Map<String, StreamController<GatewayPairingEvent>> _pairingControllers = {};
+
   TransportService(this._connection);
 
   void setDatabase(DatabaseService db) {
@@ -21,12 +28,175 @@ class TransportService {
     _accountId = accountId;
   }
 
+  /// Start streaming pairing events (QR codes, status text, error messages)
+  /// for [gatewayJid]. The returned stream is a broadcast listener per call;
+  /// close the subscription when the UI goes away.
+  Stream<GatewayPairingEvent> listenPairing(String gatewayJid) {
+    final lower = gatewayJid.toLowerCase();
+    _trackedGateways.add(lower);
+    return (_pairingControllers[lower] ??= StreamController<GatewayPairingEvent>.broadcast())
+        .stream;
+  }
+
+  void stopPairing(String gatewayJid) {
+    final lower = gatewayJid.toLowerCase();
+    _trackedGateways.remove(lower);
+    _pairingControllers.remove(lower)?.close();
+  }
+
   /// Central-dispatch entry point: the connection owner routes incoming
   /// stanzas here (no per-service inStanzasStream subscription).
   void handleStanza(xmpp.AbstractStanza? stanza) {
     if (stanza is xmpp.IqStanza) {
       _iqReqs.complete(stanza.id, stanza);
     }
+    if (stanza is xmpp.MessageStanza && _trackedGateways.isNotEmpty) {
+      final from = stanza.fromJid;
+      if (from == null) return;
+      final local = from.local;
+      final bare = from.domain.toLowerCase();
+      final target = (local == null || local.isEmpty) ? bare : '$local@$bare';
+      if (_trackedGateways.contains(target)) {
+        _emitPairing(parsePairingMessage(stanza, target));
+      }
+    }
+  }
+
+  void _emitPairing(GatewayPairingEvent? event) {
+    if (event == null) return;
+    final controller = _pairingControllers[event.gatewayJid];
+    controller?.add(event);
+  }
+
+  /// Pure message parser: turns a message from a gateway component into a
+  /// pairing event. Handles:
+  ///  - XEP-0066 oob data (jabber:x:oob → url),
+  ///  - XEP-0446/0447 Stateless File Sharing (the QR PNG arrives this way in
+  ///    current slidge: <sources><reference type="data" uri="..."/>,
+  ///    plus the legacy url-data alternative),
+  ///  - data forms (next-step forms),
+  ///  - regular body text as status lines,
+  ///  - success phrasing slidge uses after a completed pairing.
+  static GatewayPairingEvent? parsePairingMessage(
+    xmpp.MessageStanza stanza,
+    String gatewayJid,
+  ) {
+    final body = stanza.getChild('body')?.textValue;
+
+    String? url;
+    xmpp.XmppElement? xForm;
+    for (final child in stanza.children.whereType<xmpp.XmppElement>()) {
+      final ns = child.getAttribute('xmlns')?.value;
+      if (child.name == 'x' && ns == 'jabber:x:oob') {
+        url ??= child.getChild('url')?.textValue ?? child.textValue;
+      }
+      if (child.name == 'x' && ns == 'jabber:x:data') xForm = child;
+      if (child.name == 'sources') {
+        for (final ref in child.children.whereType<xmpp.XmppElement>()) {
+          if (ref.name == 'reference' && ref.getAttribute('type')?.value == 'data') {
+            url ??= ref.getAttribute('uri')?.value;
+          }
+          if (ref.name == 'url-data') {
+            url ??= ref.getAttribute('target')?.value;
+          }
+        }
+      }
+    }
+    if (url == null) {
+      final oobX = stanza.getChild('x');
+      if (oobX != null && oobX.getAttribute('xmlns')?.value == 'jabber:x:oob') {
+        url = oobX.getChild('url')?.textValue;
+      }
+    }
+
+    if (url != null && url.trim().isNotEmpty) {
+      return GatewayPairingEvent(
+        kind: 'qr',
+        gatewayJid: gatewayJid,
+        oobUrl: url.trim(),
+        text: body,
+      );
+    }
+
+    if (xForm != null) {
+      final nextForm = parseFormElement(xForm);
+      if (nextForm != null) {
+        return GatewayPairingEvent(
+          kind: 'form',
+          gatewayJid: gatewayJid,
+          text: body,
+          form: TransportRegistrationForm(
+            isRegistered: false,
+            instructions: nextForm.instructions ?? body,
+            formType: nextForm.formType,
+            fields: nextForm.fields,
+          ),
+        );
+      }
+    }
+
+    final text = body?.trim();
+    if (text == null || text.isEmpty) return null;
+
+    final lower = text.toLowerCase();
+    if (lower.contains('you can close this') ||
+        lower.contains('logged in') ||
+        lower.contains('connected to') ||
+        lower.contains('successfully paired') ||
+        lower.contains('pairing complete') ||
+        lower.contains('logged as') ||
+        lower.contains('registration complete')) {
+      return GatewayPairingEvent(
+        kind: 'success',
+        gatewayJid: gatewayJid,
+        text: text,
+      );
+    }
+
+    return GatewayPairingEvent(
+      kind: 'text',
+      gatewayJid: gatewayJid,
+      text: text,
+    );
+  }
+
+  /// Parse a `jabber:x:data` form element into a [TransportRegistrationForm].
+  /// Reusable for iq-register responses that carry a follow-up form.
+  static TransportRegistrationForm? parseFormElement(xmpp.XmppElement xForm) {
+    final fields = <FormField>[];
+    String? formType;
+    for (var field in xForm.children.whereType<xmpp.XmppElement>().where((e) => e.name == 'field' || e.name == 'INVALID')) {
+      final varName = field.getAttribute('var')?.value;
+      final type = field.getAttribute('type')?.value;
+      if (type == 'hidden') {
+        if (varName == 'FORM_TYPE') {
+          formType = field.getChild('value')?.textValue;
+        }
+        continue;
+      }
+      if (varName == null) continue;
+      final options = <FormFieldOption>[];
+      if (type == 'list-single' || type == 'list-multi') {
+        for (var opt in field.children.whereType<xmpp.XmppElement>().where((e) => e.name == 'option' || e.name == 'INVALID')) {
+          final label = opt.getAttribute('label')?.value ?? '';
+          final val = opt.getChild('value')?.textValue ??
+              opt.children.whereType<xmpp.XmppElement>().firstOrNull?.textValue ?? '';
+          if (val.isNotEmpty) options.add(FormFieldOption(label: label.isNotEmpty ? label : val, value: val));
+        }
+      }
+      fields.add(FormField(
+        varName: varName,
+        type: type ?? 'text-single',
+        label: field.getAttribute('label')?.value ?? varName,
+        value: field.getChild('value')?.textValue,
+        options: options.isNotEmpty ? options : null,
+      ));
+    }
+    return TransportRegistrationForm(
+      isRegistered: false,
+      formType: formType,
+      fields: fields,
+    );
   }
 
   void dispose() {
@@ -293,8 +463,15 @@ class TransportService {
     }
   }
 
-  /// Submit the registration form (XEP-0077)
-  Future<bool> submitRegistration(String gatewayJid, Map<String, String> formData, {String? formType}) async {
+  /// Submit the registration form (XEP-0077) and return a structured result:
+  /// success (or a follow-up form for multi-step flows like Telegram's code
+  /// entry), the parsed error text, and post-success side effects
+  /// (persisting the transport + a roster refresh so gateway contacts appear).
+  Future<GatewaySubmitResult> submitRegistration(
+    String gatewayJid,
+    Map<String, String> formData, {
+    String? formType,
+  }) async {
     final iq = xmpp.IqStanza('reg_submit_${xmpp.AbstractStanza.getRandomId()}', xmpp.IqStanzaType.SET);
     iq.toJid = xmpp.Jid.fromFullJid(gatewayJid);
     final query = xmpp.XmppElement();
@@ -345,29 +522,124 @@ class TransportService {
     }
 
     iq.addChild(query);
+    final lowerGw = gatewayJid.toLowerCase();
+    _trackedGateways.add(lowerGw); // expect pairing messages after submit
 
     try {
       final response = await _sendIq(iq);
-      final success = response.type == xmpp.IqStanzaType.RESULT;
-      if (success && _db != null) {
-        await _db!.saveRegisteredTransport(
-          gatewayJid: gatewayJid,
-          gatewayName: gatewayJid.split('.').first,
-          gatewayType: gatewayJid.contains('telegram') ? 'telegram' :
-                       gatewayJid.contains('discord') ? 'discord' :
-                       gatewayJid.contains('matrix') ? 'matrix' :
-                       gatewayJid.contains('whatsapp') ? 'whatsapp' :
-                       gatewayJid.contains('irc') ? 'irc' : 'gateway',
-          username: formData['username'],
-          password: formData['password'],
-          accountId: _accountId,
-        );
+      if (response.type == xmpp.IqStanzaType.RESULT) {
+        // Persist the transport for re-discovery + contact mapping.
+        if (_db != null) {
+          try {
+            await _db!.saveRegisteredTransport(
+              gatewayJid: gatewayJid,
+              gatewayName: gatewayJid.split('.').first,
+              gatewayType: gatewayJid.contains('telegram') ? 'telegram' :
+                           gatewayJid.contains('discord') ? 'discord' :
+                           gatewayJid.contains('matrix') ? 'matrix' :
+                           gatewayJid.contains('whatsapp') ? 'whatsapp' :
+                           gatewayJid.contains('irc') ? 'irc' : 'gateway',
+              username: formData['username'],
+              password: formData['password'],
+              accountId: _accountId,
+            );
+          } catch (e) {
+            debugPrint('Transport: failed to persist registered transport: $e');
+          }
+        }
+        _refreshRoster();
+
+        // A RESULT may carry a follow-up form (gateway-driven multi-step).
+        final queryRes = response.getChild('query');
+        final xRes = queryRes?.children
+            .whereType<xmpp.XmppElement>()
+            .firstWhere((e) => e.name == 'x' && e.getAttribute('xmlns')?.value == 'jabber:x:data',
+                orElse: () => xmpp.XmppElement()..name = 'NONE');
+        if (xRes != null && xRes.name == 'x') {
+          final parsed = parseFormElement(xRes);
+          if (parsed != null && parsed.fields.any((f) => f.type != 'hidden')) {
+            return GatewaySubmitResult(success: true, nextForm: parsed);
+          }
+        }
+        return const GatewaySubmitResult(success: true);
       }
-      return success;
+
+      // ERROR: extract the human-readable reason.
+      String? text;
+      final errorEl = response.getChild('error');
+      if (errorEl != null) {
+        final known = errorEl.children
+            .whereType<xmpp.XmppElement>()
+            .map((e) => e.name)
+            .whereType<String>()
+            .where((n) => n != 'text')
+            .join(', ');
+        final textEl = errorEl.getChild('text')?.textValue;
+        text = [
+          if (known.isNotEmpty) known,
+          if (textEl != null && textEl.isNotEmpty) textEl,
+        ].join(': ');
+      }
+      return GatewaySubmitResult(success: false, errorText: text ?? 'Registration failed');
     } catch (e) {
       debugPrint('Error submitting registration: $e');
-      return false;
+      _trackedGateways.remove(lowerGw);
+      return GatewaySubmitResult(success: false, errorText: 'Network error: $e');
     }
+  }
+
+  static String matrixComponentPrefix() => 'matrix';
+
+  /// Re-fetch the roster so mid-session gateway registration contact imports
+  /// flow through the RosterManager's rosterStream.
+  void _refreshRoster() {
+    try {
+      xmpp.RosterManager.getInstance(_connection).queryForRoster();
+    } catch (e) {
+      debugPrint('Transport: roster refresh failed: $e');
+    }
+  }
+
+  /// List the chats a registered gateway exposes (Discord guild channels,
+  /// Telegram group chats...) via disco#items on the component jid.
+  Future<List<GatewayChatItem>> fetchComponentChats(String gatewayJid) async {
+    final iq = xmpp.IqStanza('gw_items_${xmpp.AbstractStanza.getRandomId()}', xmpp.IqStanzaType.GET);
+    iq.toJid = xmpp.Jid.fromFullJid(gatewayJid);
+    final query = xmpp.XmppElement();
+    query.name = 'query';
+    query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#items'));
+    iq.addChild(query);
+
+    try {
+      final response = await _sendIq(iq);
+      return parseComponentItems(response);
+    } catch (e) {
+      debugPrint('Transport: component chats failed for $gatewayJid: $e');
+      return [];
+    }
+  }
+
+  /// Pure parser for a disco#items response → gateway chats (MUC rooms only
+  /// have meaningful jids with a local part; the component's own adhoc command
+  /// items have no local part and are skipped).
+  static List<GatewayChatItem> parseComponentItems(xmpp.IqStanza response) {
+    final items = <GatewayChatItem>[];
+    if (response.type != xmpp.IqStanzaType.RESULT) return items;
+    final queryEl = response.getChild('query') ??
+        response.children
+            .whereType<xmpp.XmppElement>()
+            .where((e) => e.name == 'query')
+            .firstOrNull;
+    if (queryEl == null) return items;
+    for (final item in queryEl.children.whereType<xmpp.XmppElement>().where((e) => e.name == 'item')) {
+      final jid = item.getAttribute('jid')?.value;
+      if (jid == null || jid.isEmpty) continue;
+      final local = jid.contains('@') ? jid.split('@').first : jid;
+      if (local == jid) continue; // component-level item (adhoc command)
+      final name = item.getAttribute('name')?.value ?? local;
+      items.add(GatewayChatItem(jid: jid, name: name));
+    }
+    return items;
   }
 
   /// Unregister from the gateway

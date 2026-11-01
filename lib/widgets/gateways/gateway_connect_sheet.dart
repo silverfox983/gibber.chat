@@ -6,7 +6,7 @@ import '../../models/transport_models.dart';
 import '../../services/auth_service.dart';
 import '../../services/database_service.dart';
 import '../../services/gateway_service.dart';
-import '../transport_registration_dialog.dart';
+import 'gateway_registration_sheet.dart';
 
 enum GatewayOfferState { available, registered, needsBridge }
 
@@ -157,7 +157,7 @@ class _GatewayConnectSheetState extends State<GatewayConnectSheet> {
     final auth = Provider.of<AuthService>(context, listen: false);
     final transportService = auth.transportService;
     if (transportService == null) return;
-    final result = await showTransportRegistrationDialog(
+    final result = await showGatewayRegistrationSheet(
       context: context,
       transportService: transportService,
       gatewayJid: offer.node.jid,

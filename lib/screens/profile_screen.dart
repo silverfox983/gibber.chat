@@ -250,7 +250,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             contentType: 'image/png',
           );
           if (slot != null) {
-            final uploaded = await uploadService.uploadBytes(slot['put']!, bytes, 'image/png');
+            final uploaded = await uploadService.uploadBytes(slot['put']!, bytes, 'image/png', putHeaders: slot['putHeaders'] as String?);
             if (uploaded) {
               final url = slot['get']!;
               await authService.pepService.publishBanner(_selectedAccountId!, bytes);
@@ -275,7 +275,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             contentType: 'image/png',
           );
           if (slot != null) {
-            final uploaded = await uploadService.uploadBytes(slot['put']!, bytes, 'image/png');
+            final uploaded = await uploadService.uploadBytes(slot['put']!, bytes, 'image/png', putHeaders: slot['putHeaders'] as String?);
             if (uploaded) {
               final url = slot['get']!;
               await authService.pepService.publishBanner(_selectedAccountId!, bytes);
@@ -471,7 +471,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _buildTextField('Birthday', _birthdayController, Icons.cake_rounded, keyboardType: TextInputType.datetime),
                   const SizedBox(height: 12),
                   Text(
-                    'Your full vCard profile — synced with your XMPP server',
+                    'Your full vCard profile â€” synced with your XMPP server',
                     style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant, fontStyle: FontStyle.italic),
                   ),
                   
@@ -619,7 +619,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               leading: Icon(Icons.palette_rounded, color: Theme.of(context).colorScheme.primary),
                               title: const Text('Appearance', style: TextStyle(fontWeight: FontWeight.bold)),
                               subtitle: Text(
-                                '${themeProv.themeMode.name.toUpperCase()} • ${themeProv.fontFamily}',
+                                '${themeProv.themeMode.name.toUpperCase()} â€¢ ${themeProv.fontFamily}',
                                 style: TextStyle(
                                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                                   fontSize: 13,

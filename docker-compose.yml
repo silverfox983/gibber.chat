@@ -1,5 +1,5 @@
 # =============================================================================
-# Gibber — full web application stack with ALL Slidge gateway transports.
+# Gibber Ã¢â‚¬â€ full web application stack with ALL Slidge gateway transports.
 # =============================================================================
 #
 # What this brings up:
@@ -51,7 +51,7 @@ services:
       - prosody_certs:/etc/prosody/certs
     environment:
       DOMAIN: ${GIBBER_SITE:-gibberapp.online}
-      # Gateway component secrets — MUST MATCH the values on the gateway
+      # Gateway component secrets Ã¢â‚¬â€ MUST MATCH the values on the gateway
       # containers below.
       SLIDIRC_SECRET: ${SLIDIRC_SECRET:-change-me-irc-secret}
       SLIDGRAM_SECRET: ${SLIDGRAM_SECRET:-change-me-telegram-secret}
@@ -200,7 +200,7 @@ services:
     networks: [gibber]
 
   # ===========================================================================
-  # IRC gateway (biboumi — the reference XMPP↔IRC component; the slidge family
+  # IRC gateway (biboumi Ã¢â‚¬â€ the reference XMPPÃ¢â€ â€IRC component; the slidge family
   # has no IRC gateway). Rooms are served as #channel@irc.<domain>.
   # ===========================================================================
   biboumi-config:
@@ -274,9 +274,13 @@ services:
       SLIDGE_SECRET: ${SLIDGRAM_SECRET:-change-me-telegram-secret}
       SLIDGE_SERVER: prosody
       SLIDGE_PORT: "5347"
+      SSL_CERT_FILE: /trusted-certs/gibber-ca.crt
     volumes:
       - slidge_data_telegram:/var/lib/slidge
+      - prosody_certs:/trusted-certs:ro
     networks: [gibber]
+    extra_hosts:
+      - "gibberapp.online:${GIBBER_PROSODY_IP:-172.30.0.10}"
     depends_on:
       slidge-init:
         condition: service_completed_successfully
@@ -293,9 +297,13 @@ services:
       SLIDGE_SECRET: ${SLIDCORD_SECRET:-change-me-discord-secret}
       SLIDGE_SERVER: prosody
       SLIDGE_PORT: "5347"
+      SSL_CERT_FILE: /trusted-certs/gibber-ca.crt
     volumes:
       - slidge_data_discord:/var/lib/slidge
+      - prosody_certs:/trusted-certs:ro
     networks: [gibber]
+    extra_hosts:
+      - "gibberapp.online:${GIBBER_PROSODY_IP:-172.30.0.10}"
     depends_on:
       slidge-init:
         condition: service_completed_successfully
@@ -312,9 +320,13 @@ services:
       SLIDGE_SECRET: ${MATRIDGE_SECRET:-change-me-matrix-secret}
       SLIDGE_SERVER: prosody
       SLIDGE_PORT: "5347"
+      SSL_CERT_FILE: /trusted-certs/gibber-ca.crt
     volumes:
       - slidge_data_matrix:/var/lib/slidge
+      - prosody_certs:/trusted-certs:ro
     networks: [gibber]
+    extra_hosts:
+      - "gibberapp.online:${GIBBER_PROSODY_IP:-172.30.0.10}"
     depends_on:
       slidge-init:
         condition: service_completed_successfully
@@ -331,9 +343,13 @@ services:
       SLIDGE_SECRET: ${SLIDGEWHATSAPP_SECRET:-change-me-whatsapp-secret}
       SLIDGE_SERVER: prosody
       SLIDGE_PORT: "5347"
+      SSL_CERT_FILE: /trusted-certs/gibber-ca.crt
     volumes:
       - slidge_data_whatsapp:/var/lib/slidge
+      - prosody_certs:/trusted-certs:ro
     networks: [gibber]
+    extra_hosts:
+      - "gibberapp.online:${GIBBER_PROSODY_IP:-172.30.0.10}"
     depends_on:
       slidge-init:
         condition: service_completed_successfully

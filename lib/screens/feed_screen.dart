@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
@@ -340,7 +340,7 @@ class _FeedScreenState extends State<FeedScreen>
                       child: Row(children: [
                         Icon(Icons.fiber_new_rounded, color: theme.colorScheme.primary, size: 20),
                         const SizedBox(width: 8),
-                        Text('$_newLiveCount new post${_newLiveCount > 1 ? 's' : ''} — tap to dismiss',
+                        Text('$_newLiveCount new post${_newLiveCount > 1 ? 's' : ''} â€” tap to dismiss',
                             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13,
                                 color: theme.colorScheme.onPrimaryContainer)),
                       ]),
@@ -477,7 +477,7 @@ class _FeedScreenState extends State<FeedScreen>
               ),
               if (item.publishedDate != null) ...[
                 const SizedBox(width: 8),
-                Text('• ${_timeAgo(item.publishedDate!)}', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+                Text('â€¢ ${_timeAgo(item.publishedDate!)}', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
               ],
             ],
           ),
@@ -506,7 +506,7 @@ class _FeedScreenState extends State<FeedScreen>
     final readMinutes = (wordCount / 200).ceil();
     final isLong = content.length > 400;
     final isExpanded = _expandedItems.contains(item.id);
-    final displayContent = (isLong && !isExpanded) ? '${content.substring(0, 400)}…' : content;
+    final displayContent = (isLong && !isExpanded) ? '${content.substring(0, 400)}â€¦' : content;
 
     return GestureDetector(
       onLongPress: () => _showReactionPicker(context, item),
@@ -542,11 +542,11 @@ class _FeedScreenState extends State<FeedScreen>
                   ),
                   if (item.publishedDate != null) ...[
                     const SizedBox(width: 6),
-                    Text('• ${_timeAgo(item.publishedDate!)}', style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                    Text('â€¢ ${_timeAgo(item.publishedDate!)}', style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
                   ],
                   if (readMinutes > 1) ...[
                     const SizedBox(width: 6),
-                    Text('· ${readMinutes}m read', style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                    Text('Â· ${readMinutes}m read', style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
                   ],
                 ],
               ),
@@ -762,7 +762,7 @@ class _FeedScreenState extends State<FeedScreen>
                 children: [
                   _buildInteractionButton(
                     icon: (_likedItems.contains(item.id) || item.isLikedByMe) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                    label: ((_itemReactions[item.id] ?? item.reactions)['❤️'] ?? 0) > 0 ? '${(_itemReactions[item.id] ?? item.reactions)['❤️']}' : '',
+                    label: ((_itemReactions[item.id] ?? item.reactions)['â¤ï¸'] ?? 0) > 0 ? '${(_itemReactions[item.id] ?? item.reactions)['â¤ï¸']}' : '',
                     color: (_likedItems.contains(item.id) || item.isLikedByMe) ? Colors.red : theme.colorScheme.onSurfaceVariant,
                     onTap: () => _handleLike(item),
                   ),
@@ -842,10 +842,10 @@ class _FeedScreenState extends State<FeedScreen>
     setState(() {
       if (wasLiked) {
         _likedItems.remove(item.id);
-        reactions['❤️'] = ((reactions['❤️'] ?? 1) - 1).clamp(0, 9999);
+        reactions['â¤ï¸'] = ((reactions['â¤ï¸'] ?? 1) - 1).clamp(0, 9999);
       } else {
         _likedItems.add(item.id);
-        reactions['❤️'] = (reactions['❤️'] ?? 0) + 1;
+        reactions['â¤ï¸'] = (reactions['â¤ï¸'] ?? 0) + 1;
       }
       _itemReactions[item.id] = reactions;
     });
@@ -855,7 +855,7 @@ class _FeedScreenState extends State<FeedScreen>
     if (domain.isEmpty || node.isEmpty) return;
     final auth = Provider.of<AuthService>(context, listen: false);
     final userJid = auth.activeXmppConnection?.fullJid.userAtDomain ?? 'unknown';
-    await _spacesService?.publishReaction(domain, node, item.id, '❤️', userJid);
+    await _spacesService?.publishReaction(domain, node, item.id, 'â¤ï¸', userJid);
   }
 
   void _handleShare(SpaceItem item) {
@@ -864,7 +864,7 @@ class _FeedScreenState extends State<FeedScreen>
   }
 
   void _showReactionPicker(BuildContext ctx2, SpaceItem item) {
-    const emojis = ['❤️', '😂', '😮', '😢', '👍', '🔥'];
+    const emojis = ['â¤ï¸', 'ðŸ˜‚', 'ðŸ˜®', 'ðŸ˜¢', 'ðŸ‘', 'ðŸ”¥'];
     showModalBottomSheet(
       context: ctx2,
       backgroundColor: Colors.transparent,
@@ -982,7 +982,7 @@ class _FeedScreenState extends State<FeedScreen>
               controller: _composeBodyCtrl,
               maxLines: 5,
               decoration: InputDecoration(
-                labelText: 'Write something…',
+                labelText: 'Write somethingâ€¦',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 alignLabelWithHint: true,
@@ -1058,7 +1058,8 @@ class _FeedScreenState extends State<FeedScreen>
                         final contentType = 'image/${fileName.split('.').last.toLowerCase()}';
                         final slot = await uploadService.requestUploadSlot(fileName, size, contentType: contentType);
                         if (slot != null) {
-                          final upSuccess = await uploadService.uploadFile(slot['put']!, file, contentType);
+                          final upSuccess = await
+uploadService.uploadFile(slot['put']!,  file, contentType, putHeaders: slot['putHeaders'] as String?);
                           if (upSuccess) finalImageUrl = slot['get'];
                         }
                       }

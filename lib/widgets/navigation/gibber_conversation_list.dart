@@ -105,6 +105,14 @@ class _ConversationTile extends StatelessWidget {
         return const Color(0xFF5865F2);
       case 'IRC':
         return Theme.of(context).colorScheme.secondary;
+      case 'Telegram':
+        return const Color(0xFF26A5E4);
+      case 'WhatsApp':
+        return const Color(0xFF25D366);
+      case 'Matrix':
+        return const Color(0xFF0DBD8B);
+      case 'Steam':
+        return const Color(0xFF66C0F4);
       default:
         return Colors.grey;
     }
@@ -116,6 +124,14 @@ class _ConversationTile extends StatelessWidget {
         return Icons.discord;
       case 'IRC':
         return Icons.alternate_email;
+      case 'Telegram':
+        return Icons.send_rounded;
+      case 'WhatsApp':
+        return Icons.chat_rounded;
+      case 'Matrix':
+        return Icons.grid_view_rounded;
+      case 'Steam':
+        return Icons.sports_esports_rounded;
       default:
         return null;
     }

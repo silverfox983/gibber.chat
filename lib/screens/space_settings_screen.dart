@@ -369,7 +369,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
       final slot = await uploadService.requestUploadSlot(fileName, size, contentType: contentType);
       if (slot == null) throw Exception('Failed to request upload slot.');
 
-      final uploaded = await uploadService.uploadFile(slot['put']!, bytes, contentType);
+      final uploaded = await uploadService.uploadFile(slot['put']!,  bytes, contentType);
       if (!uploaded) throw Exception('Upload failed.');
 
       final imageUrl = slot['get']!;
@@ -422,7 +422,7 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
       final slot = await uploadService.requestUploadSlot(fileName, size, contentType: contentType);
       if (slot == null) throw Exception('Failed to request upload slot.');
 
-      final uploaded = await uploadService.uploadFile(slot['put']!, bytes, contentType);
+      final uploaded = await uploadService.uploadFile(slot['put']!,  bytes, contentType);
       if (!uploaded) throw Exception('Upload failed.');
 
       final imageUrl = slot['get']!;
@@ -548,9 +548,9 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
             value: _accessModel,
             decoration: const InputDecoration(labelText: 'Who Can View', border: OutlineInputBorder()),
             items: const [
-              DropdownMenuItem(value: 'open', child: Text('Public — Anyone can view')),
-              DropdownMenuItem(value: 'authorize', child: Text('Private — Requires approval')),
-              DropdownMenuItem(value: 'whitelist', child: Text('Whitelist — Owner invites only')),
+              DropdownMenuItem(value: 'open', child: Text('Public â€” Anyone can view')),
+              DropdownMenuItem(value: 'authorize', child: Text('Private â€” Requires approval')),
+              DropdownMenuItem(value: 'whitelist', child: Text('Whitelist â€” Owner invites only')),
             ],
             onChanged: (val) {
               if (val != null) { setState(() { _accessModel = val; _hasChanges = true; }); }
@@ -561,8 +561,8 @@ class _SpaceSettingsScreenState extends State<SpaceSettingsScreen> {
             value: _publishModel,
             decoration: const InputDecoration(labelText: 'Who Can Post', border: OutlineInputBorder()),
             items: const [
-              DropdownMenuItem(value: 'open', child: Text('Anyone — All members can post')),
-              DropdownMenuItem(value: 'publishers', child: Text('Admins Only — Moderated posting')),
+              DropdownMenuItem(value: 'open', child: Text('Anyone â€” All members can post')),
+              DropdownMenuItem(value: 'publishers', child: Text('Admins Only â€” Moderated posting')),
               DropdownMenuItem(value: 'subscribers', child: Text('Subscribers Only')),
             ],
             onChanged: (val) {

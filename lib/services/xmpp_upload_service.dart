@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+﻿import 'package:flutter/foundation.dart';
 import '../models/chat_models.dart';
 import '../models/picked_file.dart';
 import 'auth_service_deps.dart';
@@ -43,6 +43,7 @@ class XmppUploadService {
 
     final putUrl = slot['put']!;
     final getUrl = slot['get']!;
+    final putHeaders = slot['putHeaders'] as String?;
 
     debugPrint('XEP-0363: Uploading to $putUrl...');
     final success = await uploadService.uploadBytes(
@@ -50,6 +51,7 @@ class XmppUploadService {
       file.bytes,
       contentType,
       totalSize: size,
+      putHeaders: putHeaders,
     );
 
     if (!success) {

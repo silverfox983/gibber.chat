@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../services/gateway_protocols.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'dart:typed_data';
@@ -639,6 +640,26 @@ class _ContactTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(contact.id, style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.5))),
+            if (contact.protocol != 'XMPP')
+              Padding(
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: (GatewayProtocols.metaByProtocol[contact.protocol]?.color ?? AppColors.accent)
+                        .withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    contact.protocol,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: GatewayProtocols.metaByProtocol[contact.protocol]?.color ?? AppColors.accent,
+                    ),
+                  ),
+                ),
+              ),
             if (contact.presenceMessage != null && contact.presenceMessage!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4.0),

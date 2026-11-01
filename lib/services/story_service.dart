@@ -117,9 +117,9 @@ class StoryService {
     bool upSuccess;
     if (kIsWeb) {
       final bytes = await image.readAsBytes();
-      upSuccess = await uploadService.uploadBytes(slot['put']!, bytes, contentType);
+      upSuccess = await uploadService.uploadBytes(slot['put']!, bytes, contentType, putHeaders: slot['putHeaders'] as String?);
     } else {
-      upSuccess = await uploadService.uploadFile(slot['put']!, image, contentType);
+      upSuccess = await uploadService.uploadFile(slot['put']!,  image, contentType, putHeaders: slot['putHeaders'] as String?);
     }
 
     if (!upSuccess) {

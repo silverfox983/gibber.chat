@@ -27,6 +27,9 @@ Future<shelf.Response> _proxyToProsody(shelf.Request request, String prosodyUrl,
     final queryString = request.requestedUri.query.isEmpty ? '' : '?${request.requestedUri.query}';
     final proxiedUrl = Uri.parse('$prosodyUrl$path$queryString');
 
+    final bodyBytes = await request.read()
+        .fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
+
     late HttpClientRequest proxyRequest;
     switch (request.method) {
       case 'GET':
@@ -51,15 +54,23 @@ Future<shelf.Response> _proxyToProsody(shelf.Request request, String prosodyUrl,
     }
 
     request.headers.forEach((name, values) {
-      if (name.toLowerCase() != 'host' && name.toLowerCase() != 'transfer-encoding') {
+      if (name.toLowerCase() != 'host' && name.toLowerCase() != 'transfer-encoding' && name.toLowerCase() != 'content-length') {
         proxyRequest.headers.set(name, values);
       }
     });
     proxyRequest.headers.set('Host', domain);
 
-    final body = await request.read().toList();
-    if (body.isNotEmpty) {
-      proxyRequest.write(body.expand((chunk) => chunk));
+    if (bodyBytes.isNotEmpty) {
+      // Write binary bodies with add(): IOSink.write(Object) on an Iterable
+      // would serialize the list's debug string instead of the raw bytes.
+      final originalType = request.headers['content-type'];
+      try {
+        if (originalType != null) proxyRequest.headers.contentType = ContentType.parse(originalType);
+      } catch (_) {}
+      proxyRequest.contentLength = bodyBytes.length;
+      await proxyRequest.addStream(Stream<List<int>>.value(bodyBytes));
+    } else {
+      proxyRequest.contentLength = 0;
     }
 
     final proxyResponse = await proxyRequest.close();

@@ -359,7 +359,7 @@ class Hat {
 
 class Conversation {
   final String id;
-  final String name;
+  String name;
   // ---- Persistence payload (conversations table row; never UI-only state) ----
   final String? avatarUrl;
   final String protocol; // 'XMPP' or 'IRC'

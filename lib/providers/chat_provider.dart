@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../services/avatar_cache_service.dart';
 import '../services/chat_notification_service.dart';
+import '../services/gateway_protocols.dart';
 
 class ChatProvider with ChangeNotifier {
   final DatabaseService _db;
@@ -204,7 +205,7 @@ class ChatProvider with ChangeNotifier {
           orElse: () => Contact(
             id: _activeConversationId!,
             name: _activeConversationId!.split('@').first,
-            protocol: 'XMPP',
+            protocol: GatewayProtocols.protocolForJid(_activeConversationId) ?? 'XMPP',
           ),
         );
         _conversations.add(
@@ -303,7 +304,7 @@ class ChatProvider with ChangeNotifier {
         orElse: () => Contact(
           id: id,
           name: id.split('@').first,
-          protocol: 'XMPP',
+          protocol: GatewayProtocols.protocolForJid(id) ?? 'XMPP',
         ),
       );
       _conversations.add(
@@ -366,7 +367,7 @@ class ChatProvider with ChangeNotifier {
         id: conversationId,
         name: conversationId,
         messages: const [],
-        protocol: 'XMPP',
+        protocol: GatewayProtocols.protocolForJid(conversationId) ?? 'XMPP',
       ),
     );
     if (conv.messages.isEmpty) {
@@ -517,11 +518,20 @@ class ChatProvider with ChangeNotifier {
         }
       }
 
+      // Gateway components (whatsapp.gibberapp.online) act like contacts:
+      // their pairing QRs/status messages land in their own conversation.
+      String chatName = message.isGroup ? targetId : (message.senderName ?? targetId);
+      if (chatName == targetId) {
+        final meta = GatewayProtocols.metaByProtocol[
+            GatewayProtocols.protocolForJid(targetId)];
+        if (meta != null) chatName = '${meta.name} Gateway';
+      }
+
       addMessage(
         targetId,
         message,
         protocol: message.protocol,
-        chatName: message.isGroup ? targetId : (message.senderName ?? targetId),
+        chatName: chatName,
       );
     });
 
@@ -874,11 +884,13 @@ class ChatProvider with ChangeNotifier {
         int index = _conversations.indexWhere((c) => c.id == targetId);
 
         if (index == -1) {
+          final resolvedProtocol = protocol ?? message.protocol ??
+              GatewayProtocols.protocolForJid(targetId) ?? 'XMPP';
           final newConv = Conversation(
             id: targetId,
             name: chatName ?? targetId,
             messages: [message],
-            protocol: protocol ?? message.protocol ?? 'XMPP', // Fallback to safe default
+            protocol: resolvedProtocol, // Fall back to safe default
             accountId: message.accountId,
             isGroup: detectedGroup,
             unreadCount:
@@ -1259,11 +1271,26 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  String _conversationDefaultName(String id) =>
+      id.split('@').isNotEmpty ? id.split('@').first : id;
+
   void updateContactFromPepNickname(String bareJid, String nickname) {
     final jid = bareJid.toLowerCase().split('/').first;
     final cIdx = _contacts.indexWhere((c) => c.id.toLowerCase() == jid);
     if (cIdx != -1) {
       _contacts[cIdx].name = nickname;
+      notifyListeners();
+    }
+  }
+
+  /// Sets the display name of a conversation that was just created (e.g. a
+  /// group chat discovered through a gateway's channel picker) so the chat
+  /// list shows a friendly label instead of the jid.
+  void setConversationFallbackName(String jid, String name) {
+    final id = jid.toLowerCase().split('/').first;
+    final idx = _conversations.indexWhere((c) => c.id == id);
+    if (idx != -1 && _conversations[idx].name == _conversationDefaultName(id)) {
+      _conversations[idx].name = name;
       notifyListeners();
     }
   }

@@ -30,7 +30,8 @@
 
 	reverse_proxy /http-bind gibber-backend:8080
 
-	reverse_proxy /upload gibber-backend:8080 {
+	@uploadAll path /upload /upload/*
+	reverse_proxy @uploadAll gibber-backend:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Forwarded-Host {host}
 	}
@@ -61,7 +62,7 @@
 	# Scoped with a matcher so it can never swallow API paths: Caddy's
 	# canonical ordering sorts try_files before reverse_proxy, and an ungated
 	# try_files rewrites /health, /xmpp-websocket etc. to index.html.
-	@static not path /api/* /auth/* /health /config /register /register/check /xmpp-websocket /http-bind /upload /janus /sfu/* /gateways /gateways/* /entitlements/* /redeem /pricing /payments/* /subscription* /miner/* /codes /password/* /account/* /user/* /push/*
+	@static not path /api/* /auth/* /health /config /register /register/check /xmpp-websocket /http-bind /upload /upload/* /janus /sfu/* /gateways /gateways/* /entitlements/* /redeem /pricing /payments/* /subscription* /miner/* /codes /password/* /account/* /user/* /push/*
 	handle @static {
 		root * /srv/gibber-web
 

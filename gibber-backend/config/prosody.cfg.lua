@@ -100,8 +100,42 @@ modules_enabled = {
     "websocket";
     "smacks";
     "http_file_share";
-    "http_push";
+    -- Offline push: custom module (upstream http_push is no longer packaged
+    -- in the 13.0 monolith image); reads http_push_endpoint/http_push_secret.
+    "gibber_push";
+    "privilege";
     -- "extdisco"; -- Disabled: mod_extdisco not available in monolith; ICE servers from /config
+}
+
+-- XEP-0356 Privileged Entity: grant the gateway components roster + iq
+-- (pubsub + adhoc-issued roster) privileges so legacy contacts appear on the
+-- user's roster automatically after registration, and MDS/avatar events work.
+privileged_entities = {
+    ["whatsapp.gibberapp.online"] = {
+        roster = "both";
+        message = "outgoing";
+        presence = "managed_entity";
+    };
+    ["telegram.gibberapp.online"] = {
+        roster = "both";
+        message = "outgoing";
+        presence = "managed_entity";
+    };
+    ["discord.gibberapp.online"] = {
+        roster = "both";
+        message = "outgoing";
+        presence = "managed_entity";
+    };
+    ["matrix.gibberapp.online"] = {
+        roster = "both";
+        message = "outgoing";
+        presence = "managed_entity";
+    };
+    ["irc.gibberapp.online"] = {
+        roster = "both";
+        message = "outgoing";
+        presence = "managed_entity";
+    };
 }
 
 -- Push Notifications (XEP-0357): Trigger HTTP POST to backend when offline users receive messages
@@ -116,6 +150,16 @@ http_file_share_size_limit = 50 * 1024 * 1024  -- 50 MB
 http_file_share_expire_after = 7 * 86400  -- 7 days
 http_paths = {
     file_share = "/upload";
+}
+-- Allow the gateway components to request upload slots: slidge sends pairing
+-- QR codes (WhatsApp) and avatars through the server's file share.
+http_file_share_access = {
+    "gibberapp.online",
+    "whatsapp.gibberapp.online",
+    "telegram.gibberapp.online",
+    "discord.gibberapp.online",
+    "matrix.gibberapp.online",
+    "irc.gibberapp.online",
 }
 
 -- External Service Discovery (XEP-0215) - STUN/TURN for WebRTC

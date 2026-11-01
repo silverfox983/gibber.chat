@@ -173,6 +173,33 @@ class RosterManager {
     var iqStanza = IqStanza(stanza.id, IqStanzaType.RESULT);
     iqStanza.fromJid = _connection.fullJid;
     _connection.writeStanza(iqStanza);
+    // XEP-0092/roster pushes arrive mid-session (e.g. gateway components
+    // importing legacy contacts after registration). ACK only is not
+    // enough: merge the pushed items into the roster map so rosterStream
+    // listeners see them.
+    var query = stanza.getChild('query');
+    if (query != null && query.getNameSpace() == 'jabber:iq:roster') {
+      var updated = false;
+      query.children.forEach((child) {
+        if (child.name == 'item') {
+          var jidAttr = child.getAttribute('jid')?.value;
+          if (jidAttr == null) return;
+          var jid = Jid.fromFullJid(jidAttr);
+          var subscriptionString = child.getAttribute('subscription')?.value;
+          if (subscriptionString == 'remove') {
+            _rosterMap.remove(jid);
+            updated = true;
+            return;
+          }
+          var buddy = _rosterMap.putIfAbsent(jid, () => Buddy(jid));
+          buddy.name = child.getAttribute('name')?.value;
+          buddy.accountJid = _connection.fullJid;
+          buddy.subscriptionType = Buddy.typeFromString(subscriptionString);
+          updated = true;
+        }
+      });
+      if (updated) _fireOnRosterListChanged();
+    }
   }
 
   void _handleRosterSetSuccessResponse(Tuple2<IqStanza, Completer?> request) {

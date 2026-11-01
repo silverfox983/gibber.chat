@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'chat_models.dart';
 
 class PickedFile {
@@ -100,5 +101,22 @@ class PickedFile {
 
   static MessageType classifyFromUrl(String url) {
     return isImageUrl(url) ? MessageType.image : MessageType.file;
+  }
+
+  /// On the web, any XMPP-provided upload URL that resolves to an internal
+  /// prosody file-share host/port is rewritten to the same-origin /upload
+  /// proxy (the backend forwards to prosody). This keeps QR-code attachments
+  /// and gateway avatars fetchable by the browser without mixed-content or
+  /// self-signed-certificate problems. Returns [url] unchanged when it is
+  /// already same-origin, malformed, or not an upload path.
+  static String maybeRewriteUploadUrl(String url) {
+    if (!kIsWeb) return url;
+    final pathStart = url.indexOf('/upload/');
+    if (pathStart == -1) return url;
+    final isHttp = url.startsWith('http://') || url.startsWith('https://');
+    if (!isHttp) return url;
+    // Browsers cannot fetch an internal http:// host from an https page;
+    // rewrite to the same-origin proxy path.
+    return url.substring(pathStart);
   }
 }

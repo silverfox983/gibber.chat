@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -6,6 +7,8 @@ import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 // ignore: implementation_imports
 import 'package:xmpp_stone/src/elements/XmppAttribute.dart';
 import 'dart:io' if (dart.library.html) 'file_stub.dart';
+
+import '../models/picked_file.dart';
 
 class HttpUploadService {
   final xmpp.Connection connection;
@@ -43,10 +46,25 @@ class HttpUploadService {
         if (stanza.type == xmpp.IqStanzaType.RESULT) {
           final slot = stanza.getChild('slot');
           if (slot != null && slot.getAttribute('xmlns')?.value == 'urn:xmpp:http:upload:0') {
-            final putUrl = slot.getChild('put')?.getAttribute('url')?.value;
+            final putEl = slot.getChild('put');
+            final putUrl = putEl?.getAttribute('url')?.value;
             final getUrl = slot.getChild('get')?.getAttribute('url')?.value;
             if (putUrl != null && getUrl != null) {
-              completer.complete({'put': putUrl, 'get': getUrl});
+              // Prosody 13 issues Bearer JWTs in the slot's header elements;
+              // the PUT must replay them or the upload is rejected (404).
+              final headers = <String, String>{};
+              for (final headerEl in putEl?.children.whereType<xmpp.XmppElement>().where((e) => e.name == 'header') ?? const <xmpp.XmppElement>[]) {
+                final name = headerEl.getAttribute('name')?.value;
+                final value = headerEl.textValue;
+                if (name != null && name.isNotEmpty && value != null && value.isNotEmpty) {
+                  headers[name] = value;
+                }
+              }
+              completer.complete({
+                'put': putUrl,
+                'get': getUrl,
+                if (headers.isNotEmpty) 'putHeaders': jsonEncode(headers),
+              });
             } else {
               completer.complete(null);
             }
@@ -79,9 +97,32 @@ class HttpUploadService {
     return result;
   }
 
+  /// Replays the Bearer authorization headers prosody's file share requires.
+  Map<String, String>? _slotHeaders(String? putHeadersJson, Map<String, String>? extra) {
+    final decoded = <String, String>{};
+    if (putHeadersJson != null && putHeadersJson.isNotEmpty) {
+      try {
+        final raw = jsonDecode(putHeadersJson) as Map<String, dynamic>;
+        raw.forEach((k, v) {
+          if (v is String) decoded[k] = v;
+        });
+      } catch (e) {
+        debugPrint('HTTP Upload: bad slot headers: $e');
+      }
+    }
+    if (extra != null) decoded.addAll(extra);
+    return decoded.isEmpty ? null : decoded;
+  }
+
   /// Performs the actual HTTP PUT upload with progress tracking (native only)
   /// On web, use [uploadBytes] instead.
-  Future<bool> uploadFile(String putUrl, dynamic file, String contentType) async {
+  Future<bool> uploadFile(
+    String putUrl,
+    dynamic file,
+    String contentType, {
+    Map<String, String>? headers,
+    String? putHeaders,
+  }) async {
     if (kIsWeb) {
       debugPrint('HTTP Upload: uploadFile not supported on web, use uploadBytes instead');
       return false;
@@ -91,11 +132,13 @@ class HttpUploadService {
       final nativeFile = file as File;
       final length = await nativeFile.length();
       final stream = nativeFile.openRead();
-      final uri = Uri.parse(putUrl);
-      
+      final uri = Uri.parse(PickedFile.maybeRewriteUploadUrl(putUrl));
+
       final request = http.StreamedRequest('PUT', uri);
       request.headers['Content-Type'] = contentType;
       request.headers['Content-Length'] = length.toString();
+      final slotHeaders = _slotHeaders(putHeaders, headers);
+      slotHeaders?.forEach((k, v) => request.headers[k] = v);
       
       int bytesUploaded = 0;
       _uploadProgressController.add(0.0);
@@ -143,10 +186,17 @@ class HttpUploadService {
   }
 
   /// Upload raw bytes (web-compatible)
-  Future<bool> uploadBytes(String putUrl, Uint8List bytes, String contentType, {int totalSize = -1}) async {
+  Future<bool> uploadBytes(
+    String putUrl,
+    Uint8List bytes,
+    String contentType, {
+    int totalSize = -1,
+    Map<String, String>? headers,
+    String? putHeaders,
+  }) async {
     try {
       final effectiveSize = totalSize > 0 ? totalSize : bytes.length;
-      final uri = Uri.parse(putUrl);
+      final uri = Uri.parse(PickedFile.maybeRewriteUploadUrl(putUrl));
 
       _uploadProgressController.add(0.0);
 
@@ -155,6 +205,7 @@ class HttpUploadService {
         headers: {
           'Content-Type': contentType,
           'Content-Length': effectiveSize.toString(),
+          ...?_slotHeaders(putHeaders, headers),
         },
         body: bytes,
       );

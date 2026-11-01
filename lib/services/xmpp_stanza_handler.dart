@@ -34,7 +34,11 @@ class XmppStanzaHandler {
   String? _extractOobUrl(xmpp.XmppElement? parent) {
     final oobX = parent?.getChild('x');
     if (oobX != null && oobX.getAttribute('xmlns')?.value == 'jabber:x:oob') {
-      return oobX.getChild('url')?.textValue;
+      final url = oobX.getChild('url')?.textValue;
+      if (url == null) return null;
+      // Web: rewrite internal prosody file-share urls to the same-origin
+      // /upload proxy so gateway QR codes and avatars are fetchable.
+      return PickedFile.maybeRewriteUploadUrl(url);
     }
     return null;
   }

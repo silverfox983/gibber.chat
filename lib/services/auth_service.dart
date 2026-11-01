@@ -37,6 +37,7 @@ import './pubsub_interaction_service.dart';
 import './xmpp_room_enhancements_service.dart';
 import './xmpp_server_info_service.dart';
 import './xmpp_sticker_service.dart';
+import './gateway_protocols.dart';
 import './iq_request_manager.dart';
 import './presence_mapping.dart';
 import './transport_service.dart';
@@ -1034,7 +1035,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
     final jsonList = _savedAccounts.map((a) => a.toJson()).toList();
     await prefs.setString('saved_accounts_json', json.encode(jsonList));
 
-    // Disconnect if currently connected — clean up all subscriptions and resources
+    // Disconnect if currently connected â€” clean up all subscriptions and resources
     if (acc.protocol == 'XMPP' && _xmppConnections.containsKey(acc.fullJid)) {
       final conn = _xmppConnections[acc.fullJid]!;
       xmpp.PingManager.removeInstance(conn);
@@ -1112,6 +1113,14 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
       final String? contactId = jidObj?.fullJid ?? jidObj?.domain;
       if (contactId == null) continue;
       final normalizedId = contactId.split('/').first.toLowerCase();
+      // Gateway components push contacts for their legacy networks
+      // (whatsapp/telegram/discord/matrix/irc). Map the jid's domain to the
+      // bridged protocol so these contacts surface distinctly in the UI
+      // without any manual "add contact" step.
+      final protocol = GatewayProtocols.protocolForJid(
+        normalizedId,
+        ownDomain: id.split('@').length > 1 ? id.split('@')[1] : null,
+      ) ?? 'XMPP';
       final existingIndex = _currentContacts.indexWhere(
         (c) => c.id.toLowerCase().split('/').first == normalizedId,
       );
@@ -1127,8 +1136,8 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
         _currentContacts.add(
           Contact(
             id: normalizedId,
-            name: item.name ?? jidObj?.local ?? 'User',
-            protocol: 'XMPP',
+            name: item.name ?? jidObj?.local ?? normalizedId,
+            protocol: protocol,
           ),
         );
         changed = true;
@@ -1144,7 +1153,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
     final pid = presence.jid?.fullJid ?? presence.jid?.domain;
     if (pid != null) {
       final barePid = pid.split('/').first.toLowerCase();
-      // Skip MUC presence — handled in inStanzasStream
+      // Skip MUC presence â€” handled in inStanzasStream
       final mucServices = _discoveredMucServices[id] ?? [];
       if (pid.contains('/') && mucServices.any((d) => barePid.endsWith(d.toLowerCase()))) {
         return;
@@ -1165,7 +1174,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
         }
         _contactStreamController.add(List.from(_currentContacts));
       } else {
-        // Presence for unknown contact — add them
+        // Presence for unknown contact â€” add them
         _currentContacts.add(Contact(
           id: barePid,
           name: barePid.split('@').first,
@@ -1366,7 +1375,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
             }
           }
         } else if (state == xmpp.XmppConnectionState.Resumed) {
-          debugPrint('XMPP Account $id: Stream Management resumed — flushing pending messages and rejoining MUC rooms');
+          debugPrint('XMPP Account $id: Stream Management resumed â€” flushing pending messages and rejoining MUC rooms');
           _flushPendingMessages(id);
           await _roomService.autoJoinRooms(id);
           // Re-broadcast presence on resumption
@@ -1907,15 +1916,55 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
 
               if (stanza.type == xmpp.PresenceType.SUBSCRIBE) {
                 if (fromJid != null) {
-                  final req = {
-                    'jid': fromJid,
-                    'accountId': id,
-                    'type': 'subscribe',
-                  };
-                  if (!_pendingSubscriptionRequests.any((r) => r['jid'] == fromJid && r['accountId'] == id)) {
-                    _pendingSubscriptionRequests.add(req);
-                    _subscriptionRequestController.add(List.from(_pendingSubscriptionRequests));
-                    _saveSubscriptionRequests();
+                  // Auto-approve subscription requests that originate from
+                  // this server's own gateway components: legacy contacts
+                  // (WhatsApp/Telegram/Discord/Matrix) and the components
+                  // themselves. Approving + subscribing back lets the server
+                  // manage the roster natively, so bridged contacts appear
+                  // automatically without any manual step.
+                  final ownDomain = id.split('@').length > 1 ? id.split('@')[1] : null;
+                  final gatewayProtocol = GatewayProtocols.protocolForJid(fromJid, ownDomain: ownDomain);
+                  final isComponentBare =
+                      stanza.fromJid?.local == null || (stanza.fromJid?.local?.isEmpty ?? true);
+                  final isLocalGateway =
+                      ownDomain != null && fromJid.endsWith('.$ownDomain');
+
+                  if (isLocalGateway && (gatewayProtocol != null || isComponentBare)) {
+                    debugPrint('GATEWAY: auto-approving subscription from $fromJid ($gatewayProtocol)');
+                    final conn = _xmppConnections[id];
+                    if (conn != null) {
+                      final approved = xmpp.PresenceStanza.withType(xmpp.PresenceType.SUBSCRIBED);
+                      approved.toJid = xmpp.Jid.fromFullJid(fromJid);
+                      conn.writeStanza(approved);
+                      // Ask for the reverse subscription so their presence and
+                      // contacts flow to us too.
+                      final wantBack = xmpp.PresenceStanza.withType(xmpp.PresenceType.SUBSCRIBE);
+                      wantBack.toJid = xmpp.Jid.fromFullJid(fromJid);
+                      conn.writeStanza(wantBack);
+                      // Surface the gateway/contact immediately in the list.
+                      final exists = _currentContacts.any((c) => c.id.toLowerCase() == fromJid);
+                      if (!exists) {
+                        _currentContacts.add(Contact(
+                          id: fromJid,
+                          name: gatewayProtocol != null && isComponentBare
+                              ? '$gatewayProtocol Gateway'
+                              : (fromJid.split('@').first),
+                          protocol: gatewayProtocol ?? 'XMPP',
+                        ));
+                        _contactStreamController.add(List.from(_currentContacts));
+                      }
+                    }
+                  } else {
+                    final req = {
+                      'jid': fromJid,
+                      'accountId': id,
+                      'type': 'subscribe',
+                    };
+                    if (!_pendingSubscriptionRequests.any((r) => r['jid'] == fromJid && r['accountId'] == id)) {
+                      _pendingSubscriptionRequests.add(req);
+                      _subscriptionRequestController.add(List.from(_pendingSubscriptionRequests));
+                      _saveSubscriptionRequests();
+                    }
                   }
                 }
               } else if (stanza.type == xmpp.PresenceType.SUBSCRIBED) {
