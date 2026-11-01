@@ -14,6 +14,8 @@ import '../models/join_intent.dart';
 import '../widgets/gateways/gateway_connect_sheet.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
+import '../services/visitor_service.dart';
+import '../widgets/auth/guest_claim_sheet.dart';
 
 /// Section anchor so nav links can target the rooms list.
 const String kTrendingRoomsHeader = 'trending-rooms';
@@ -102,7 +104,7 @@ class _LandingScreenState extends State<LandingScreen>
             .discoverPreviewSpaces(domain, limit: 6, forceRefresh: false)
             .timeout(const Duration(seconds: 16), onTimeout: (() => <SpaceNode>[])));
       } catch (_) {
-        // The hub may be unreachable from this server (no S2S / offline) —
+        // The hub may be unreachable from this server (no S2S / offline) â€”
         // the preview degrades to local-only content.
       }
     }
@@ -244,11 +246,32 @@ class _LandingScreenState extends State<LandingScreen>
           _ctaButton('Sign In', isDark: isDark, outlined: true, onTap: () => context.go('/login')),
           if (!isMobile) ...[
             const SizedBox(width: 8),
-            _ctaButton('Get Started Free', isDark: isDark, onTap: () => context.go('/register')),
+            _ctaButton('Get Started Free', isDark: isDark, onTap: _getStarted),
           ],
         ],
       ),
     );
+  }
+
+  /// The hero CTA: guests get the claim flow (their chats follow the name);
+  /// everything else lands on the register page.
+  Future<void> _getStarted() async {
+    final guestJid = await VisitorService().guestJid();
+    if (guestJid == null) {
+      context.go('/register');
+      return;
+    }
+    final isGuestSignedIn = Provider.of<AuthService>(context, listen: false)
+        .activeAccountId
+        ?.toLowerCase() == guestJid.toLowerCase();
+    if (isGuestSignedIn && mounted) {
+      final claimed = await showGuestClaimSheet(context);
+      if (claimed == true && mounted) {
+        context.go('/app');
+      }
+      return;
+    }
+    context.go('/register');
   }
 
   Widget _navLink(String label, double scrollOffset, {GlobalKey? sectionKey}) {
@@ -489,7 +512,7 @@ class _LandingScreenState extends State<LandingScreen>
                       const SizedBox(height: 8),
                       _mockBubble('Yes, joining in 5 min', isLeft: false, isDark: isDark),
                       const SizedBox(height: 8),
-                      _mockBubble('Great! I\'ll share the notes securely 🔒', isLeft: true, isDark: isDark),
+                      _mockBubble('Great! I\'ll share the notes securely ðŸ”’', isLeft: true, isDark: isDark),
                     ],
                   ),
                 ),
@@ -1128,7 +1151,7 @@ class _LandingScreenState extends State<LandingScreen>
           ),
           const SizedBox(height: 6),
           Text(
-            'Your server bridges the networks — pick one and sign in with it. '
+            'Your server bridges the networks â€” pick one and sign in with it. '
             'One contact list, one chat, every network.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 14, color: onSurfaceVariant, fontWeight: FontWeight.w500),
@@ -1144,7 +1167,7 @@ class _LandingScreenState extends State<LandingScreen>
             children: networks.map(netCard).toList(),
           ),
           const SizedBox(height: 22),
-          _ctaButton('Connect a network →', isDark: isDark, onTap: _openConnectSheet),
+          _ctaButton('Connect a network â†’', isDark: isDark, onTap: _openConnectSheet),
         ],
       ),
     );
@@ -1185,7 +1208,7 @@ class _LandingScreenState extends State<LandingScreen>
                     radius: 15,
                     backgroundColor: color.withValues(alpha: 0.2),
                     child: Text(
-                      title.isEmpty ? '·' : title.substring(0, 1).toUpperCase(),
+                      title.isEmpty ? 'Â·' : title.substring(0, 1).toUpperCase(),
                       style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 13),
                     ),
                   ),
@@ -1256,9 +1279,9 @@ class _LandingScreenState extends State<LandingScreen>
     } else if (spaces.isEmpty && loadingSpaces) {
       stateText = 'Discovering spaces...';
     } else if (spaces.isEmpty) {
-      stateText = 'No public spaces discovered on this server yet — create the first one!';
+      stateText = 'No public spaces discovered on this server yet â€” create the first one!';
     } else {
-      stateText = 'Public spaces — from this server and the open federation, discovered live over PubSub.';
+      stateText = 'Public spaces â€” from this server and the open federation, discovered live over PubSub.';
     }
 
     return Container(
@@ -1292,7 +1315,7 @@ class _LandingScreenState extends State<LandingScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      stateText + (auth.isAuthenticated ? ' · Signed in as ${_guestLabel}' : ''),
+                      stateText + (auth.isAuthenticated ? ' Â· Signed in as ${_guestLabel}' : ''),
                       style: TextStyle(fontSize: 14, color: onSurfaceVariant, fontWeight: FontWeight.w500),
                     ),
                   ],
@@ -1334,8 +1357,8 @@ class _LandingScreenState extends State<LandingScreen>
     final features = [
       _FeatureData(Icons.lock_outline_rounded, 'End-to-End Encryption', 'Military-grade encryption protects every message and call. Your data never leaves your device.', primary),
       _FeatureData(Icons.mic_rounded, 'Live Transcription', 'On-device Whisper WASM transcribes voice calls in real time. No cloud, no data leaks.', primary),
-      _FeatureData(Icons.compare_arrows_rounded, 'Protocol Gateway', 'Gibber, Slack, Discord, IRC, Teams, Matrix, Telegram, SMS — one inbox, every network.', primary),
-      _FeatureData(Icons.videocam_rounded, 'Encrypted Voice & Video', 'WebRTC calls with live captions, call recording, and identity verification — no Zoom.', primary),
+      _FeatureData(Icons.compare_arrows_rounded, 'Protocol Gateway', 'Gibber, Slack, Discord, IRC, Teams, Matrix, Telegram, SMS â€” one inbox, every network.', primary),
+      _FeatureData(Icons.videocam_rounded, 'Encrypted Voice & Video', 'WebRTC calls with live captions, call recording, and identity verification â€” no Zoom.', primary),
       _FeatureData(Icons.cloud_off_rounded, 'Zero-Knowledge Architecture', 'All processing happens on your device. No cloud servers ever see your messages or calls.', primary),
     ];
 
@@ -1402,8 +1425,8 @@ class _LandingScreenState extends State<LandingScreen>
     final primary = Theme.of(context).colorScheme.primary;
     final secondary = isDark ? const Color(0xFF06B6D4) : const Color(0xFF10B981);
     final steps = [
-      _StepData('1', 'Create Account', 'Sign up for free — no credit card needed. Start messaging securely right away.', Icons.person_add_rounded, primary),
-      _StepData('2', 'Connect & Communicate', 'Message and call anyone — encrypted and processed on your device. Zero knowledge.', Icons.chat_rounded, secondary),
+      _StepData('1', 'Create Account', 'Sign up for free â€” no credit card needed. Start messaging securely right away.', Icons.person_add_rounded, primary),
+      _StepData('2', 'Connect & Communicate', 'Message and call anyone â€” encrypted and processed on your device. Zero knowledge.', Icons.chat_rounded, secondary),
       _StepData('3', 'Take Back Control', 'Own your identity, your contacts, and your conversations. No company in the middle.', Icons.verified_rounded, primary),
     ];
 

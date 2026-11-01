@@ -248,6 +248,18 @@ void main() {
     expect(after.any((s) => s.node == spaceNode), true,
         reason: 'created space must appear in discovery (created=$created)');
 
+    // --- 5b. Delete the probe's space (leave the server clean) ---------------
+    // The node was created on the pubsub service that answered the create.
+    final createdOn = after
+        .firstWhere((s) => s.node == spaceNode, orElse: () => after.first)
+        .domain;
+    final deleted = await spacesService
+        .deleteSpace(createdOn, spaceNode)
+        .timeout(const Duration(seconds: 15), onTimeout: () => false);
+    // ignore: avoid_print
+    print('DELETE SPACE: $deleted on $createdOn');
+    expect(deleted, true, reason: 'created probe space should be deletable');
+
     // --- 6. Gateway transport integration ------------------------------------
     final waGateway = 'whatsapp.$_domain';
     final gatewayContact = 'alice@$waGateway';

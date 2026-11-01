@@ -70,6 +70,11 @@ class DatabaseService {
             longitude REAL,
             location_label TEXT,
             mentioned INTEGER DEFAULT 0,
+            thread_id TEXT,
+            encryption_namespace TEXT,
+            encryption_name TEXT,
+            no_store INTEGER DEFAULT 0,
+            no_permanent_store INTEGER DEFAULT 0,
             is_spoiler INTEGER DEFAULT 0,
             spoiler_hint TEXT,
             is_retracted INTEGER DEFAULT 0
@@ -963,6 +968,49 @@ class DatabaseService {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  /// Reassigns ownership of locally stored data from one account id (e.g. a
+  /// guest jid) to another (e.g. after the visitor claims a real account).
+  /// Registered transports are excluded on purpose: gateway registrations are
+  /// bound to the source jid and must be re-linked under the new one.
+  /// Returns the total number of updated rows.
+  Future<int> reassignAccountIds(String fromAccountId, String toAccountId) async {
+    final db = await database;
+    int total = 0;
+    await db.transaction((txn) async {
+      for (final table in ['messages', 'conversations', 'pending_messages']) {
+        try {
+          final count = await txn.update(
+            table,
+            {'account_id': toAccountId},
+            where: 'account_id = ?',
+            whereArgs: [fromAccountId],
+          );
+          total += count;
+        } catch (e) {
+          debugPrint('DB: could not reassign $table: $e');
+        }
+      }
+    });
+    return total;
+  }
+
+  /// Deletes a given's account registered gateway transports. Used when the
+  /// account identity changes: slidge registrations cannot follow a jid move.
+  Future<void> deleteRegisteredTransportsForAccount(String accountId) async {
+    final db = await database;
+    final all = await db.query('registered_transports');
+    for (final row in all) {
+      final owner = row['account_id']?.toString();
+      if (owner != null && (owner.toLowerCase() == accountId.toLowerCase() || owner.isEmpty)) {
+        final jid = row['gateway_jid']?.toString();
+        if (jid != null && jid.isNotEmpty) {
+          await db.delete('registered_transports',
+              where: 'gateway_jid = ?', whereArgs: [jid]);
+        }
+      }
+    }
   }
 
   Future<Map<String, dynamic>?> getContactVCard(String jid) async {

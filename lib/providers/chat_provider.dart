@@ -1271,6 +1271,17 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Reloads every conversation + contact from the database. Used after the
+  /// guest account's data was migrated to a claimed account: the in-memory
+  /// rows still carry the old account ids.
+  Future<void> reloadFromDb(AuthService authService) async {
+    _conversations.clear();
+    _contacts.clear();
+    _activeConversationId = null;
+    notifyListeners();
+    await initialize(authService);
+  }
+
   String _conversationDefaultName(String id) =>
       id.split('@').isNotEmpty ? id.split('@').first : id;
 

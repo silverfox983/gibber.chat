@@ -10,6 +10,8 @@ import '../services/auth_service.dart';
 import '../services/avatar_cache_service.dart';
 import '../providers/theme_provider.dart';
 import '../models/chat_models.dart';
+import '../services/visitor_service.dart';
+import '../widgets/auth/guest_claim_sheet.dart';
 
 class ProfileScreen extends StatefulWidget {
   final bool isSidebar;
@@ -441,6 +443,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _buildGuestClaimBanner(),
                   Text('IDENTITY SETTINGS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
                   const SizedBox(height: 16),
                   _buildTextField('Full Name', _nameController, Icons.badge_rounded),
@@ -701,6 +704,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// When this browser runs on an auto-created guest, offers the claim flow.
+  Widget _buildGuestClaimBanner() {
+    return FutureBuilder<String?>(
+      future: VisitorService().guestJid(),
+      builder: (context, snapshot) {
+        final guestJid = snapshot.data;
+        if (guestJid == null) return const SizedBox.shrink();
+        return Container(
+          margin: const EdgeInsets.only(bottom: 20),
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.badge_rounded, color: Theme.of(context).colorScheme.primary, size: 26),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('You are chatting as a guest',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+                    Text(guestJid,
+                        style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  ],
+                ),
+              ),
+              FilledButton(
+                onPressed: () => showGuestClaimSheet(context),
+                child: const Text('Claim account', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
