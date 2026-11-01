@@ -1812,217 +1812,232 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     });
 
     _rtcManager.onIceCandidate((candidate) {
-      _candidateSendCount++;
-      debugPrint(
-        'CallProvider: ICE candidate generated (#$_candidateSendCount), sending to $toJid',
-      );
-      debugPrint(
-        'CallProvider:   sdpMid: ${candidate.sdpMid}, type: ${_extractCandidateType(candidate.candidate ?? "")}',
-      );
-      if (isGateway) {
-        signaling.sendIceCandidate(
-          toJid,
-          _sessionId!,
-          candidate.toMap(),
-          isVideo: _isVideo,
-        );
-      } else {
-        signaling.sendTransportInfoViaMessage(
-          toJid,
-          _sessionId!,
-          candidate.toMap(),
-          isVideo: _isVideo,
-        );
-      }
+      _onRtcIceCandidate(candidate, toJid: toJid, isGateway: isGateway, signaling: signaling);
     });
 
     _rtcManager.onIceRestart(() async {
       debugPrint('CallProvider: ICE restart triggered - new candidates will be sent via trickle');
     });
 
-    _rtcManager.onTrack((stream) {
-      debugPrint('CallProvider: ========== CALL PROVIDER ON TRACK ==========');
-      debugPrint('CallProvider: === REMOTE TRACK RECEIVED ===');
-      debugPrint('CallProvider: Stream id: ${stream.id}');
-      
-      // CRITICAL: stream.active is NOT implemented on Android - do not access it!
-      
-      debugPrint(
-        'CallProvider: Stream audio tracks: ${stream.getAudioTracks().length}',
+    _rtcManager.onTrack(_onRtcRemoteTrack);
+
+    _rtcManager.onConnectionState(_onRtcConnectionState);
+
+    _rtcManager.onIceConnectionState(_onRtcIceConnectionState);
+  }
+
+  void _onRtcIceCandidate(
+    RTCIceCandidate candidate, {
+    required String toJid,
+    required bool isGateway,
+    required JingleSignalingService signaling,
+  }) {
+    _candidateSendCount++;
+    debugPrint(
+      'CallProvider: ICE candidate generated (#$_candidateSendCount), sending to $toJid',
+    );
+    debugPrint(
+      'CallProvider:   sdpMid: ${candidate.sdpMid}, type: ${_extractCandidateType(candidate.candidate ?? "")}',
+    );
+    if (isGateway) {
+      signaling.sendIceCandidate(
+        toJid,
+        _sessionId!,
+        candidate.toMap(),
+        isVideo: _isVideo,
       );
-      debugPrint(
-        'CallProvider: Stream video tracks: ${stream.getVideoTracks().length}',
+    } else {
+      signaling.sendTransportInfoViaMessage(
+        toJid,
+        _sessionId!,
+        candidate.toMap(),
+        isVideo: _isVideo,
       );
+    }
+  }
 
-      // CRITICAL: Cancel ICE timeout timer - we have media!
-      _callTimeoutTimer?.cancel();
-      _callTimeoutTimer = null;
-      debugPrint('CallProvider: ICE timeout cancelled - media received');
+  void _onRtcRemoteTrack(MediaStream stream) {
+    debugPrint('CallProvider: ========== CALL PROVIDER ON TRACK ==========');
+    debugPrint('CallProvider: === REMOTE TRACK RECEIVED ===');
+    debugPrint('CallProvider: Stream id: ${stream.id}');
 
-      // CRITICAL: Always set srcObject to ensure renderer has the stream
-      _remoteRenderer.srcObject = stream;
+    // CRITICAL: stream.active is NOT implemented on Android - do not access it!
+
+    debugPrint(
+      'CallProvider: Stream audio tracks: ${stream.getAudioTracks().length}',
+    );
+    debugPrint(
+      'CallProvider: Stream video tracks: ${stream.getVideoTracks().length}',
+    );
+
+    // CRITICAL: Cancel ICE timeout timer - we have media!
+    _callTimeoutTimer?.cancel();
+    _callTimeoutTimer = null;
+    debugPrint('CallProvider: ICE timeout cancelled - media received');
+
+    // CRITICAL: Always set srcObject to ensure renderer has the stream
+    _remoteRenderer.srcObject = stream;
+    debugPrint(
+      'CallProvider: Remote renderer srcObject set: ${_remoteRenderer.srcObject != null}',
+    );
+
+    // Force audio track enabled
+    debugPrint('CallProvider: Enabling all audio tracks...');
+    for (var track in stream.getAudioTracks()) {
       debugPrint(
-        'CallProvider: Remote renderer srcObject set: ${_remoteRenderer.srcObject != null}',
+        'CallProvider: Audio track before: enabled=${track.enabled}, muted=${track.muted}',
       );
+      track.enabled = true;
+      debugPrint(
+        'CallProvider: Audio track after: enabled=${track.enabled}, label=${track.label}',
+      );
+    }
 
-      // Force audio track enabled
-      debugPrint('CallProvider: Enabling all audio tracks...');
-      for (var track in stream.getAudioTracks()) {
-        debugPrint(
-          'CallProvider: Audio track before: enabled=${track.enabled}, muted=${track.muted}',
-        );
-        track.enabled = true;
-        debugPrint(
-          'CallProvider: Audio track after: enabled=${track.enabled}, label=${track.label}',
-        );
-      }
+    _state = CallState.active;
+    _acquireSchedulerForCall();
+    _stopAllSounds();
+    HapticFeedback.heavyImpact();
+    _callStartTime ??= DateTime.now();
+    _log('Call connected (media established)', isSent: false);
 
-      _state = CallState.active;
-      _acquireSchedulerForCall();
-      _stopAllSounds();
-      HapticFeedback.heavyImpact();
-      _callStartTime ??= DateTime.now();
-      _log('Call connected (media established)', isSent: false);
+    // AUDIO PATH: Force speaker ON for voice calls with Android Route Force
+    debugPrint('CallProvider: Configuring audio output...');
+    if (!_isVideo) {
+      debugPrint('CallProvider: Voice call - applying Android Speaker Route Force');
+      _isSpeakerOn = true;
+      _rtcManager.setSpeakerphone(true);
+    } else {
+      debugPrint('CallProvider: Video call - using current speaker setting');
+      _rtcManager.setSpeakerphone(_isSpeakerOn);
+    }
 
-      // AUDIO PATH: Force speaker ON for voice calls with Android Route Force
-      debugPrint('CallProvider: Configuring audio output...');
-      if (!_isVideo) {
-        debugPrint('CallProvider: Voice call - applying Android Speaker Route Force');
-        _isSpeakerOn = true;
-        _rtcManager.setSpeakerphone(true);
-      } else {
-        debugPrint('CallProvider: Video call - using current speaker setting');
-        _rtcManager.setSpeakerphone(_isSpeakerOn);
-      }
+    // Ensure audio is enabled on all tracks
+    _rtcManager.ensureAudioEnabled();
 
-      // Ensure audio is enabled on all tracks
+    // Set remote volume to max
+    _rtcManager.setRemoteAudioVolume(1.0);
+
+    // AUDIO DELAYS: Multiple ensures for Android to properly configure audio
+    // Guards ensure these don't access disposed objects if call ends before they fire
+    debugPrint('CallProvider: Scheduling delayed audio fixes...');
+
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (_isCleaningUp) return;
+      debugPrint('CallProvider: [DELAY 200ms] Audio fix #1');
       _rtcManager.ensureAudioEnabled();
-
-      // Set remote volume to max
-      _rtcManager.setRemoteAudioVolume(1.0);
-
-      // AUDIO DELAYS: Multiple ensures for Android to properly configure audio
-      // Guards ensure these don't access disposed objects if call ends before they fire
-      debugPrint('CallProvider: Scheduling delayed audio fixes...');
-
-      Future.delayed(const Duration(milliseconds: 200), () {
-        if (_isCleaningUp) return;
-        debugPrint('CallProvider: [DELAY 200ms] Audio fix #1');
-        _rtcManager.ensureAudioEnabled();
-        if (!_isVideo) {
-          _rtcManager.setSpeakerphone(true);
-        }
-      });
-
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (_isCleaningUp) return;
-        debugPrint('CallProvider: [DELAY 500ms] Audio fix #2');
-        _rtcManager.ensureAudioEnabled();
-        if (!_isVideo) {
-          _rtcManager.setSpeakerphone(true);
-        }
-        debugPrint(
-          'CallProvider: [DELAY 500ms] Verifying remoteRenderer.srcObject: ${_remoteRenderer.srcObject != null}',
-        );
-      });
-
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (_isCleaningUp) return;
-        debugPrint('CallProvider: [DELAY 1000ms] Audio fix #3');
-        if (!_isVideo) {
-          _rtcManager.setSpeakerphone(true);
-          debugPrint('CallProvider: [DELAY 1000ms] Final speaker ON');
-        }
-        if (_remoteRenderer.srcObject != null) {
-          debugPrint(
-            'CallProvider: [DELAY 1000ms] Stream still attached, audio should be playing',
-          );
-        } else {
-          debugPrint('CallProvider: [DELAY 1000ms] WARNING - Stream detached!');
-        }
-      });
-
-      Future.delayed(const Duration(milliseconds: 2000), () {
-        if (_isCleaningUp) return;
-        debugPrint('CallProvider: [DELAY 2000ms] Final audio check');
-        debugPrint(
-          'CallProvider: Remote audio tracks: ${_remoteRenderer.srcObject?.getAudioTracks().length ?? 0}',
-        );
-      });
-
-      notifyListeners();
-      debugPrint('CallProvider: === CALL STATE: ACTIVE ===');
-      debugPrint('CallProvider: ========== END ON TRACK ==========');
-    });
-
-    _rtcManager.onConnectionState((state) {
-      debugPrint('CallProvider: Connection state changed: $state');
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-        _disconnectGraceTimer?.cancel();
-        _disconnectGraceTimer = Timer(const Duration(seconds: 5), () {
-          debugPrint('CallProvider: Disconnected grace period expired, ending call');
-          endCall();
-        });
-      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        debugPrint('CallProvider: Connection failed, ending call');
-        endCall();
-      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-        _disconnectGraceTimer?.cancel();
-        _disconnectGraceTimer = null;
+      if (!_isVideo) {
+        _rtcManager.setSpeakerphone(true);
       }
     });
 
-    _rtcManager.onIceConnectionState((state) {
-      debugPrint('CallProvider: ICE connection state: $state');
-      _iceState = state;
-      notifyListeners();
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (_isCleaningUp) return;
+      debugPrint('CallProvider: [DELAY 500ms] Audio fix #2');
+      _rtcManager.ensureAudioEnabled();
+      if (!_isVideo) {
+        _rtcManager.setSpeakerphone(true);
+      }
+      debugPrint(
+        'CallProvider: [DELAY 500ms] Verifying remoteRenderer.srcObject: ${_remoteRenderer.srcObject != null}',
+      );
+    });
 
-      // Track when ICE entered Checking state for restart mechanism
-      if (state == RTCIceConnectionState.RTCIceConnectionStateChecking) {
-        _iceCheckingStartTime = DateTime.now();
+    Future.delayed(const Duration(milliseconds: 1000), () {
+      if (_isCleaningUp) return;
+      debugPrint('CallProvider: [DELAY 1000ms] Audio fix #3');
+      if (!_isVideo) {
+        _rtcManager.setSpeakerphone(true);
+        debugPrint('CallProvider: [DELAY 1000ms] Final speaker ON');
+      }
+      if (_remoteRenderer.srcObject != null) {
         debugPrint(
-          'CallProvider: ICE entered Checking state at $_iceCheckingStartTime',
+          'CallProvider: [DELAY 1000ms] Stream still attached, audio should be playing',
         );
-      } else if (state ==
-              RTCIceConnectionState.RTCIceConnectionStateConnected ||
-          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+      } else {
+        debugPrint('CallProvider: [DELAY 1000ms] WARNING - Stream detached!');
+      }
+    });
+
+    Future.delayed(const Duration(milliseconds: 2000), () {
+      if (_isCleaningUp) return;
+      debugPrint('CallProvider: [DELAY 2000ms] Final audio check');
+      debugPrint(
+        'CallProvider: Remote audio tracks: ${_remoteRenderer.srcObject?.getAudioTracks().length ?? 0}',
+      );
+    });
+
+    notifyListeners();
+    debugPrint('CallProvider: === CALL STATE: ACTIVE ===');
+    debugPrint('CallProvider: ========== END ON TRACK ==========');
+  }
+
+  void _onRtcConnectionState(RTCPeerConnectionState state) {
+    debugPrint('CallProvider: Connection state changed: $state');
+    if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+      _disconnectGraceTimer?.cancel();
+      _disconnectGraceTimer = Timer(const Duration(seconds: 5), () {
+        debugPrint('CallProvider: Disconnected grace period expired, ending call');
+        endCall();
+      });
+    } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+      debugPrint('CallProvider: Connection failed, ending call');
+      endCall();
+    } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+      _disconnectGraceTimer?.cancel();
+      _disconnectGraceTimer = null;
+    }
+  }
+
+  void _onRtcIceConnectionState(RTCIceConnectionState state) {
+    debugPrint('CallProvider: ICE connection state: $state');
+    _iceState = state;
+    notifyListeners();
+
+    // Track when ICE entered Checking state for restart mechanism
+    if (state == RTCIceConnectionState.RTCIceConnectionStateChecking) {
+      _iceCheckingStartTime = DateTime.now();
+      debugPrint(
+        'CallProvider: ICE entered Checking state at $_iceCheckingStartTime',
+      );
+    } else if (state ==
+            RTCIceConnectionState.RTCIceConnectionStateConnected ||
+        state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+      _iceCheckingStartTime = null;
+      _iceRestartAttempts = 0;
+      debugPrint('CallProvider: ICE CONNECTED - Data path established!');
+      if (_state != CallState.active) {
+        _state = CallState.active;
+        _acquireSchedulerForCall();
+        _callTimeoutTimer?.cancel();
+        _callTimeoutTimer = null;
+        _stopAllSounds();
+        HapticFeedback.heavyImpact();
+        _callStartTime ??= DateTime.now();
+        _log('Call connected', isSent: false);
+        notifyListeners();
+      }
+    } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+      debugPrint('CallProvider: ICE FAILED - Check network/NAT');
+      if (_iceRestartAttempts < 4) {
+        _iceRestartAttempts++;
+        final backoff = Duration(seconds: (2 << (_iceRestartAttempts - 1)).clamp(2, 16));
+        _lastError = 'Reconnecting... ($_iceRestartAttempts/4)';
+        _iceCheckingStartTime = null;
+        notifyListeners();
+        Future.delayed(backoff, () {
+          _rtcManager.restartIceGathering();
+        });
+      } else {
+        _lastError = 'ICE connection failed';
         _iceCheckingStartTime = null;
         _iceRestartAttempts = 0;
-        debugPrint('CallProvider: ICE CONNECTED - Data path established!');
-        if (_state != CallState.active) {
-          _state = CallState.active;
-          _acquireSchedulerForCall();
-          _callTimeoutTimer?.cancel();
-          _callTimeoutTimer = null;
-          _stopAllSounds();
-          HapticFeedback.heavyImpact();
-          _callStartTime ??= DateTime.now();
-          _log('Call connected', isSent: false);
-          notifyListeners();
-        }
-      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
-        debugPrint('CallProvider: ICE FAILED - Check network/NAT');
-        if (_iceRestartAttempts < 4) {
-          _iceRestartAttempts++;
-          final backoff = Duration(seconds: (2 << (_iceRestartAttempts - 1)).clamp(2, 16));
-          _lastError = 'Reconnecting... ($_iceRestartAttempts/4)';
-          _iceCheckingStartTime = null;
-          notifyListeners();
-          Future.delayed(backoff, () {
-            _rtcManager.restartIceGathering();
-          });
-        } else {
-          _lastError = 'ICE connection failed';
-          _iceCheckingStartTime = null;
-          _iceRestartAttempts = 0;
-          endCall();
-        }
-      } else if (state ==
-          RTCIceConnectionState.RTCIceConnectionStateCompleted) {
-        debugPrint('CallProvider: ICE COMPLETED - Fully connected!');
-        _iceCheckingStartTime = null;
+        endCall();
       }
-    });
+    } else if (state ==
+        RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+      debugPrint('CallProvider: ICE COMPLETED - Fully connected!');
+      _iceCheckingStartTime = null;
+    }
   }
 
   Future<void> handleRemoteSdp(String sdp, String type) async {
