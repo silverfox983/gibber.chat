@@ -14,6 +14,7 @@ import 'jingle_signaling_service.dart';
 import 'http_upload_service.dart';
 
 abstract class AuthServiceContactDeps {
+  DatabaseService get databaseService;
   Map<String, xmpp.Connection> get xmppConnections;
   Map<String, String> get xmppJids;
   String? get activeAccountId;
@@ -79,6 +80,7 @@ abstract class AuthServiceMessageDeps {
 }
 
 abstract class AuthServiceStanzaDeps {
+  DatabaseService get databaseService;
   Map<String, xmpp.Connection> get xmppConnections;
   Map<String, String> get xmppJids;
   XmppOmemoService get omemoService;

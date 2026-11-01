@@ -4,13 +4,16 @@ import '../models/chat_models.dart';
 import 'database_service.dart';
 
 class OfflineQueueService {
-  static final OfflineQueueService _instance = OfflineQueueService._internal();
-  factory OfflineQueueService() => _instance;
-  OfflineQueueService._internal();
+  final DatabaseService _databaseService;
+
+  /// Injection point for isolated databases (tests). Production uses the
+  /// shared DatabaseService instance.
+  OfflineQueueService({DatabaseService? database})
+      : _databaseService = database ?? DatabaseService();
 
   static const int _maxQueueSize = 500;
 
-  Future<Database> get _db async => DatabaseService().database;
+  Future<Database> get _db => _databaseService.database;
 
   Future<void> initialize(Database db) async {
     await db.execute('''

@@ -10,7 +10,6 @@ import '../models/user_profile.dart';
 import '../models/space_models.dart';
 import 'auth_service_deps.dart';
 import 'avatar_cache_service.dart';
-import 'database_service.dart';
 
 
 class XmppContactService {
@@ -328,7 +327,7 @@ class XmppContactService {
     if (index == -1) {
       final space = SpaceNode(domain: domain, node: node, name: name, isSubscribed: true);
       _auth.cachedJoinedSpaces.add(space);
-      await DatabaseService().upsertSpace(space, isJoined: true);
+      await _auth.databaseService.upsertSpace(space, isJoined: true);
       emitJoinedSpaces();
       _auth.notifyListeners();
     }
@@ -336,7 +335,7 @@ class XmppContactService {
 
   Future<void> leavePersistedSpace(String domain, String node) async {
     _auth.cachedJoinedSpaces.removeWhere((s) => s.domain == domain && s.node == node);
-    await DatabaseService().deleteSpace(domain, node);
+    await _auth.databaseService.deleteSpace(domain, node);
     emitJoinedSpaces();
     _auth.notifyListeners();
   }
@@ -345,7 +344,7 @@ class XmppContactService {
     final index = _auth.cachedJoinedSpaces.indexWhere((s) => s.domain == space.domain && s.node == space.node);
     if (index != -1) {
       _auth.cachedJoinedSpaces[index] = space;
-      await DatabaseService().upsertSpace(space, isJoined: true);
+      await _auth.databaseService.upsertSpace(space, isJoined: true);
       emitJoinedSpaces();
       _auth.notifyListeners();
     }
@@ -864,7 +863,7 @@ class XmppContactService {
     _auth.updateCurrentProfile(null);
     _auth.clearVCardState();
     await AvatarCacheService().clearCache();
-    await DatabaseService().clearContactVcards();
+    await _auth.databaseService.clearContactVcards();
     _auth.notifyListeners();
   }
 }

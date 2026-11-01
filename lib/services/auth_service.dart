@@ -306,6 +306,8 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
       List.unmodifiable(_discoveredMucServices[accountId] ?? []);
 
   final OtrService _otr = OtrService();
+  final DatabaseService _db = DatabaseService();
+  DatabaseService get databaseService => _db;
   OtrService get otrService => _otr;
 
   xmpp.Connection? get activeXmppConnection =>
@@ -503,7 +505,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
   void toggleOmemo(String chatId) {
     _omemoService.toggleOmemo(chatId);
     final enabled = _omemoService.isOmemoEnabled(chatId);
-    DatabaseService().updateConversationSettings(chatId, omemoEnabled: enabled);
+    _db.updateConversationSettings(chatId, omemoEnabled: enabled);
   }
 
   bool isOmemoSupportedByServer(String accountId) => _omemoService.isOmemoSupportedByServer(accountId);
@@ -1426,7 +1428,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
     // Migrate old spaces from SharedPreferences to SQLite if needed
     final prefs = await SharedPreferences.getInstance();
     final spacesList = prefs.getStringList('joined_spaces');
-    final db = DatabaseService();
+    final db = _db;
     if (spacesList != null && spacesList.isNotEmpty) {
       for (final s in spacesList) {
         final parts = s.split('|');
@@ -1573,7 +1575,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
     if (index == -1) {
       final space = SpaceNode(domain: domain, node: node, name: name, isSubscribed: true);
       _cachedJoinedSpaces.add(space);
-      await DatabaseService().upsertSpace(space, isJoined: true);
+      await _db.upsertSpace(space, isJoined: true);
       _emitJoinedSpaces();
       notifyListeners();
     }
@@ -1581,7 +1583,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
 
   Future<void> leavePersistedSpace(String domain, String node) async {
     _cachedJoinedSpaces.removeWhere((s) => s.domain == domain && s.node == node);
-    await DatabaseService().deleteSpace(domain, node);
+    await _db.deleteSpace(domain, node);
     _emitJoinedSpaces();
     notifyListeners();
   }
@@ -1590,7 +1592,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
     final index = _cachedJoinedSpaces.indexWhere((s) => s.domain == space.domain && s.node == space.node);
     if (index != -1) {
       _cachedJoinedSpaces[index] = space;
-      await DatabaseService().upsertSpace(space, isJoined: true);
+      await _db.upsertSpace(space, isJoined: true);
       _emitJoinedSpaces();
       notifyListeners();
     }
@@ -1633,7 +1635,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
   }
 
   Future<void> _loadCachedVCards(String accountId) async {
-    final db = DatabaseService();
+    final db = _db;
     final database = await db.database;
     final results = await database.query('contact_vcards');
     for (final cached in results) {
@@ -2198,7 +2200,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
                   }
 
                   // Persist contact vCard to SQLite
-                  final db = DatabaseService();
+                  final db = _db;
                   await db.upsertContactVCard(
                     jid: bareResponseJid,
                     fullName: fullName,
@@ -2572,6 +2574,8 @@ class _AuthContactDeps implements AuthServiceContactDeps {
   final AuthService _auth;
   _AuthContactDeps(this._auth);
 
+  @override
+  DatabaseService get databaseService => _auth.databaseService;
   Map<String, xmpp.Connection> get xmppConnections => _auth._xmppConnections;
   Map<String, String> get xmppJids => _auth._xmppJids;
   String? get activeAccountId => _auth.activeAccountId;
@@ -2646,7 +2650,7 @@ class _AuthMessageDeps implements AuthServiceMessageDeps {
   StreamController<JingleEvent> get jingleEventController => _auth._jingleEventController;
   Map<String, String> get sentOriginIds => _auth._sentOriginIds;
   void trackSentOriginId(String originId, String accountId) => _auth.trackSentOriginId(originId, accountId);
-  DatabaseService get databaseService => DatabaseService();
+  DatabaseService get databaseService => _auth.databaseService;
   bool get sendReadReceipts => _auth.sendReadReceipts;
   bool get sendTypingIndicators => _auth.sendTypingIndicators;
 }
@@ -2655,6 +2659,8 @@ class _AuthStanzaDeps implements AuthServiceStanzaDeps {
   final AuthService _auth;
   _AuthStanzaDeps(this._auth);
 
+  @override
+  DatabaseService get databaseService => _auth.databaseService;
   Map<String, xmpp.Connection> get xmppConnections => _auth._xmppConnections;
   Map<String, String> get xmppJids => _auth._xmppJids;
   XmppOmemoService get omemoService => _auth.omemoService;

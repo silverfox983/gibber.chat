@@ -4,7 +4,6 @@ import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/chat_models.dart';
 import '../models/picked_file.dart';
 import 'auth_service_deps.dart';
-import 'database_service.dart';
 import 'jingle_signaling_service.dart';
 import 'xmpp_omemo_service.dart';
 import 'xmpp_message_enhancements.dart';
@@ -545,7 +544,7 @@ class XmppStanzaHandler {
         }
 
         if (isModerated && moderatedId != null) {
-          DatabaseService().markMessageRetracted(moderatedId);
+          _d.databaseService.markMessageRetracted(moderatedId);
           return;
         }
 
