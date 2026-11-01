@@ -9,9 +9,19 @@ import '../models/space_models.dart';
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
   factory DatabaseService() => _instance;
-  DatabaseService._internal();
+  DatabaseService._internal() : _isolatedPath = null;
+
+  /// Creates an isolated instance that opens [path] regardless of the global
+  /// [testPath]. Intended for tests that need DB isolation, e.g. injecting
+  /// into providers/services instead of reaching the shared singleton.
+  factory DatabaseService.forTest(String path) =>
+      DatabaseService._forTest(path);
+  DatabaseService._forTest(this._isolatedPath);
 
   static String? testPath;
+
+  /// Per-instance override; takes precedence over the static [testPath].
+  final String? _isolatedPath;
   Database? _database;
 
   Future<Database> get database async {
@@ -25,7 +35,7 @@ class DatabaseService {
     if (kIsWeb) {
       path = 'pidgin_chat.db';
     } else {
-      path = testPath ?? join(await getDatabasesPath(), 'pidgin_chat.db');
+      path = _isolatedPath ?? testPath ?? join(await getDatabasesPath(), 'pidgin_chat.db');
     }
     return await openDatabase(
       path,

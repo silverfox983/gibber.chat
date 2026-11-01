@@ -8,6 +8,10 @@ import '../services/avatar_cache_service.dart';
 import '../services/chat_notification_service.dart';
 
 class ChatProvider with ChangeNotifier {
+  final DatabaseService _db;
+
+  ChatProvider({DatabaseService? database}) : _db = database ?? DatabaseService();
+
   List<Conversation> _conversations = [];
   String? _activeConversationId;
   StreamSubscription? _authSub;
@@ -229,7 +233,7 @@ class ChatProvider with ChangeNotifier {
       }
 
       _conversations[index].unreadCount = 0;
-      DatabaseService().resetUnreadCount(_activeConversationId!);
+      _db.resetUnreadCount(_activeConversationId!);
 
       // Send 'active' chat state when entering a conversation (XEP-0085)
       if (_authService != null) {
@@ -241,7 +245,7 @@ class ChatProvider with ChangeNotifier {
       }
 
       try {
-        final messages = await DatabaseService().getMessages(
+        final messages = await _db.getMessages(
           _activeConversationId!,
         );
         // Merge DB messages with any pending in-memory messages from stream
@@ -315,7 +319,7 @@ class ChatProvider with ChangeNotifier {
     }
 
     try {
-      final messages = await DatabaseService().getMessages(id);
+      final messages = await _db.getMessages(id);
       if (messages.isNotEmpty) {
         final existingIds = _conversations[index].messages
             .map((m) => m.id)
@@ -397,9 +401,9 @@ class ChatProvider with ChangeNotifier {
     _authService = authService;
     // 1. Load from Disk (Robust Persistence)
     try {
-      final cachedConvs = await DatabaseService().getConversations();
+      final cachedConvs = await _db.getConversations();
       for (var c in cachedConvs) {
-        final messages = await DatabaseService().getMessages(c.id);
+        final messages = await _db.getMessages(c.id);
 
         // Normalize stale account IDs (transition from xmpp_ timestamp to stable bare JID)
         String currentAccountId = c.accountId ?? '';
@@ -627,7 +631,7 @@ class ChatProvider with ChangeNotifier {
           isGroup: true,
         );
         _conversations.add(newConv);
-        DatabaseService().upsertConversation(newConv);
+        _db.upsertConversation(newConv);
         notifyListeners();
       }
     }
@@ -704,7 +708,7 @@ class ChatProvider with ChangeNotifier {
       );
       if (updated) {
         notifyListeners();
-        DatabaseService().updateMessageReactions(msg.id, msg.reactions);
+        _db.updateMessageReactions(msg.id, msg.reactions);
       }
     }
   }
@@ -761,7 +765,7 @@ class ChatProvider with ChangeNotifier {
     if (msgIndex != -1) {
       if (_conversations[index].messages[msgIndex].status != MessageStatus.read) {
         _conversations[index].messages[msgIndex].status = MessageStatus.delivered;
-        DatabaseService().updateMessageStatus(msgId, MessageStatus.delivered);
+        _db.updateMessageStatus(msgId, MessageStatus.delivered);
         notifyListeners();
       }
     }
@@ -777,7 +781,7 @@ class ChatProvider with ChangeNotifier {
     );
     if (msgIndex != -1) {
       _conversations[index].messages[msgIndex].status = MessageStatus.read;
-      DatabaseService().updateMessageStatus(msgId, MessageStatus.read);
+      _db.updateMessageStatus(msgId, MessageStatus.read);
       notifyListeners();
     }
   }
@@ -796,7 +800,7 @@ class ChatProvider with ChangeNotifier {
           msg.senderId!.split('/').first.toLowerCase() == senderBareJid &&
           msg.status != MessageStatus.read) {
         _conversations[index].messages[i].status = MessageStatus.read;
-        DatabaseService().updateMessageStatus(msg.id, MessageStatus.read);
+        _db.updateMessageStatus(msg.id, MessageStatus.read);
         updated = true;
       }
     }
@@ -813,7 +817,7 @@ class ChatProvider with ChangeNotifier {
     );
     if (msgIndex != -1) {
       _conversations[index].messages[msgIndex].status = MessageStatus.failed;
-      DatabaseService().updateMessageStatus(msgId, MessageStatus.failed);
+      _db.updateMessageStatus(msgId, MessageStatus.failed);
       debugPrint('ChatProvider: Message $msgId marked as failed: $errorText');
       notifyListeners();
     }
@@ -945,7 +949,7 @@ class ChatProvider with ChangeNotifier {
           if (detectedGroup && !_conversations[index].isGroup) {
             debugPrint('ChatProvider: Force-promoting $targetId to Group Chat');
             _conversations[index].isGroup = true;
-            DatabaseService().updateConversationGroupStatus(targetId, true);
+            _db.updateConversationGroupStatus(targetId, true);
           }
 
           _conversations[index].messages.add(message);
@@ -956,7 +960,7 @@ class ChatProvider with ChangeNotifier {
 
           if (targetId != _activeConversationId && !message.isSent && !message.isRetracted) {
             _conversations[index].unreadCount++;
-            DatabaseService().incrementUnreadCount(targetId);
+            _db.incrementUnreadCount(targetId);
             _showNotification(
               targetId: targetId,
               convName: _conversations[index].name,
@@ -1007,7 +1011,7 @@ class ChatProvider with ChangeNotifier {
           final messages = List<ChatMessage>.from(_toPersist);
           _toPersist.clear();
           final idsToClear = Set<String>.from(_pendingIds);
-          DatabaseService().insertMessagesBatch(messages).then((_) {
+          _db.insertMessagesBatch(messages).then((_) {
             _pendingIds.removeAll(idsToClear);
           }).catchError((e) {
             debugPrint('DB BATCH INSERT ERROR: $e');
@@ -1025,7 +1029,7 @@ class ChatProvider with ChangeNotifier {
     if (index != -1) {
       _conversations[index].messages.clear();
       notifyListeners();
-      await DatabaseService().clearConversationMessages(conversationId);
+      await _db.clearConversationMessages(conversationId);
     }
   }
 
@@ -1065,7 +1069,7 @@ class ChatProvider with ChangeNotifier {
       notifyListeners();
       return;
     }
-    _globalSearchResults = await DatabaseService().searchAllMessages(query);
+    _globalSearchResults = await _db.searchAllMessages(query);
     notifyListeners();
   }
 
@@ -1113,7 +1117,7 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final results = await DatabaseService().searchAllMessages(query);
+      final results = await _db.searchAllMessages(query);
       _globalSearchResults = results;
     } catch (e) {
       debugPrint('GLOBAL SEARCH ERROR: $e');
@@ -1151,7 +1155,7 @@ class ChatProvider with ChangeNotifier {
         await authService.leaveRoom(accountId, jid);
       }
       _conversations.removeAt(idx);
-      await DatabaseService().deleteConversation(jid);
+      await _db.deleteConversation(jid);
       if (_activeConversationId == jid) {
         _activeConversationId = null;
       }
@@ -1271,7 +1275,7 @@ class ChatProvider with ChangeNotifier {
         );
         if (updated) {
           notifyListeners();
-          await DatabaseService().updateMessageReactions(msg.id, msg.reactions);
+          await _db.updateMessageReactions(msg.id, msg.reactions);
         }
       }
     } catch (e) {
@@ -1306,7 +1310,7 @@ class ChatProvider with ChangeNotifier {
     _quoteBackfillAttempts[key] = DateTime.now();
     _pendingQuoteBackfills.add(key);
     try {
-      final existing = await DatabaseService().getMessageById(replyToId);
+      final existing = await _db.getMessageById(replyToId);
       if (existing != null) return;
 
       final convo = _conversations.cast<Conversation?>().firstWhere(
@@ -1353,7 +1357,7 @@ class ChatProvider with ChangeNotifier {
 
       // Local remove
       convo.messages.removeWhere((m) => m.id == messageId);
-      DatabaseService().deleteMessage(messageId);
+      _db.deleteMessage(messageId);
       notifyListeners();
     } catch (e) {
       debugPrint('Error deleting message: $e');
@@ -1375,7 +1379,7 @@ class ChatProvider with ChangeNotifier {
         convo.messages[msgIndex].editTimestamp = DateTime.now();
 
         // Update in database
-        DatabaseService().updateMessage(messageId, newText, isEdited: true);
+        _db.updateMessage(messageId, newText, isEdited: true);
         notifyListeners();
       }
     } catch (e) {
@@ -1389,7 +1393,7 @@ class ChatProvider with ChangeNotifier {
       _activeConversationId = null;
     }
     // Delete from DB
-    await DatabaseService().deleteConversation(conversationId);
+    await _db.deleteConversation(conversationId);
     notifyListeners();
   }
 
