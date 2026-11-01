@@ -34,17 +34,11 @@ class _ChatBubbleState extends State<ChatBubble> {
   double _dragOffset = 0.0;
 
   Color _getSenderColor(BuildContext context) {
-    if (widget.message.senderColor == null) {
-      return ColorGenerator.getColorForId(
-        widget.message.senderId ?? 'Unknown',
-      );
-    }
-    try {
-      final hex = widget.message.senderColor!.replaceFirst('#', '0xFF');
-      return Color(int.parse(hex));
-    } catch (_) {
-      return Theme.of(context).colorScheme.secondary;
-    }
+    // senderId-based consistent color (XEP-0392-style); messages carry no
+    // custom sender color today.
+    return ColorGenerator.getColorForId(
+      widget.message.senderId ?? 'Unknown',
+    );
   }
 
   @override

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:convert' as json;
 import 'dart:typed_data';
 
@@ -93,7 +92,6 @@ class Contact {
 }
 
 class ChatMessage {
-  dynamic get senderColor => null;
   final String id;
   String text;
   final DateTime timestamp;
@@ -362,30 +360,34 @@ class Hat {
 class Conversation {
   final String id;
   final String name;
+  // ---- Persistence payload (conversations table row; never UI-only state) ----
   final String? avatarUrl;
-  final List<ChatMessage> messages;
   final String protocol; // 'XMPP' or 'IRC'
   final String? accountId;
-  bool isTyping;
-  String? typingUser;
+  bool isGroup;
   int unreadCount;
-  ContactStatus status;
-  String? presenceMessage;
-  Uint8List? avatarBytes;
-  List<RoomParticipant> participants;
   String? wallpaperPath;
   int? wallpaperColor;
-  String? topic;
-  String? draft;
-  String? encryptionType;
-  String? pinnedMessageId;
-  String? pinnedMessageText;
   bool muteNotifications;
   bool messagePreview;
   String notificationSound;
   bool omemoEnabled;
   bool pinned;
   bool archived;
+  // ---- UI state only (never persisted) ----
+  final List<ChatMessage> messages;
+  bool isTyping;
+  String? typingUser;
+  ContactStatus status;
+  String? presenceMessage;
+  Uint8List? avatarBytes;
+  List<RoomParticipant> participants;
+  String? topic;
+  String? draft;
+  String? encryptionType;
+  String? pinnedMessageId;
+  String? pinnedMessageText;
+  bool historyLoaded;
   DateTime? lastActivity;
 
   Conversation({
@@ -418,9 +420,6 @@ class Conversation {
     this.archived = false,
     this.lastActivity,
   });
-
-  bool isGroup;
-  bool historyLoaded;
 
   ChatMessage? get lastMessage => messages.isNotEmpty ? messages.last : null;
 }
