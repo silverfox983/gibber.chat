@@ -91,6 +91,10 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
       gateways preserved) (`0a487c2`).
 - [x] Managed manager lifecycle: `_resetRtcManager()` / `_resetMultiPeerManager()` consolidate the
       5 duplicated dispose+recreate sites, disposing before recreating (`45af99d`).
+- [x] `_jingleSignaling(accountId)` accessor replaces 13 duplicated
+      `getJingleService(accountId ?? '') ?? jingleSignaling` fallback expressions (`6e9efa8`).
+      Note: sites pass their own account id verbatim so per-account resolution semantics are
+      byte-identical (event.accountId site intentionally has no `_callAccountId` fallback).
 - [x] Audio-level `notifyListeners()` throttled in a single shared `_onRtcAudioLevels`
       (value change ≥0.05, talk-while-muted flag change, or 150ms cadence — previously every
       stats tick rebuilt the whole app; 3 duplicated listeners deleted) (`843a025`).
