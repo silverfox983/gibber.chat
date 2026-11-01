@@ -1,0 +1,28 @@
+# Biboumi configuration for the IRC gateway component.
+# Rendered at container start by the `biboumi-config` init service, which
+# replaces the __PLACEHOLDER__ values from the compose environment.
+#
+# NOTE on biboumi semantics: `hostname` is BOTH the component JID biboumi
+# registers as AND the XMPP server it connects to. When the component JID is
+# not resolvable inside the docker network, point the connection at the server
+# container with `xmpp_server_ip`.
+#
+# fixed_irc_server=true exposes rooms as #channel@<hostname> (no %server
+# suffix) — the JID format the Gibber client builds when joining a trending
+# room from the landing page. One IRC network per gateway instance: set
+# IRC_SERVER_HOSTNAME accordingly (the landing-page snapshot assumes
+# Libera.Chat by default).
+
+hostname=irc.gibberapp.online
+port=5347
+password=__SLIDIRC_SECRET__
+xmpp_server_ip=prosody
+
+fixed_irc_server=true
+address=__IRC_SERVER_HOSTNAME__
+
+db_name=/var/lib/biboumi/biboumi.sqlite
+log_level=1
+realname_element=username
+persistent_muc_list=false
+require_whitelisted_ports=false

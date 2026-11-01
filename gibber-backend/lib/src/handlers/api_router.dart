@@ -1286,7 +1286,7 @@ class ApiRouter {
       'icon': 'telegram',
       'requiresConfig': ['api_id', 'api_hash'],
       'componentJid': 'telegram',
-      'slidgeImage': 'ghcr.io/regretfulswan/slidgram:latest',
+      'slidgeImage': 'codeberg.org/slidge/slidgram:latest',
     },
     'discord': {
       'name': 'Discord',
@@ -1294,7 +1294,7 @@ class ApiRouter {
       'icon': 'discord',
       'requiresConfig': ['bot_token'],
       'componentJid': 'discord',
-      'slidgeImage': 'ghcr.io/regretfulswan/slidcord:latest',
+      'slidgeImage': 'codeberg.org/slidge/slidcord:latest',
     },
     'irc': {
       'name': 'IRC',
@@ -1302,7 +1302,7 @@ class ApiRouter {
       'icon': 'irc',
       'requiresConfig': ['server_hostname', 'server_port'],
       'componentJid': 'irc',
-      'slidgeImage': 'ghcr.io/regretfulswan/slidirc:latest',
+      'slidgeImage': 'louiz/biboumi:9.0',
     },
     'matrix': {
       'name': 'Matrix',
@@ -1310,7 +1310,7 @@ class ApiRouter {
       'icon': 'matrix',
       'requiresConfig': ['homeserver_url'],
       'componentJid': 'matrix',
-      'slidgeImage': 'ghcr.io/regretfulswan/matridge:latest',
+      'slidgeImage': 'codeberg.org/slidge/matridge:latest',
     },
     'whatsapp': {
       'name': 'WhatsApp',
@@ -1318,7 +1318,7 @@ class ApiRouter {
       'icon': 'whatsapp',
       'requiresConfig': ['phone_number'],
       'componentJid': 'whatsapp',
-      'slidgeImage': 'ghcr.io/regretfulswan/slidge-whatsapp:latest',
+      'slidgeImage': 'codeberg.org/slidge/slidge-whatsapp:latest',
     },
   };
 
@@ -1367,10 +1367,17 @@ class ApiRouter {
   String _getGatewayStatus(String gateway) {
     final enabled = _getEnabledGateways();
     if (!enabled.contains(gateway)) return 'disabled';
+    // Split deployment (docker-compose): the gateway containers register with
+    // Prosody as external components and hold their own credentials - the
+    // backend only reports availability.
+    if (_isSplitGatewayMode()) return 'ready';
     final configured = _getConfiguredGateways();
     if (!configured.contains(gateway)) return 'not_configured';
     return 'ready';
   }
+
+  bool _isSplitGatewayMode() =>
+      Platform.environment['GIBBER_SPLIT_GATEWAYS'] == 'true';
 
   Future<Response> _handleConfigureGateway(Request request) async {
     if (!_verifyAdminKey(request)) {

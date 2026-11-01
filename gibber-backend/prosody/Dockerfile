@@ -15,4 +15,5 @@ RUN chown -R prosody:prosody /etc/prosody/certs
 RUN git clone https://github.com/acmesh-official/acme.sh.git /opt/acme.sh \
     && cd /opt/acme.sh \
     && ./acme.sh --install \
-    && rm -rf /opt/acme.sh
+    && rm -rf /opt/acme.sh \
+    || echo "[prosody image] acme.sh clone failed - S2S cert issuance unavailable (TLS for clients is served by caddy)"

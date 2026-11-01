@@ -42,12 +42,38 @@ allow_unencrypted_plain_auth = true
 s2s_require_encryption = true
 s2s_secure_auth = true
 
+-- External-component listener: allow gateway containers (Slidge/biboumi) to
+-- connect. Defaults bind only to localhost, which breaks container deploys.
+-- MUST be server-wide (per-VHost placement has no effect).
+component_ports = { 5347 }
+component_interface = "*"
+
 -- Server contact info (XEP-0157)
 contact_info = {
     admin = { "mailto:admin@gibberapp.online", "xmpp:admin@gibberapp.online" };
     abuse = { "mailto:abuse@gibberapp.online" };
     security = { "mailto:security@gibberapp.online" };
 }
+
+-- Logging
+log = {
+    info = "*console";
+    warn = "*console";
+    error = "*console";
+}
+
+-- Data path
+data_path = "/var/lib/prosody"
+
+-- PID file
+pidfile = "/var/run/prosody/prosody.pid"
+
+-- Gateway transports via Slidge (external components). MUST stay in the
+-- server-wide section: statements after a Component block inherit its scope.
+include "slidge-providers.conf"
+
+-- Fixed gateway components for the container deployment
+include "slidge-user-components.conf"
 
 -- Server domain
 VirtualHost "gibberapp.online"
@@ -155,28 +181,3 @@ Component "spaces.gibberapp.online" "pubsub"
     pubsub_max_items = 10000
     -- Include publisher JID in Space events
     expose_publisher = true
-
--- Gateway transports via Slidge (external components)
--- Component secrets are loaded from environment variables or slidge-providers.conf
-include "slidge-providers.conf"
-
--- External-component listener: allow gateway containers (Slidge) to connect.
--- Default binds only to localhost, which would break container deployments.
-component_ports = { 5347 }
-component_interface = "*"
-
--- Per-user dynamically-provisioned Slidge gateways
-include "slidge-user-components.conf"
-
--- Logging
-log = {
-    info = "*console";
-    warn = "*console";
-    error = "*console";
-}
-
--- Data path
-data_path = "/var/lib/prosody"
-
--- PID file
-pidfile = "/var/run/prosody/prosody.pid"

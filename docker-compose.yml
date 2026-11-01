@@ -10,9 +10,9 @@
 #   caddy           TLS edge: static web app + API/XMPP-websocket reverse proxy
 #   janus           WebRTC SFU for group calls
 #   coturn          TURN/STUN for peer connections
+#   biboumi         IRC gateway (config rendered via biboumi-config init)
 #   slidgram        Telegram gateway      (profile: telegram / slidge)
 #   slidcord        Discord gateway      (profile: discord  / slidge)
-#   slidirc         IRC gateway          (profile: irc      / slidge)
 #   matridge        Matrix gateway       (profile: matrix   / slidge)
 #   slidge-whatsapp WhatsApp gateway     (profile: whatsapp / slidge)
 #
@@ -25,7 +25,7 @@
 #                                                 #  this for the join flow)
 #
 # After the first start, gateways register with Prosody automatically. Verify
-# with `docker compose logs slidirc` (the join flow on the website resolves
+# with `docker compose logs biboumi` (the join flow on the website resolves
 # the IRC gateway through the backend /gateways endpoint).
 
 name: gibber
@@ -67,7 +67,7 @@ services:
       SLIDGWHATSAPP_SECRET: ${SLIDGEWHATSAPP_SECRET:-change-me-whatsapp-secret}
     networks: [gibber]
     healthcheck:
-      test: ["CMD", "pidof", "prosody"]
+      test: ["CMD-SHELL", "pgrep -f '/usr/bin/prosody' || pgrep -f 'prosody -F'"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -79,6 +79,10 @@ services:
     build: ./gibber-backend
     container_name: gibber-backend
     restart: unless-stopped
+    # Split-compose entrypoint override: the image's default entrypoint styles a
+    # monolith (prosody/janus/coturn in one container). The server binary reads
+    # all configuration from GIBBER_* env, which this compose provides.
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /app/data /app/web && exec /app/bin/server"]
     ports:
       - "8080:8080"   # Direct API access (caddy is the TLS front)
     volumes:
@@ -106,6 +110,17 @@ services:
       GIBBER_GIPHY_API_KEY: ${GIBBER_GIPHY_API_KEY:-}
       GIBBER_PUSH_SECRET: ${GIBBER_PUSH_SECRET:-gibber-push-trigger-secret-change-in-production}
       GIBBER_SLIDGE_SECRET: ${GIBBER_SLIDGE_SECRET:-change-me-in-production}
+      # Mirror the gateways actually deployed via profiles: the /gateways
+      # endpoint reports these (the client's join flow gates on them).
+      GIBBER_SLIDIRC_ENABLED: ${SLIDIRC_ENABLED:-true}
+      GIBBER_SLIDGRAM_ENABLED: ${SLIDGRAM_ENABLED:-false}
+      GIBBER_SLIDCORD_ENABLED: ${SLIDCORD_ENABLED:-false}
+      GIBBER_MATRIDGE_ENABLED: ${MATRIDGE_ENABLED:-false}
+      GIBBER_SLIDGEWHATSAPPER_ENABLED: ${SLIDGEWHATSAPP_ENABLED:-false}
+      GIBBER_SPLIT_GATEWAYS: "true"
+      IRC_SERVER_HOSTNAME: ${IRC_SERVER_HOSTNAME:-irc.libera.chat}
+      GIBBER_JANUS_HTTP_URL: http://janus:8088
+      GIBBER_COTURN_HOST: coturn
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       BTCPAY_URL: ${BTCPAY_URL:-}
@@ -158,7 +173,7 @@ services:
   # Media cluster
   # ===========================================================================
   janus:
-    image: canyan/janus-gateway:latest
+    image: canyan/janus-gateway:master
     container_name: gibber-janus
     restart: unless-stopped
     ports:
@@ -172,7 +187,7 @@ services:
     networks: [gibber]
 
   coturn:
-    image: coturn/coturn:latest
+    image: coturn/coturn:alpine
     container_name: gibber-coturn
     restart: unless-stopped
     ports:
@@ -191,92 +206,135 @@ services:
     networks: [gibber]
 
   # ===========================================================================
-  # Slidge gateways (enable with --profile slidge, or per-protocol profiles)
+  # IRC gateway (biboumi — the reference XMPP↔IRC component; the slidge family
+  # has no IRC gateway). Rooms are served as #channel@irc.<domain>.
   # ===========================================================================
+  biboumi-config:
+    image: busybox:stable
+    container_name: gibber-biboumi-config
+    restart: "no"
+    profiles: [irc, slidge]
+    volumes:
+      - ./docker/biboumi/biboumi.cfg.template:/biboumi.cfg.template:ro
+      - biboumi_cfg:/etc/biboumi
+    command:
+      - sh
+      - -c
+      - |
+        sed -e "s/__SLIDIRC_SECRET__/${SLIDIRC_SECRET:-change-me-irc-secret}/" \
+            -e "s/__IRC_SERVER_HOSTNAME__/${IRC_SERVER_HOSTNAME:-irc.libera.chat}/" \
+            /biboumi.cfg.template > /etc/biboumi/biboumi.cfg
+        echo "biboumi.cfg rendered"
+    networks: [gibber]
+
+  biboumi:
+    image: louiz/biboumi:9.0
+    container_name: gibber-biboumi
+    restart: unless-stopped
+    profiles: [irc, slidge]
+    volumes:
+      - biboumi_cfg:/etc/biboumi
+      - biboumi_data:/var/lib/biboumi
+    depends_on:
+      biboumi-config:
+        condition: service_completed_successfully
+      prosody:
+        condition: service_healthy
+    networks: [gibber]
+
+  # Prepares the writable data dirs for the slidge gateways. The containers run
+  # as the `slidge` user; named volumes start root-owned.
+  slidge-init:
+    image: busybox:stable
+    restart: "no"
+    profiles: [slidge, telegram, discord, matrix, whatsapp]
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /d-telegram /d-discord /d-matrix /d-whatsapp &&
+        chmod 777 /d-telegram /d-discord /d-matrix /d-whatsapp &&
+        echo "slidge data dirs ready"
+    volumes:
+      - slidge_data_telegram:/d-telegram
+      - slidge_data_discord:/d-discord
+      - slidge_data_matrix:/d-matrix
+      - slidge_data_whatsapp:/d-whatsapp
+    networks: [gibber]
+
   slidgram:
-    image: ghcr.io/regretfulswan/slidgram:latest
+    image: codeberg.org/slidge/slidgram:latest
     container_name: gibber-slidgram
     restart: unless-stopped
     profiles: [telegram, slidge]
     environment:
-      SLIDGE_COMPONENT_JID: telegram.${GIBBER_SITE:-gibberapp.online}
-      SLIDGE_COMPONENT_SECRET: ${SLIDGRAM_SECRET:-change-me-telegram-secret}
-      SLIDGE_XMPP_SERVER: prosody
-      SLIDGE_XMPP_PORT: "5347"
-      SLIDGE_REGISTRATION_OPEN: ${SLIDGRAM_OPEN:-true}
-      TG_API_ID: ${TG_API_ID:-}
-      TG_API_HASH: ${TG_API_HASH:-}
+      SLIDGE_JID: telegram.${GIBBER_SITE:-gibberapp.online}
+      SLIDGE_SECRET: ${SLIDGRAM_SECRET:-change-me-telegram-secret}
+      SLIDGE_SERVER: prosody
+      SLIDGE_PORT: "5347"
+    volumes:
+      - slidge_data_telegram:/var/lib/slidge
     networks: [gibber]
     depends_on:
+      slidge-init:
+        condition: service_completed_successfully
       prosody:
         condition: service_healthy
 
   slidcord:
-    image: ghcr.io/regretfulswan/slidcord:latest
+    image: codeberg.org/slidge/slidcord:latest
     container_name: gibber-slidcord
     restart: unless-stopped
     profiles: [discord, slidge]
     environment:
-      SLIDGE_COMPONENT_JID: discord.${GIBBER_SITE:-gibberapp.online}
-      SLIDGE_COMPONENT_SECRET: ${SLIDCORD_SECRET:-change-me-discord-secret}
-      SLIDGE_XMPP_SERVER: prosody
-      SLIDGE_XMPP_PORT: "5347"
-      SLIDGE_REGISTRATION_OPEN: ${SLIDCORD_OPEN:-true}
-      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      SLIDGE_JID: discord.${GIBBER_SITE:-gibberapp.online}
+      SLIDGE_SECRET: ${SLIDCORD_SECRET:-change-me-discord-secret}
+      SLIDGE_SERVER: prosody
+      SLIDGE_PORT: "5347"
+    volumes:
+      - slidge_data_discord:/var/lib/slidge
     networks: [gibber]
     depends_on:
-      prosody:
-        condition: service_healthy
-
-  slidirc:
-    image: ghcr.io/regretfulswan/slidirc:latest
-    container_name: gibber-slidirc
-    restart: unless-stopped
-    profiles: [irc, slidge]
-    environment:
-      SLIDGE_COMPONENT_JID: irc.${GIBBER_SITE:-gibberapp.online}
-      SLIDGE_COMPONENT_SECRET: ${SLIDIRC_SECRET:-change-me-irc-secret}
-      SLIDGE_XMPP_SERVER: prosody
-      SLIDGE_XMPP_PORT: "5347"
-      SLIDGE_REGISTRATION_OPEN: ${SLIDIRC_OPEN:-true}
-      IRC_SERVER_HOSTNAME: ${IRC_SERVER_HOSTNAME:-irc.libera.chat}
-      IRC_SERVER_PORT: ${IRC_SERVER_PORT:-6697}
-    networks: [gibber]
-    depends_on:
+      slidge-init:
+        condition: service_completed_successfully
       prosody:
         condition: service_healthy
 
   matridge:
-    image: ghcr.io/regretfulswan/matridge:latest
+    image: codeberg.org/slidge/matridge:latest
     container_name: gibber-matridge
     restart: unless-stopped
     profiles: [matrix, slidge]
     environment:
-      SLIDGE_COMPONENT_JID: matrix.${GIBBER_SITE:-gibberapp.online}
-      SLIDGE_COMPONENT_SECRET: ${MATRIDGE_SECRET:-change-me-matrix-secret}
-      SLIDGE_XMPP_SERVER: prosody
-      SLIDGE_XMPP_PORT: "5347"
-      SLIDGE_REGISTRATION_OPEN: ${MATRIDGE_OPEN:-true}
-      MATRIX_HOMESERVER: ${MATRIX_HOMESERVER:-https://matrix.org}
+      SLIDGE_JID: matrix.${GIBBER_SITE:-gibberapp.online}
+      SLIDGE_SECRET: ${MATRIDGE_SECRET:-change-me-matrix-secret}
+      SLIDGE_SERVER: prosody
+      SLIDGE_PORT: "5347"
+    volumes:
+      - slidge_data_matrix:/var/lib/slidge
     networks: [gibber]
     depends_on:
+      slidge-init:
+        condition: service_completed_successfully
       prosody:
         condition: service_healthy
 
   slidge-whatsapp:
-    image: ghcr.io/regretfulswan/slidge-whatsapp:latest
+    image: codeberg.org/slidge/slidge-whatsapp:latest
     container_name: gibber-slidge-whatsapp
     restart: unless-stopped
     profiles: [whatsapp, slidge]
     environment:
-      SLIDGE_COMPONENT_JID: whatsapp.${GIBBER_SITE:-gibberapp.online}
-      SLIDGE_COMPONENT_SECRET: ${SLIDGEWHATSAPP_SECRET:-change-me-whatsapp-secret}
-      SLIDGE_XMPP_SERVER: prosody
-      SLIDGE_XMPP_PORT: "5347"
-      SLIDGE_REGISTRATION_OPEN: ${SLIDGEWHATSAPP_OPEN:-true}
-      WA_PHONE_NUMBER: ${WA_PHONE_NUMBER:-}
+      SLIDGE_JID: whatsapp.${GIBBER_SITE:-gibberapp.online}
+      SLIDGE_SECRET: ${SLIDGEWHATSAPP_SECRET:-change-me-whatsapp-secret}
+      SLIDGE_SERVER: prosody
+      SLIDGE_PORT: "5347"
+    volumes:
+      - slidge_data_whatsapp:/var/lib/slidge
     networks: [gibber]
     depends_on:
+      slidge-init:
+        condition: service_completed_successfully
       prosody:
         condition: service_healthy
 
@@ -288,6 +346,12 @@ volumes:
   web_build:
   caddy_data:
   caddy_config:
+  biboumi_cfg:
+  biboumi_data:
+  slidge_data_telegram:
+  slidge_data_discord:
+  slidge_data_matrix:
+  slidge_data_whatsapp:
 
 networks:
   gibber:

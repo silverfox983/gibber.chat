@@ -1,0 +1,11 @@
+# Prevent CRLF-corrupted entrypoints/configs in containers built from
+# Windows checkouts (shebangs with trailing \r fail as "no such file").
+*.sh text eol=lf
+*.cfg text eol=lf
+*.cfg.lua text eol=lf
+*.lua text eol=lf
+*.jcfg text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.Dockerfile text eol=lf
+Dockerfile text eol=lf

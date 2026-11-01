@@ -52,12 +52,16 @@ class HealthService {
       'websocketUrl': wsUrl,
     };
 
-    // Janus connectivity check
+    // Janus connectivity check (HTTP transport, URL from JANUS env)
+    final janusHttpUrl =
+        Platform.environment['GIBBER_JANUS_HTTP_URL'] ?? 'http://localhost:8088';
+    final janusWsUrl =
+        Platform.environment['GIBBER_JANUS_URL'] ?? 'ws://localhost:8188/';
     bool janusHealthy = false;
     try {
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 5);
-      final request = await client.getUrl(Uri.parse('http://localhost:8088/janus/info'));
+      final request = await client.getUrl(Uri.parse('$janusHttpUrl/janus/info'));
       final response = await request.close();
       janusHealthy = response.statusCode == 200;
       client.close();
@@ -67,7 +71,7 @@ class HealthService {
 
     results['janus'] = {
       'status': janusHealthy ? 'healthy' : 'unhealthy',
-      'url': 'ws://localhost:8188/',
+      'url': janusWsUrl,
     };
 
     // coturn connectivity check
@@ -91,9 +95,12 @@ class HealthService {
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
       ];
-      final addr = InternetAddress.tryParse('127.0.0.1');
+      final addr = InternetAddress.tryParse(
+          Platform.environment['GIBBER_COTURN_HOST'] ?? '127.0.0.1');
+      final coturnPort =
+          int.tryParse(Platform.environment['GIBBER_COTURN_PORT'] ?? '3478') ?? 3478;
       if (addr != null) {
-        socket.send(stunReq, addr, 3478);
+        socket.send(stunReq, addr, coturnPort);
       }
       await Future.delayed(const Duration(seconds: 2));
       socket.close();
