@@ -97,4 +97,53 @@ void main() {
       expect(await c2.future, isNotNull);
     });
   });
+
+  group('CompleterMap<String>', () {
+    CompleterMap<String> _map() => CompleterMap<String>();
+
+    test('register/complete typed round-trip', () async {
+      final m = _map();
+      final c = Completer<String>();
+      m.register('k', c);
+      expect(m.complete('k', 'v'), isTrue);
+      expect(await c.future, 'v');
+      expect(m.contains('k'), isFalse);
+    });
+
+    test('complete unknown id fails silently', () {
+      final m = _map();
+      expect(m.complete('x', 'v'), isFalse);
+      expect(m.complete(null, 'v'), isFalse);
+    });
+
+    test('contain(null) is false, forget drops without completing', () {
+      final m = _map();
+      expect(m.contains(null), isFalse);
+      final c = Completer<String>();
+      m.register('k', c);
+      m.forget('k');
+      expect(m.hasPending, isFalse);
+      expect(c.isCompleted, isFalse);
+    });
+
+    test('failAll notifies all listeners with error', () async {
+      final m = _map();
+      final c1 = Completer<String>();
+      final c2 = Completer<String>();
+      m.register('a', c1);
+      m.register('b', c2);
+      m.failAll('Shutdown');
+      await expectLater(c1.future, throwsA('Shutdown'));
+      await expectLater(c2.future, throwsA('Shutdown'));
+    });
+
+    test('pendingCount tracks concurrent requests', () {
+      final m = _map();
+      m.register('a', Completer<String>());
+      m.register('b', Completer<String>());
+      expect(m.pendingCount, 2);
+      m.forget('a');
+      expect(m.pendingCount, 1);
+    });
+  });
 }
