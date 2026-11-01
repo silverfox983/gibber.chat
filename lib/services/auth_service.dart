@@ -2684,7 +2684,6 @@ class _AuthVCardDeps implements AuthServiceVCardDeps {
   Map<String, String> get xmppJids => _auth._xmppJids;
   String? get activeAccountId => _auth.activeAccountId;
   UserProfile? get currentProfile => _auth._currentProfile;
-  set currentProfile(UserProfile? value) => _auth._currentProfile = value;
   Set<String> get vCardUnsupportedJids => _auth.vCardUnsupportedJids;
   Map<String, DateTime> get vCardLastFetch => _auth.vCardLastFetch;
   Set<String> get pendingVCardFetches => _auth.pendingVCardFetches;

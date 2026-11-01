@@ -105,7 +105,6 @@ abstract class AuthServiceVCardDeps {
   Map<String, String> get xmppJids;
   String? get activeAccountId;
   UserProfile? get currentProfile;
-  set currentProfile(UserProfile? value);
   Set<String> get vCardUnsupportedJids;
   Map<String, DateTime> get vCardLastFetch;
   Set<String> get pendingVCardFetches;
