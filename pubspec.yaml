@@ -67,6 +67,7 @@ flutter:
 
   assets:
     - assets/logo.png
+    - assets/netsplit_popular.json
     - assets/sounds/ringtone.mp3
     - assets/sounds/ringback.mp3
     - assets/sounds/message.mp3
@@ -77,6 +78,8 @@ dependency_overrides:
   intl: ^0.20.2
   xmpp_stone:
     path: packages/xmpp_stone
+  sip_ua:
+    path: packages/sip_ua
 
 flutter_launcher_icons:
   android: true
