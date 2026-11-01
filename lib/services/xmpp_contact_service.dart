@@ -11,9 +11,6 @@ import '../models/space_models.dart';
 import 'auth_service_deps.dart';
 import 'avatar_cache_service.dart';
 import 'database_service.dart';
-import 'secure_storage_service.dart';
-import 'xmpp_omemo_service.dart';
-import 'xmpp_room_service.dart';
 
 
 class XmppContactService {
