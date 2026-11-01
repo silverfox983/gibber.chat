@@ -1169,6 +1169,52 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
     }
   }
 
+  Future<void> _setupAccountServices({
+    required String id,
+    required xmpp.Connection conn,
+    required String fullJidStr,
+    required String domain,
+  }) async {
+    // Enable keepalive pings (60s interval, 30s timeout, 3 max unanswered)
+    xmpp.PingManager.getInstance(conn).setPingInterval(
+      const Duration(seconds: 60),
+      timeout: const Duration(seconds: 30),
+    );
+
+    // OMEMO: Publish keys now that we're connected & authenticated (XEP-0384)
+    final bareJid = fullJidStr.split('/').first.toLowerCase();
+    _omemoService.publishKeys(conn, bareJid);
+
+    // Broadcast presence after connection (including XEP-0153 avatar hash)
+    await updateMyStatus(_myStatus, message: _myStatusMessage);
+
+    final signaling = JingleSignalingService(conn);
+    _jingleServices[id] = signaling;
+    debugPrint(
+      'VOIP ($id): Jingle signaling service initialized and attached.',
+    );
+
+    final uploadService = HttpUploadService(conn);
+    _uploadServices[id] = uploadService;
+
+    // Trigger Service Discovery
+    await _discoverServiceFeatures(id, domain);
+
+    // Auto-Join Persistence
+    _autoJoinRooms(id);
+
+    // Trigger Full Data Sync (MAM, Bookmarks, vCard)
+    _syncAllXmppData(id, conn);
+
+    // Flush offline message queue now that we're connected
+    _flushPendingMessages(id);
+
+    // XEP-0357: Enable push notifications so Prosody triggers mod_http_push
+    _enablePushNotifications(conn, id);
+
+    onAuthenticated?.call(bareJid);
+  }
+
   Future<void> _onXmppConnectionState(
     xmpp.XmppConnectionState state, {
     required String id,
@@ -1187,51 +1233,14 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
           _activeAccountId ??= id;
           _authenticatedAccountIds.add(id); // Track user intent
 
-          // Enable keepalive pings (60s interval, 30s timeout, 3 max unanswered)
-          xmpp.PingManager.getInstance(conn).setPingInterval(
-            const Duration(seconds: 60),
-            timeout: const Duration(seconds: 30),
-          );
-
-          // OMEMO: Publish keys now that we're connected & authenticated (XEP-0384)
-          final bareJid = fullJidStr.split('/').first.toLowerCase();
-          _omemoService.publishKeys(conn, bareJid);
-
-          // Broadcast presence after connection (including XEP-0153 avatar hash)
-          await updateMyStatus(_myStatus, message: _myStatusMessage);
-
-          final signaling = JingleSignalingService(conn);
-          _jingleServices[id] = signaling;
-          debugPrint(
-            'VOIP ($id): Jingle signaling service initialized and attached.',
-          );
-
-          final uploadService = HttpUploadService(conn);
-          _uploadServices[id] = uploadService;
-
-          // Trigger Service Discovery
-          await _discoverServiceFeatures(id, domain);
-
-          // Auto-Join Persistence
-          _autoJoinRooms(id);
-
-          // Trigger Full Data Sync (MAM, Bookmarks, vCard)
-          _syncAllXmppData(id, conn);
-
-          // Flush offline message queue now that we're connected
-          _flushPendingMessages(id);
-
-          // XEP-0357: Enable push notifications so Prosody triggers mod_http_push
-          _enablePushNotifications(conn, id);
-
-          onAuthenticated?.call(bareJid);
+          await _setupAccountServices(id: id, conn: conn, fullJidStr: fullJidStr, domain: domain);
 
           // Services are initialized on Ready state above.
           // Redundant listener removed to centralize state handling.
 
           // Pipe events to unified stream
           _jingleEventSubs[id]?.cancel();
-          _jingleEventSubs[id] = signaling.events.listen((event) {
+          _jingleEventSubs[id] = _jingleServices[id]!.events.listen((event) {
             _jingleEventController.add(
               JingleEvent(
                 action: event.action,
