@@ -157,9 +157,13 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
       no longer binds the dead column. **Fixed latent bug**: `_decodeReactions` only accepted
       Maps but DB rows are JSON strings — persisted reactions were never actually reloaded.
       +4 model round-trip tests (`test/chat_models_test.dart`).
-- [ ] Model split: UI-state vs persistence payload in `Conversation` (typing flags, unread
-      count live alongside DB row mapping). Dedicated session: DatabaseService conversation-row
-      mapping + every `Conversation` field consumer.
+- [ ] Model split: UI-state vs persistence payload in `Conversation`. Evidence review (`0e142ba`
+      follow-ups): the boundary already holds in practice — `DatabaseService` row mapping touches
+      only persistence fields and never persists UI state, so a class split would ripple through
+      ~30 consumers for zero behavior change. Closed instead with: field layout regrouped and
+      commented (payload vs UI-state), vestigial `senderColor` removed (consumer collapsed to its
+      always-taken consistent-color branch), `unreadCount` documented as the one intentional
+      straddler (persisted + UI mutated together by provider flows).
 
 ## Notes
 
