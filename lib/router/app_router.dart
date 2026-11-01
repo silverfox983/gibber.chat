@@ -30,6 +30,8 @@ import '../screens/room_affiliation_screen.dart';
 import '../screens/feed_screen.dart';
 import '../screens/space_detail_view.dart';
 import '../screens/spaces_screen.dart';
+import '../screens/join_room_screen.dart';
+import '../models/join_intent.dart';
 import '../screens/space_settings_screen.dart';
 import '../screens/subscriptions_screen.dart';
 import '../screens/post_detail_screen.dart';
@@ -375,6 +377,17 @@ GoRouter createAppRouter({
                   return _fadePage(state: state, child: ChatSettingsScreen(
                     conversation: args['conversation'] as Conversation,
                   ));
+                },
+              ),
+              GoRoute(
+                path: 'join-room',
+                name: 'joinRoom',
+                pageBuilder: (context, state) {
+                  final intent = JoinIntent.decode(state.uri.queryParameters['room']);
+                  return _fadePage(
+                    state: state,
+                    child: JoinRoomScreen(intent: intent),
+                  );
                 },
               ),
               GoRoute(

@@ -7,6 +7,9 @@ import '../providers/theme_provider.dart';
 import '../services/popular_room.dart';
 import '../services/popular_rooms_service.dart';
 import '../services/xep_0392_service.dart';
+import '../services/auth_service.dart';
+import '../services/pending_join_service.dart';
+import '../models/join_intent.dart';
 import 'package:provider/provider.dart';
 
 /// Section anchor so nav links can target the rooms list.
@@ -562,7 +565,21 @@ class _LandingScreenState extends State<LandingScreen>
     );
   }
 
-  void _joinChat() => context.go('/register');
+  void _joinChat([PopularRoom? room]) {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    if (room != null) {
+      final intent = JoinIntent.forRoom(
+        channel: room.channel,
+        network: room.network,
+      );
+      if (auth.isAuthenticated) {
+        context.goNamed('joinRoom', queryParameters: {'room': intent.encode()});
+        return;
+      }
+      PendingJoinService.instance.set(intent);
+    }
+    context.go(auth.isAuthenticated ? '/app' : '/register');
+  }
 
   Widget _networkChip({
     required String label,
@@ -626,7 +643,7 @@ class _LandingScreenState extends State<LandingScreen>
     final networkColor = Xep0392Service.generateColor(room.network);
 
     return InkWell(
-      onTap: () => _joinChat(),
+      onTap: () => _joinChat(room),
       borderRadius: BorderRadius.circular(18),
       child: Container(
         padding: const EdgeInsets.all(16),

@@ -10,6 +10,7 @@ import '../providers/chat_provider.dart';
 import '../widgets/group_invite_dialog.dart';
 import '../providers/call_provider.dart';
 import '../services/call_history_service.dart';
+import '../services/pending_join_service.dart';
 import '../providers/theme_provider.dart';
 import './contacts_screen.dart';
 import './feed_screen.dart';
@@ -52,6 +53,16 @@ class _MainChatScreenState extends State<MainChatScreen> {
     super.initState();
     _authService = Provider.of<AuthService>(context, listen: false);
     _callProvider = Provider.of<CallProvider>(context, listen: false);
+
+    // Resume a pending join from the landing page (pre-auth room selection).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final pending = PendingJoinService.instance.pending;
+      if (pending != null && context.mounted) {
+        PendingJoinService.instance.take();
+        context.pushNamed('joinRoom', queryParameters: {'room': pending.encode()});
+      }
+    });
 
     _searchController.addListener(() {
       setState(() => _searchQuery = _searchController.text.toLowerCase());
