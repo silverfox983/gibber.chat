@@ -58,7 +58,9 @@ services:
       SLIDCORD_SECRET: ${SLIDCORD_SECRET:-change-me-discord-secret}
       MATRIDGE_SECRET: ${MATRIDGE_SECRET:-change-me-matrix-secret}
       SLIDGWHATSAPP_SECRET: ${SLIDGEWHATSAPP_SECRET:-change-me-whatsapp-secret}
-    networks: [gibber]
+    networks:
+      gibber:
+        ipv4_address: ${GIBBER_PROSODY_IP:-172.30.0.10}
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f '/usr/bin/prosody' || pgrep -f 'prosody -F'"]
       interval: 15s
@@ -202,10 +204,12 @@ services:
   # has no IRC gateway). Rooms are served as #channel@irc.<domain>.
   # ===========================================================================
   biboumi-config:
-    image: busybox:stable
+    image: alpine:3
     container_name: gibber-biboumi-config
     restart: "no"
     profiles: [irc, slidge]
+    environment:
+      GIBBER_PROSODY_IP: ${GIBBER_PROSODY_IP:-172.30.0.10}
     volumes:
       - ./docker/biboumi/biboumi.cfg.template:/biboumi.cfg.template:ro
       - biboumi_cfg:/etc/biboumi
@@ -215,15 +219,21 @@ services:
       - |
         sed -e "s/__SLIDIRC_SECRET__/${SLIDIRC_SECRET:-change-me-irc-secret}/" \
             -e "s/__IRC_SERVER_HOSTNAME__/${IRC_SERVER_HOSTNAME:-irc.libera.chat}/" \
-            /biboumi.cfg.template > /etc/biboumi/biboumi.cfg
-        echo "biboumi.cfg rendered"
+            -e "s/__XMPP_SERVER_IP__/${GIBBER_PROSODY_IP:-172.30.0.10}/" \
+            /biboumi.cfg.template | tr -d '\r' > /etc/biboumi/biboumi.cfg
+        echo "biboumi.cfg rendered (xmpp_server_ip=${GIBBER_PROSODY_IP:-172.30.0.10})"
     networks: [gibber]
 
   biboumi:
-    image: louiz/biboumi:9.0
+    build: ./docker/biboumi
+    image: gibber-biboumi:9.0-r7
     container_name: gibber-biboumi
     restart: unless-stopped
     profiles: [irc, slidge]
+    # biboumi's udns resolver fails on Docker's embedded-DNS aliases; the
+    # /etc/hosts path in its resolver takes precedence, so pin prosody.
+    extra_hosts:
+      - "prosody:${GIBBER_PROSODY_IP:-172.30.0.10}"
     volumes:
       - biboumi_cfg:/etc/biboumi
       - biboumi_data:/var/lib/biboumi
@@ -347,3 +357,9 @@ volumes:
 networks:
   gibber:
     driver: bridge
+    # Static subnet: biboumi's resolver (libudns) cannot resolve Docker's
+    # embedded-DNS aliases, so Prosody gets a fixed address
+    # (GIBBER_PROSODY_IP) for its xmpp_server_ip.
+    ipam:
+      config:
+        - subnet: ${GIBBER_NET_SUBNET:-172.30.0.0/24}

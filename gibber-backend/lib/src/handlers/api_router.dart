@@ -48,7 +48,15 @@ class ApiRouter {
   final SlidgeProcessManager slidgeProcessManager;
   final ProsodyComponentManager prosodyComponentManager;
   final _uuid = const Uuid();
-  final RateLimiter _registerLimiter = RateLimiter(maxRequests: 3, window: Duration(hours: 1));
+  // Registration throttle: env-tunable. Historically 3/hour - behind NAT/CGNAT
+  // that locks every visitor of a self-hosted site out (they share one IP).
+  // Default raised so guest auto-bootstrap + real users coexist on one IP.
+  final RateLimiter _registerLimiter = RateLimiter(
+    maxRequests: int.tryParse(Platform.environment['GIBBER_REGISTER_MAX_PER_WINDOW'] ?? '') ?? 100,
+    window: Duration(
+      hours: int.tryParse(Platform.environment['GIBBER_REGISTER_WINDOW_HOURS'] ?? '') ?? 1,
+    ),
+  );
   final RateLimiter _checkLimiter = RateLimiter(maxRequests: 20, window: Duration(minutes: 1));
   final RateLimiter _minerLimiter = RateLimiter(maxRequests: 30, window: Duration(minutes: 1));
   final RateLimiter _paymentLimiter = RateLimiter(maxRequests: 10, window: Duration(minutes: 1));

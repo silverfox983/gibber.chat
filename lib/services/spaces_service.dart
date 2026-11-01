@@ -822,7 +822,9 @@ class SpacesService extends ChangeNotifier {
       addField('pubsub#type', 'urn:xmpp:spaces:0');
       addField('pubsub#persist_items', 'true');
       addField('pubsub#deliver_payloads', 'true');
-      addField('pubsub#max_items', 'max');
+      // NOTE: 'max' is not an integer value servers accept in forms; use the
+      // same cap the component config uses (pubsub_max_items).
+      addField('pubsub#max_items', '10000');
       addField('pubsub#notify_retract', 'true');
       addField('pubsub#notify_sub', 'true');
       addField('pubsub#notify_config', 'true');
@@ -851,7 +853,64 @@ class SpacesService extends ChangeNotifier {
       return _sendIq(iq);
     }
 
-    Future<xmpp.IqStanza> sendConfigureNode(String domain, xmpp.XmppElement configForm) async {
+    /// Fetches the server's default configuration form for a node
+    /// (XEP-0060 §8.1.2 "retrieve default node configuration").
+    Future<xmpp.XmppElement?> fetchDefaultConfigForm(String domain) async {
+      final iq = xmpp.IqStanza(
+        'def_form_${DateTime.now().microsecondsSinceEpoch}',
+        xmpp.IqStanzaType.GET,
+      );
+      iq.toJid = xmpp.Jid.fromFullJid(domain);
+      final pubsubOwner = xmpp.XmppElement();
+      pubsubOwner.name = 'pubsub';
+      pubsubOwner.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/pubsub#owner'));
+      final def = xmpp.XmppElement()..name = 'default';
+      pubsubOwner.addChild(def);
+      iq.addChild(pubsubOwner);
+      try {
+        final response = await _sendIq(iq).timeout(const Duration(seconds: 8));
+        if (response.type == xmpp.IqStanzaType.ERROR) return null;
+        final pubsubRes = response.getChild('pubsub');
+        final defRes = pubsubRes?.getChild('default');
+        return defRes?.getChild('x');
+      } catch (_) {
+        return null;
+      }
+    }
+
+    /// Submits the node configuration, restricting the form to fields the
+    /// server itself advertises (unknown fields cause not-acceptable).
+    Future<xmpp.IqStanza> sendConfigureNode(
+      String domain,
+      xmpp.XmppElement configForm, {
+      String? nodeOverride,
+    }) async {
+      final serverForm = await fetchDefaultConfigForm(domain);
+      xmpp.XmppElement formToSend = configForm;
+      if (serverForm != null) {
+        final serverVars = serverForm.children
+            .whereType<xmpp.XmppElement>()
+            .where((e) => e.name == 'field')
+            .map((e) => e.getAttribute('var')?.value)
+            .whereType<String>()
+            .toSet();
+        final trimmed = xmpp.XmppElement();
+        trimmed.name = 'x';
+        trimmed.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
+        trimmed.addAttribute(xmpp.XmppAttribute('type', 'submit'));
+        for (final field in configForm.children.whereType<xmpp.XmppElement>()) {
+          if (field.name != 'field') {
+            trimmed.addChild(field);
+            continue;
+          }
+          final varAttr = field.getAttribute('var')?.value;
+          if (varAttr != null && serverVars.contains(varAttr)) {
+            trimmed.addChild(field);
+          }
+        }
+        formToSend = trimmed;
+      }
+
       final iq = xmpp.IqStanza('config_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
       iq.toJid = xmpp.Jid.fromFullJid(domain);
       final pubsub = xmpp.XmppElement();
@@ -860,7 +919,7 @@ class SpacesService extends ChangeNotifier {
       final configure = xmpp.XmppElement();
       configure.name = 'configure';
       configure.addAttribute(xmpp.XmppAttribute('node', node));
-      configure.addChild(configForm);
+      configure.addChild(formToSend);
       pubsub.addChild(configure);
       iq.addChild(pubsub);
       return _sendIq(iq);
@@ -930,10 +989,18 @@ class SpacesService extends ChangeNotifier {
     }
 
     try {
-      final domains = [domain];
-      if (domain.startsWith('spaces.')) {
-        domains.add('pubsub.${domain.substring(7)}');
+      // Candidate PubSub services to try in order: the domain as passed, then
+      // the conventional sub-service names on the same base domain (the bare
+      // root domain usually has no PubSub handler -> service-unavailable).
+      final base = domain.startsWith('pubsub.') || domain.startsWith('spaces.')
+          ? domain.substring(domain.indexOf('.') + 1)
+          : domain;
+      final domains = <String>[domain];
+      void addCandidate(String candidate) {
+        if (!domains.contains(candidate)) domains.add(candidate);
       }
+      addCandidate('pubsub.$base');
+      addCandidate('spaces.$base');
 
       String? lastError;
       for (final targetDomain in domains) {

@@ -7,22 +7,20 @@
 # not resolvable inside the docker network, point the connection at the server
 # container with `xmpp_server_ip`.
 #
-# fixed_irc_server=true exposes rooms as #channel@<hostname> (no %server
-# suffix) — the JID format the Gibber client builds when joining a trending
-# room from the landing page. One IRC network per gateway instance: set
-# IRC_SERVER_HOSTNAME accordingly (the landing-page snapshot assumes
-# Libera.Chat by default).
+# In biboumi, `fixed_irc_server` is NOT a boolean: its value is the hostname
+# of the single IRC network this gateway serves. Rooms are then joined as
+# #channel@<hostname> (no %server suffix) - the JID format the Gibber client
+# builds when joining a trending room from the landing page.
 
 hostname=irc.gibberapp.online
 port=5347
 password=__SLIDIRC_SECRET__
-xmpp_server_ip=prosody
+xmpp_server_ip=__XMPP_SERVER_IP__
 
-fixed_irc_server=true
-address=__IRC_SERVER_HOSTNAME__
+fixed_irc_server=__IRC_SERVER_HOSTNAME__
 
 db_name=/var/lib/biboumi/biboumi.sqlite
-log_level=1
+log_level=0
 realname_element=username
 persistent_muc_list=false
 require_whitelisted_ports=false

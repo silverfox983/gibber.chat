@@ -20,7 +20,12 @@ abstract class AbstractStanza extends XmppElement {
 
   set toJid(Jid? value) {
     _toJid = value;
-    addAttribute(XmppAttribute('to', _toJid!.userAtDomain));
+    // Carry the resource: MUC joins require `room@server/nick` (the resource
+    // IS the nickname); dropping it previously produced nickname-less joins
+    // ("No nickname given" from gateways).
+    addAttribute(
+      XmppAttribute('to', _toJid!.fullJid ?? _toJid!.userAtDomain),
+    );
   }
 
   String? get id => _id;
