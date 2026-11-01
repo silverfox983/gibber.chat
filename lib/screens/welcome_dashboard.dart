@@ -255,28 +255,13 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
     final primary = Theme.of(context).colorScheme.primary;
     final surface = Theme.of(context).colorScheme.surface;
 
-    final tier = entitlement.currentTier;
-    final tierColor = tier == UserTier.ultimate
-        ? const Color(0xFF8B5CF6)
-        : tier == UserTier.pro
-            ? primary
-            : Colors.grey;
-
-    final transUsed = entitlement.transcriptionSecondsUsed;
-    final transLimit = entitlement.transcriptionSecondsLimit;
-    final transPercent = transLimit > 0 ? (transUsed / transLimit).clamp(0.0, 1.0) : 0.0;
-
-    final aiUsed = entitlement.aiQueriesUsed;
-    final aiLimit = entitlement.aiQueriesLimit;
-    final aiPercent = aiLimit > 0 ? (aiUsed / aiLimit).clamp(0.0, 1.0) : 0.0;
-
     return Container(
       padding: EdgeInsets.all(isMobile ? 16 : 24),
       decoration: BoxDecoration(
         color: surface.withValues(alpha: 0.7),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: tierColor.withValues(alpha: 0.25)),
-        boxShadow: [BoxShadow(color: tierColor.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 8))],
+        border: Border.all(color: primary.withValues(alpha: 0.25)),
+        boxShadow: [BoxShadow(color: primary.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 8))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -286,26 +271,22 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: tierColor.withValues(alpha: 0.15),
+                  color: primary.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      tier == UserTier.ultimate
-                          ? Icons.verified_rounded
-                          : tier == UserTier.pro
-                              ? Icons.workspaces_rounded
-                              : Icons.chat_bubble_outline_rounded,
+                      Icons.chat_bubble_outline_rounded,
                       size: 14,
-                      color: tierColor,
+                      color: primary,
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Subscription: ${tier.label}',
+                      'Free & Local',
                       style: TextStyle(
-                        color: tierColor,
+                        color: primary,
                         fontWeight: FontWeight.w800,
                         fontSize: 13,
                         letterSpacing: 0.5,
@@ -319,39 +300,12 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
           ),
           SizedBox(height: isMobile ? 16 : 20),
           Text(
-            'Transcription Quota',
+            'Everything is unlocked: unlimited transcription, unlimited AI, every protocol gateway, group calls of any size, and full history retention.',
             style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              height: 1.5,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
-              letterSpacing: 0.5,
             ),
-          ),
-          const SizedBox(height: 6),
-          _quotaBar(
-            transPercent,
-            transLimit == -1
-                ? '${(transUsed / 60).toStringAsFixed(1)} min used — Unlimited'
-                : '${(transUsed / 60).toStringAsFixed(1)} / ${(transLimit / 60).toStringAsFixed(0)} min',
-            primary,
-          ),
-          SizedBox(height: isMobile ? 12 : 16),
-          Text(
-            'AI Query Quota',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(height: 6),
-          _quotaBar(
-            aiPercent,
-            aiLimit == -1
-                ? '$aiUsed used — Unlimited'
-                : '$aiUsed / $aiLimit queries',
-            primary,
           ),
           SizedBox(height: isMobile ? 12 : 16),
           Container(
@@ -362,14 +316,14 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
             ),
             child: Row(
               children: [
-                Icon(Icons.memory_rounded, size: 18, color: primary),
+                Icon(Icons.workspace_premium_rounded, size: 18, color: primary),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Subscription',
+                        'Free & open source',
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 13,
@@ -377,21 +331,11 @@ class _WelcomeDashboardState extends State<WelcomeDashboard> {
                         ),
                       ),
                       Text(
-                        tier == UserTier.free
-                            ? 'Free plan'
-                            : tier == UserTier.pro
-                                ? 'Pro: \$9.99/mo'
-                                : 'Ultimate: \$19.99/mo',
+                        'Your data stays local - or self-host the whole stack with the included docker compose.',
                         style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: () => context.goNamed('tier'),
-                  icon: Icon(Icons.chevron_right_rounded, color: primary),
-                  tooltip: 'Manage Subscription',
                 ),
               ],
             ),

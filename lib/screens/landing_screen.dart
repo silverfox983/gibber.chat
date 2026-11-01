@@ -88,7 +88,7 @@ class _LandingScreenState extends State<LandingScreen>
                 SliverToBoxAdapter(child: _buildTrendingRooms(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildFeatures(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildHowItWorks(isDark, isMobile)),
-                SliverToBoxAdapter(child: _buildTiers(isDark, isMobile)),
+                SliverToBoxAdapter(child: _buildFreeLocal(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildSecurity(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildFooter(isDark)),
               ],
@@ -129,8 +129,8 @@ class _LandingScreenState extends State<LandingScreen>
           const Spacer(),
           if (!isMobile) ...[
             _navLink('Rooms', 700, sectionKey: _roomsSectionKey),
-            _navLink('Features', 1200),
-            _navLink('Tiers', 1800),
+            _navLink('Free', 1200),
+            _navLink('Features', 1800),
             _navLink('Support', 2400),
             _navLink('Security', 3000),
           ],
@@ -966,154 +966,130 @@ class _LandingScreenState extends State<LandingScreen>
     );
   }
 
-  Widget _buildTiers(bool isDark, bool isMobile) {
+  Widget _buildFreeLocal(bool isDark, bool isMobile) {
     final primary = Theme.of(context).colorScheme.primary;
-    final tiers = [
-      _TierData(
-        'Free',
-        '\$0',
-        'Forever free',
-        const Color(0xFF6B7280),
-        ['Gibber messaging & calls', '1:1 encrypted chat', 'Unlimited transcription', '4-person group calls', '30-day history'],
-        [],
-        ['Slack, Discord, IRC', 'Teams, Matrix, Telegram, SMS', '10+ person group calls', '365-day history'],
+    final surface = Theme.of(context).colorScheme.surface;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final onSurfaceVariant = Theme.of(context).colorScheme.onSurfaceVariant;
+
+    final cards = [
+      (
+        Icons.card_giftcard_rounded,
+        'Free forever',
+        'Every feature is included: unlimited transcription and AI, group '
+            'calls of any size, full history retention, all protocol gateways. '
+            'No plans. No credit card. No meter on your data.',
       ),
-      _TierData(
-        'Pro',
-        '\$9.99/mo',
-        'Cancel anytime',
-        primary,
-        ['Gibber messaging & calls', '1:1 encrypted chat', 'Unlimited transcription', '10-person group calls', '365-day history', 'Slack, Discord, IRC'],
-        ['Teams, Matrix, Telegram, SMS'],
-        [],
+      (
+        Icons.folder_off_rounded,
+        'No data harvesting',
+        'Messages, media and keys live on your device (SQLite) and on the '
+            'server you choose - not on an ad-tech data pipeline. No tracking, '
+            'no analytics, no ads.',
       ),
-      _TierData(
-        'Ultimate',
-        '\$19.99/mo',
-        'Cancel anytime',
-        const Color(0xFF8B5CF6),
-        ['Everything in Pro, plus:', 'Teams, Matrix, Telegram, SMS', 'Unlimited group calls', 'Unlimited history', 'Priority support'],
-        [],
-        [],
+      (
+        Icons.dns_rounded,
+        'Local-first & self-hostable',
+        'Point the app at any XMPP server, or run the entire stack yourself: '
+            'one docker compose brings up the site, XMPP server and every '
+            'gateway. Open source end to end.',
       ),
     ];
 
+    Widget card(IconData icon, String title, String body, {bool featured = false}) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: surface.withValues(alpha: featured ? 0.8 : 0.6),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: featured ? primary.withValues(alpha: 0.6) : primary.withValues(alpha: 0.15),
+            width: featured ? 2 : 1,
+          ),
+          boxShadow: featured
+              ? [BoxShadow(color: primary.withValues(alpha: 0.2), blurRadius: 30, offset: const Offset(0, 10))]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: primary.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: primary, size: 24),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 18,
+                      color: onSurface,
+                    ),
+                  ),
+                ),
+                if (featured)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: primary.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      'FREE',
+                      style: TextStyle(
+                        color: primary,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 11,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              body,
+              style: TextStyle(fontSize: 13.5, height: 1.55, color: onSurfaceVariant),
+            ),
+          ],
+        ),
+      );
+    }
+
     return _sectionWrapper(
-      label: 'PRICING',
-      title: 'Simple, transparent pricing',
+      label: 'FREE & LOCAL',
+      title: 'Everything. For everyone. For free.',
       isDark: isDark,
       isMobile: isMobile,
       child: isMobile
-          ? Column(children: tiers.map((t) => _tierCard(t, isDark, true)).toList())
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: tiers.map((t) => Expanded(child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: _tierCard(t, isDark, false),
-              ))).toList(),
-            ),
-    );
-  }
-
-  Widget _tierCard(_TierData t, bool isDark, bool isMobile) {
-    final surface = Theme.of(context).colorScheme.surface;
-    final isFree = t.name == 'Free';
-    final isUltimate = t.name == 'Ultimate';
-
-    return Container(
-      margin: EdgeInsets.only(bottom: isMobile ? 12 : 0),
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: surface.withValues(alpha: isUltimate ? 0.8 : 0.6),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isUltimate ? t.color.withValues(alpha: 0.6) : t.color.withValues(alpha: 0.15),
-          width: isUltimate ? 2 : 1,
-        ),
-        boxShadow: isUltimate
-            ? [BoxShadow(color: t.color.withValues(alpha: 0.2), blurRadius: 30, offset: const Offset(0, 10))]
-            : null,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (isUltimate)
-            Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: t.color.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(999)),
-              child: Text('BEST VALUE', style: TextStyle(color: t.color, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 1)),
-            ),
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: t.color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10)),
-                child: Icon(
-                  isFree ? Icons.chat_bubble_outline : (isUltimate ? Icons.verified_rounded : Icons.workspaces_outline),
-                  color: t.color,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(t.name, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: Theme.of(context).colorScheme.onSurface)),
-                    Text(t.priceLabel, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: t.color)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(t.sublabel, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500)),
-          const Divider(height: 24),
-          ...t.features.map((f) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
+          ? Column(
               children: [
-                Icon(Icons.check_circle_rounded, size: 16, color: t.color),
-                const SizedBox(width: 8),
-                Expanded(child: Text(f, style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface, height: 1.3))),
+                card(cards[0].$1, cards[0].$2, cards[0].$3, featured: true),
+                const SizedBox(height: 14),
+                card(cards[1].$1, cards[1].$2, cards[1].$3),
+                const SizedBox(height: 14),
+                card(cards[2].$1, cards[2].$2, cards[2].$3),
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: card(cards[0].$1, cards[0].$2, cards[0].$3, featured: true),
+                ),
+                const SizedBox(width: 14),
+                Expanded(child: card(cards[1].$1, cards[1].$2, cards[1].$3)),
+                const SizedBox(width: 14),
+                Expanded(child: card(cards[2].$1, cards[2].$2, cards[2].$3)),
               ],
             ),
-          )),
-          if (t.locked.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            ...t.locked.map((f) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  Icon(Icons.lock_outline_rounded, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(f, style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.5), height: 1.3))),
-                ],
-              ),
-            )),
-          ],
-          const SizedBox(height: 16),
-          if (!isFree)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => context.go('/register'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: t.color,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                child: Text(
-                  isUltimate ? 'Get Ultimate' : 'Get Started',
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 
@@ -1318,15 +1294,4 @@ class _StepData {
   final IconData icon;
   final Color color;
   const _StepData(this.num, this.title, this.desc, this.icon, this.color);
-}
-
-class _TierData {
-  final String name;
-  final String priceLabel;
-  final String sublabel;
-  final Color color;
-  final List<String> features;
-  final List<String> locked;
-  final List<String> excluded;
-  const _TierData(this.name, this.priceLabel, this.sublabel, this.color, this.features, this.locked, this.excluded);
 }

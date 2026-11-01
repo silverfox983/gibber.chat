@@ -19,7 +19,6 @@ import './services/miner_service.dart';
 import './services/entitlement_service.dart';
 import './services/backend_config.dart';
 import './services/gateway_service.dart';
-import './services/subscription_service.dart';
 import './providers/theme_provider.dart';
 import './theme/app_theme.dart';
 import './services/desktop_lifecycle_service.dart';
@@ -93,7 +92,6 @@ class _ChatAppState extends State<ChatApp> {
   MinerService? _minerService;
   EntitlementService? _entitlementService;
   BackendConfig? _backendConfig;
-  SubscriptionService? _subscriptionService;
   GatewayService? _gatewayService;
   final AccountStatusNotificationService _accountStatusNotifications =
       AccountStatusNotificationService.instance;
@@ -145,8 +143,6 @@ class _ChatAppState extends State<ChatApp> {
       _minerService = MinerService(_resourceScheduler!);
       _minerService!.setEntitlementService(_entitlementService!);
 
-      _errorSource = 'SubscriptionService';
-      _subscriptionService = SubscriptionService();
 
       _errorSource = 'GatewayService';
       _gatewayService = GatewayService(_backendConfig!);
@@ -154,13 +150,11 @@ class _ChatAppState extends State<ChatApp> {
       _entitlementService!.setBackendUrl(_backendConfig!.apiUrl);
       _minerService!.setBackendUrl(_backendConfig!.apiUrl);
       _minerService!.setPoolUrl(_backendConfig!.poolUrl);
-      _subscriptionService!.setBackendUrl(_backendConfig!.apiUrl);
 
       _backendConfig!.addListener(() {
         _entitlementService?.setBackendUrl(_backendConfig!.apiUrl);
         _minerService?.setBackendUrl(_backendConfig!.apiUrl);
         _minerService?.setPoolUrl(_backendConfig!.poolUrl);
-        _subscriptionService?.setBackendUrl(_backendConfig!.apiUrl);
       });
 
       _chatProvider!.initialize(_authService!);
@@ -254,7 +248,6 @@ class _ChatAppState extends State<ChatApp> {
         ChangeNotifierProvider.value(value: _minerService!),
         ChangeNotifierProvider.value(value: _entitlementService!),
         ChangeNotifierProvider.value(value: _backendConfig!),
-        ChangeNotifierProvider.value(value: _subscriptionService!),
         ChangeNotifierProvider.value(value: _gatewayService!),
       ],
       child: DynamicColorBuilder(

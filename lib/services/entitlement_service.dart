@@ -22,60 +22,34 @@ extension UserTierExtension on UserTier {
     }
   }
 
+  /// Gibber is entirely free: every protocol, unlimited calls and history.
+  /// The tier enum remains for persistence compatibility with older caches.
   List<String> get allowedProtocols {
     switch (this) {
       case UserTier.free:
-        return ['XMPP'];
       case UserTier.pro:
-        return ['XMPP', 'Slack', 'Discord', 'IRC'];
       case UserTier.ultimate:
-        return ['XMPP', 'Slack', 'Discord', 'IRC', 'Teams', 'Matrix', 'Telegram', 'WhatsApp', 'SMS'];
+        return [
+          'XMPP',
+          'Slack',
+          'Discord',
+          'IRC',
+          'Teams',
+          'Matrix',
+          'Telegram',
+          'WhatsApp',
+          'SMS',
+        ];
     }
   }
 
-  int get transcriptionMinutesPerMonth {
-    switch (this) {
-      case UserTier.free:
-        return -1;
-      case UserTier.pro:
-        return 300;
-      case UserTier.ultimate:
-        return -1;
-    }
-  }
+  int get transcriptionMinutesPerMonth => -1;
 
-  int get aiQueriesPerMonth {
-    switch (this) {
-      case UserTier.free:
-        return -1;
-      case UserTier.pro:
-        return 100;
-      case UserTier.ultimate:
-        return -1;
-    }
-  }
+  int get aiQueriesPerMonth => -1;
 
-  int get maxGroupCallSize {
-    switch (this) {
-      case UserTier.free:
-        return 4;
-      case UserTier.pro:
-        return 10;
-      case UserTier.ultimate:
-        return -1;
-    }
-  }
+  int get maxGroupCallSize => -1;
 
-  int get historyRetentionDays {
-    switch (this) {
-      case UserTier.free:
-        return 30;
-      case UserTier.pro:
-        return 365;
-      case UserTier.ultimate:
-        return -1;
-    }
-  }
+  int get historyRetentionDays => -1;
 }
 
 class Entitlement {

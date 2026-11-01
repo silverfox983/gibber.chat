@@ -686,15 +686,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           },
                         ),
                         const Divider(height: 1),
-                        ListTile(
-                          leading: Icon(Icons.workspace_premium_rounded, color: Colors.amber),
-                          title: const Text('Tier & Mining', style: TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: const Text('Manage your plan, mine credits, redeem codes'),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () {
-                            context.goNamed('tier');
-                          },
-                        ),
+          ListTile(
+            leading: Icon(Icons.self_improvement_rounded, color: Colors.green),
+            title: const Text('Free & Local', style: TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: const Text('Everything is included and free. Self-host the stack with docker compose; your data stays local and yours.'),
+          ),
                       ],
                     ),
                   ),

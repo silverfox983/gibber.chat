@@ -21,7 +21,6 @@ import '../screens/privacy_lists_screen.dart';
 import '../screens/privacy_edit_screen.dart';
 import '../screens/invite_screen.dart';
 import '../screens/recordings_screen.dart';
-import '../screens/tier_screen.dart';
 import '../screens/connections_screen.dart';
 import '../screens/create_room_screen.dart';
 import '../screens/room_info_screen.dart';
@@ -208,11 +207,6 @@ GoRouter createAppRouter({
                 path: 'recordings',
                 name: 'recordings',
                 pageBuilder: (context, state) => _fadePage(state: state, child: const RecordingsScreen()),
-              ),
-              GoRoute(
-                path: 'tier',
-                name: 'tier',
-                pageBuilder: (context, state) => _fadePage(state: state, child: const TierScreen()),
               ),
               GoRoute(
                 path: 'connections',
