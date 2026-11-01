@@ -697,15 +697,15 @@ class DatabaseService {
         id, text, timestamp, is_sent, type, file_path, file_name,
         sender_id, sender_name, account_id, protocol, conversation_id,
         is_group, status, reply_to_id, replaces_id, is_edited,
-        edit_timestamp, reactions, reactions_json, reply_preview,
+        edit_timestamp, reactions_json, reply_preview,
         forwarded_from, encryption_type, latitude, longitude, location_label, mentioned,
         is_retracted
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?,
-        ?, ?, ?, ?,
-        ?, ?, ?, ?, ?,
         ?
       )
       ON CONFLICT(id) DO UPDATE SET
@@ -718,7 +718,7 @@ class DatabaseService {
         map['file_path'], map['file_name'], map['sender_id'], map['sender_name'],
         map['account_id'], map['protocol'], map['conversation_id'], map['is_group'],
         map['status'], map['reply_to_id'], map['replaces_id'], map['is_edited'],
-        map['edit_timestamp'], map['reactions'], map['reactions_json'],
+        map['edit_timestamp'], map['reactions_json'],
         map['reply_preview'], map['forwarded_from'], map['encryption_type'],
         map['latitude'], map['longitude'], map['location_label'],
         map['mentioned'], map['is_retracted'],

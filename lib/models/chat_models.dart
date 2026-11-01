@@ -191,7 +191,6 @@ class ChatMessage {
       'is_edited': isEdited ? 1 : 0,
       'edit_timestamp': editTimestamp?.toIso8601String(),
       'is_retracted': isRetracted ? 1 : 0,
-      'reactions': reactions.isNotEmpty ? jsonEncode(reactions) : null,
       'forwarded_from': forwardedFrom,
       'encryption_type': encryptionType,
       'latitude': latitude,
@@ -217,6 +216,14 @@ class ChatMessage {
 
   static Map<String, List<String>> _decodeReactions(dynamic raw) {
     if (raw == null) return {};
+    // DB rows store the encoded JSON string; in-memory maps arrive as Maps.
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        return _decodeReactions(_jsonDecode(raw));
+      } catch (_) {
+        return {};
+      }
+    }
     if (raw is Map<String, dynamic>) {
       return _dedupeReactionMap(
         raw.map(
@@ -267,7 +274,10 @@ class ChatMessage {
       replyToId: map['reply_to_id'],
       replyPreview: map['reply_preview'],
       replacesId: map['replaces_id'],
-      reactions: _decodeReactions(map['reactions_json']),
+      reactions: _decodeReactions(map['reactions_json'] ??
+          (map['reactions'] is String
+              ? _jsonDecode(map['reactions'] as String)
+              : null)),
       isEdited: map['is_edited'] == 1,
       isRetracted: map['is_retracted'] == 1,
       editTimestamp: map['edit_timestamp'] != null
