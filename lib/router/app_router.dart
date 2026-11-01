@@ -28,6 +28,7 @@ import '../screens/room_info_screen.dart';
 import '../screens/room_settings_screen.dart';
 import '../screens/room_affiliation_screen.dart';
 import '../screens/feed_screen.dart';
+import '../screens/space_detail_view.dart';
 import '../screens/spaces_screen.dart';
 import '../screens/space_settings_screen.dart';
 import '../screens/subscriptions_screen.dart';
