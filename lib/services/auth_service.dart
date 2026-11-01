@@ -2604,11 +2604,20 @@ class _AuthContactDeps implements AuthServiceContactDeps {
   ContactStatus get myStatus => _auth.myStatus;
   String? get myStatusMessage => _auth.myStatusMessage;
   UserProfile? get currentProfile => _auth.currentProfile;
-  set myStatus(ContactStatus value) => _auth._myStatus = value;
-  set myStatusMessage(String? value) => _auth._myStatusMessage = value;
-  set xmppConnecting(bool value) => _auth._xmppConnecting = value;
-  set lastDiagnostic(String? value) => _auth._lastDiagnostic = value;
-  set currentProfile(UserProfile? value) => _auth._currentProfile = value;
+  void updatePresenceStatus(ContactStatus? status, String? message) {
+    if (status != null) _auth._myStatus = status;
+    _auth._myStatusMessage = message;
+  }
+  void reportDiagnostic(String diagnostic) {
+    _auth._lastDiagnostic = diagnostic;
+    _auth.notifyListeners();
+  }
+  void reportStreamError(String diagnostic) {
+    _auth._xmppConnecting = false;
+    _auth._lastDiagnostic = diagnostic;
+    _auth.notifyListeners();
+  }
+  void updateCurrentProfile(UserProfile? profile) => _auth._currentProfile = profile;
   void notifyListeners() => _auth.notifyListeners();
   void clearVCardState() => _auth.clearVCardState();
   Future<void> fetchMyVCard({String? accountId}) => _auth.fetchMyVCard(accountId: accountId);
@@ -2661,15 +2670,10 @@ class _AuthStanzaDeps implements AuthServiceStanzaDeps {
   Future<void> refreshOmemoDevices(String chatId, {String? accountId}) => _auth.refreshOmemoDevices(chatId, accountId: accountId);
   bool get sendReadReceipts => _auth.sendReadReceipts;
   void Function(String jid, String mood, String? text)? get onMoodReceived => _auth._onMoodReceived;
-  set onMoodReceived(void Function(String jid, String mood, String? text)? fn) => _auth._onMoodReceived = fn;
   void Function(String jid, String? avatarId)? get onAvatarMetadataReceived => _auth._onAvatarMetadataReceived;
-  set onAvatarMetadataReceived(void Function(String jid, String? avatarId)? fn) => _auth._onAvatarMetadataReceived = fn;
   void Function(String jid, String nickname)? get onNicknameReceived => _auth._onNicknameReceived;
-  set onNicknameReceived(void Function(String jid, String nickname)? fn) => _auth._onNicknameReceived = fn;
   void Function(String jid, DateTime lastInteraction)? get onLastInteractionReceived => _auth._onLastInteractionReceived;
-  set onLastInteractionReceived(void Function(String jid, DateTime lastInteraction)? fn) => _auth._onLastInteractionReceived = fn;
   void Function(String jid, String? bannerUrl)? get onBannerUrlReceived => _auth._onBannerUrlReceived;
-  set onBannerUrlReceived(void Function(String jid, String? bannerUrl)? fn) => _auth._onBannerUrlReceived = fn;
 }
 
 class _AuthVCardDeps implements AuthServiceVCardDeps {

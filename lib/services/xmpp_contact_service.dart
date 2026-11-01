@@ -20,9 +20,7 @@ class XmppContactService {
 
   void handleXmppStreamError(dynamic e) {
     debugPrint('XMPP Stream Error: $e');
-    _auth.xmppConnecting = false;
-    _auth.lastDiagnostic = 'XMPP stream error: $e';
-    _auth.notifyListeners();
+    _auth.reportStreamError('XMPP stream error: $e');
   }
 
   Future<bool> autoLogin() async {
@@ -34,10 +32,10 @@ class XmppContactService {
 
     final prefs = await SharedPreferences.getInstance();
     final savedStatusIdx = prefs.getInt('my_presence_status');
-    if (savedStatusIdx != null) {
-      _auth.myStatus = ContactStatus.values[savedStatusIdx];
-    }
-    _auth.myStatusMessage = prefs.getString('my_presence_message');
+    _auth.updatePresenceStatus(
+      savedStatusIdx != null ? ContactStatus.values[savedStatusIdx] : null,
+      prefs.getString('my_presence_message'),
+    );
 
     if (pass != null) {
       try {
@@ -72,17 +70,13 @@ class XmppContactService {
         timeout: const Duration(seconds: 5),
       );
       socket.destroy();
-      _auth.lastDiagnostic =
-          'Socket probe to $host:$port succeeded. Server is reachable.';
-      _auth.notifyListeners();
+      _auth.reportDiagnostic('Socket probe to $host:$port succeeded. Server is reachable.');
       return 'Success: $host:$port is reachable';
     } on SocketException catch (e) {
-      _auth.lastDiagnostic = 'Socket probe failed: $host:$port — ${e.message}';
-      _auth.notifyListeners();
+      _auth.reportDiagnostic('Socket probe failed: $host:$port — ${e.message}');
       return 'Failed: ${e.message}';
     } catch (e) {
-      _auth.lastDiagnostic = 'Socket probe error: $e';
-      _auth.notifyListeners();
+      _auth.reportDiagnostic('Socket probe error: $e');
       return 'Error: $e';
     }
   }
@@ -364,7 +358,7 @@ class XmppContactService {
       bio: bio,
       accountIds: [],
     );
-    _auth.currentProfile = profile;
+    _auth.updateCurrentProfile(profile);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('current_profile', json.json.encode(profile.toJson()));
     _auth.notifyListeners();
@@ -567,8 +561,7 @@ class XmppContactService {
     // Persist status
     await _saveStatus(status, message);
 
-    _auth.myStatus = status;
-    _auth.myStatusMessage = message;
+    _auth.updatePresenceStatus(status, message);
     _auth.notifyListeners();
     debugPrint('SOCIAL: Updated my presence to $status ($message) for $id');
   }
@@ -868,7 +861,7 @@ class XmppContactService {
     await prefs.clear();
     await _auth.secureStorage.deleteAll();
     _auth.savedAccounts.clear();
-    _auth.currentProfile = null;
+    _auth.updateCurrentProfile(null);
     _auth.clearVCardState();
     await AvatarCacheService().clearCache();
     await DatabaseService().clearContactVcards();

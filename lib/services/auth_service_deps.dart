@@ -46,11 +46,10 @@ abstract class AuthServiceContactDeps {
   ContactStatus get myStatus;
   String? get myStatusMessage;
   UserProfile? get currentProfile;
-  set myStatus(ContactStatus value);
-  set myStatusMessage(String? value);
-  set xmppConnecting(bool value);
-  set lastDiagnostic(String? value);
-  set currentProfile(UserProfile? value);
+  void updatePresenceStatus(ContactStatus? status, String? message);
+  void reportDiagnostic(String diagnostic);
+  void reportStreamError(String diagnostic);
+  void updateCurrentProfile(UserProfile? profile);
   void notifyListeners();
   void clearVCardState();
   Future<void> fetchMyVCard({String? accountId});
@@ -94,11 +93,11 @@ abstract class AuthServiceStanzaDeps {
   void notifyListeners();
   Future<void> refreshOmemoDevices(String chatId, {String? accountId});
   bool get sendReadReceipts;
-  void Function(String jid, String mood, String? text)? onMoodReceived;
-  void Function(String jid, String? avatarId)? onAvatarMetadataReceived;
-  void Function(String jid, String nickname)? onNicknameReceived;
-  void Function(String jid, DateTime lastInteraction)? onLastInteractionReceived;
-  void Function(String jid, String? bannerUrl)? onBannerUrlReceived;
+  void Function(String jid, String mood, String? text)? get onMoodReceived;
+  void Function(String jid, String? avatarId)? get onAvatarMetadataReceived;
+  void Function(String jid, String nickname)? get onNicknameReceived;
+  void Function(String jid, DateTime lastInteraction)? get onLastInteractionReceived;
+  void Function(String jid, String? bannerUrl)? get onBannerUrlReceived;
 }
 
 abstract class AuthServiceVCardDeps {
