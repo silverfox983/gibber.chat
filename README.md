@@ -24,7 +24,8 @@ Gibber is *free and open source*. There is no paid tier, no ads and no tracking.
 - **XMPP messenger** — XEP-0384 OMEMO encryption, MAM history, carbons, XEP-0308 edits, message moderation, hats, spoilers, locations, reactions, voice notes, file sharing (XEP-0363 / SFS), stickers
 - **Calls** — Jingle (XEP-0166/0353) with trickle ICE, PSTN via SIP gateways, group calls over Janus SFU or full mesh, screen sharing, DTMF, transfer, hold, call recording
 - **Spaces** — communities over XEP-0060 PubSub: feeds, posts, threads, likes, comments, rooms, member management, stories
-- **Gateways** — one-click bridges into IRC (biboumi), Telegram / Discord / Matrix / WhatsApp (Slidge)
+- **Gateways** — one-click bridges into IRC (biboumi), Telegram / Discord / Matrix / WhatsApp (Slidge). Registration is per-protocol: WhatsApp shows the pairing QR inline and waits for the scan, Telegram walks through code entry, Discord offers a channel picker for your guilds. Bridged contacts appear in your list automatically (roster pushes + gateway auto-approval), and any gateway that only supports chat commands gets its own conversation
+- **Guests** — web visitors are signed in automatically with a persistent guest account; "Claim account" (profile banner or the landing CTA) turns the guest into a real username and moves chats, contacts and rooms over
 - **Trending rooms** — the landing page lists the most active public IRC rooms (from [netsplit.de](https://netsplit.de/channels/popular.php)) and deep-links into a join flow
 - **Free & local** — unlimited transcription/AI, unlimited group calls, full history, every protocol; self-host everything with docker compose
 

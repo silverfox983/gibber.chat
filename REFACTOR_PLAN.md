@@ -3,6 +3,26 @@
 Tracking document for the XMPP-client refactor. Status updates live here; each phase ships as
 behavior-preserving commits gated by the checks below.
 
+## Current status (2026-11-01, post `bcc5446`)
+
+Phases 0–6 complete. Gates green: `flutter analyze` 0 lib errors, `flutter test` 73/73,
+`flutter build web` ✓. Live stack verified end-to-end via `test/live_stack_test.dart`
+(`LIVE_STACK=1`): guest registration → c2s connect via the same-origin ws proxy → MUC join →
+groupchat send → spaces create/discover/delete → WhatsApp pairing QR captured through the
+transport pairing bus → gateway roster import with protocol mapping.
+
+Feature work layered on top of the refactor (all live-verified on the docker stack):
+- Visitor guest accounts + **claim flow** (claim a real username; messages/conversations/rooms
+  migrate, gateway transports drop for re-link, contacts restored on the new roster).
+- **Transport integration**: per-protocol registration sheets (WhatsApp QR pairing via the
+  pairing bus on XEP-0447/oob/url-data, Telegram chat-command flow, Discord channel picker via
+  disco#items), gateway contacts auto-appear (xmpp_stone roster-push merge, gateway
+  subscription auto-approval, protocol mapping via `gateway_protocols.dart`).
+- Server-side plumbing that the integration required: vendored `mod_privilege` (XEP-0356) +
+  custom `mod_gibber_push`, `http_file_share_access` for components, a local CA + CA-signed
+  server cert trusted by the gateway containers (`SSL_CERT_FILE`), Caddy `/upload/*` routing,
+  and the backend upload proxy's binary-body bug fixed.
+
 ## Baseline (2026-11-01, tag `pre-refactor`)
 
 | Gate | Command | Result |
