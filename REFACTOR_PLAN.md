@@ -110,12 +110,23 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
       controller extraction should happen in one focused session with the call flow exercised
       manually on device (weak automated coverage for SIP/Janus paths).
 
-## Phase 5 — UI
+## Phase 5 — UI  — in progress
 
-- [ ] `spaces_screen.dart` → `SpacesHubScreen` / `SpaceDetailView` / `CreatePostDialog` files.
-- [ ] Shared widgets: markdown toolbar (3 copies), post cards (2 copies), attachment web-guards.
-- [ ] Router: stop passing live services/models via `state.extra`; move to IDs/params (deep-link prep).
-- [ ] Wire `_parseSfs`/SFS ingest into message pipeline (feature completion, stanza handler).
+- [x] `spaces_screen.dart` split (4,467 → hub 1,438 / detail 2,561 / dialog 446)
+      (`c2411f2`): `SpaceDetailView` + `SpacesScreenManager` → `lib/screens/space_detail_view.dart`,
+      `CreatePostDialog` → `lib/widgets/create_post_dialog.dart`; router imports updated;
+      per-file unused imports trimmed.
+- [x] Markdown toolbar: only ONE copy remains (create_post_dialog) — the other two copies
+      were inside the dead code deleted in Phase 1 (main_chat_screen) or never had helpers
+      (feed composer renders `MarkdownBody` only). No dedupe needed.
+- [ ] Post-card duplication (feed `_buildSpaceItemCard` vs detail `_buildPostCard`) — real
+      unification requires reconciling interaction-state differences between contexts; needs
+      visual verification on device/screenshots. Deferred deliberately.
+- [ ] Attachment web-guards: 2 remaining copies differ only by image height — trivial inline
+      conditionals, extraction would over-abstract. Closed as no-op.
+- [ ] Router: stop passing live services/models via `state.extra` (`SpacesService` instance at
+      5 routes) — move to IDs/params (deep-link prep).
+- [ ] Wire SFS ingest (`_parseSfs`) into the message pipeline.
 
 ## Phase 6 — Data layer
 
