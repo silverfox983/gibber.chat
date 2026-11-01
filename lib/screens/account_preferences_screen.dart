@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../providers/chat_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -11,7 +12,6 @@ import '../services/backup_service.dart';
 import '../services/data_export_service.dart';
 import '../services/jwt_token_service.dart';
 import '../services/backend_config.dart';
-import '../services/database_service.dart';
 import '../services/push_notification_service.dart';
 
 class AccountPreferencesScreen extends StatefulWidget {
@@ -326,7 +326,7 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
         await authService.clearAllData();
         final prefs = await SharedPreferences.getInstance();
         await prefs.clear();
-        await DatabaseService().clearAll();
+        await context.read<ChatProvider>().clearAllLocalData();
         if (mounted) {
           context.goNamed('login');
         }

@@ -1084,6 +1084,39 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Persists per-conversation notification settings (used by chat settings).
+  Future<void> updateConversationSettings(
+    String conversationId, {
+    bool? muteNotifications,
+    bool? messagePreview,
+    String? notificationSound,
+  }) async {
+    await _db.updateConversationSettings(
+      conversationId,
+      muteNotifications: muteNotifications,
+      messagePreview: messagePreview,
+      notificationSound: notificationSound,
+    );
+    notifyListeners();
+  }
+
+  /// Persists a conversation wallpaper (path and/or background color).
+  Future<void> updateConversationWallpaper(
+    String conversationId,
+    String? path,
+    int? color,
+  ) async {
+    await _db.updateConversationWallpaper(conversationId, path, color);
+    notifyListeners();
+  }
+
+  /// Full local message-store wipe (account deletion / data reset flows).
+  /// Clears in-memory state as well so stale rows can't be re-shown.
+  Future<void> clearAllLocalData() async {
+    await _db.clearAll();
+    clearAll();
+  }
+
   Future<void> _loadAvatarForConversation(Conversation conv) async {
     final bytes = await AvatarCacheService().getAvatar(
       conv.id,

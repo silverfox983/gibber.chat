@@ -68,7 +68,7 @@ void main() {
       final dbA = DatabaseService.forTest(tmp.path + '/a.db');
       final dbB = DatabaseService.forTest(tmp.path + '/b.db');
       final providerA = ChatProvider(database: dbA);
-      final providerB = ChatProvider(database: dbB);
+      ChatProvider(database: dbB);
 
       providerA.addMessage(
         'alice@example.com',

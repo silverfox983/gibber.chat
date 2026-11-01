@@ -3,7 +3,6 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:provider/provider.dart';
 import '../models/chat_models.dart';
 import '../services/auth_service.dart';
-import '../services/database_service.dart';
 import '../providers/chat_provider.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
@@ -168,16 +167,12 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     if (messagePreview != null) widget.conversation.messagePreview = messagePreview;
     if (notificationSound != null) widget.conversation.notificationSound = notificationSound;
 
-    await DatabaseService().updateConversationSettings(
+    await context.read<ChatProvider>().updateConversationSettings(
       widget.conversation.id,
       muteNotifications: muteNotifications,
       messagePreview: messagePreview,
       notificationSound: notificationSound,
     );
-
-    if (mounted) {
-      context.read<ChatProvider>().notifyListeners();
-    }
   }
 
   void _showSoundPicker(BuildContext context) {
@@ -284,13 +279,12 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   Future<void> _setWallpaperColor(int? color) async {
     setState(() => _currentWallpaperColor = color);
     widget.conversation.wallpaperColor = color;
-    await DatabaseService().updateConversationWallpaper(
+    await context.read<ChatProvider>().updateConversationWallpaper(
       widget.conversation.id,
       widget.conversation.wallpaperPath,
       color,
     );
     if (mounted) {
-      context.read<ChatProvider>().notifyListeners();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(color != null ? 'Wallpaper color updated' : 'Wallpaper reset to default'),
