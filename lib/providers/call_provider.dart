@@ -369,6 +369,35 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     debugPrint('CallProvider: SIP service initialized');
   }
 
+  Future<void> _sendJingleInitiateViaAppropriateChannel({
+    required JingleSignalingService signaling,
+    required String jid,
+    required String sdp,
+    required bool isVideo,
+  }) async {
+    if (isPstnGatewayJid(jid)) {
+      // HARDENING: Give ICE gathering 500ms to find srflx candidates before sending initiate
+      debugPrint('CallProvider: Waiting 500ms for initial ICE gathering...');
+      await Future.delayed(const Duration(milliseconds: 500));
+      signaling.sendSessionInitiate(jid, _sessionId!, sdp, isVideo: isVideo);
+    } else {
+      signaling.sendSessionInitiateViaMessage(jid, _sessionId!, sdp, isVideo: isVideo);
+    }
+  }
+
+  void _sendSessionAcceptViaAppropriateChannel({
+    required JingleSignalingService signaling,
+    required String jid,
+    required String sdp,
+    required bool isVideo,
+  }) {
+    if (isPstnGatewayJid(jid)) {
+      signaling.sendSessionAccept(jid, _sessionId!, sdp, isVideo: isVideo);
+    } else {
+      signaling.sendSessionAcceptViaMessage(jid, _sessionId!, sdp, isVideo: isVideo);
+    }
+  }
+
   Future<void> _startXmppCall(
     String phoneNumber, {
     String? accountId,
@@ -848,27 +877,12 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       final isGateway = isPstnGatewayJid(toJid);
       debugPrint('CallProvider: [ROUTING] isGateway=$isGateway for $toJid');
 
-      if (isGateway) {
-        debugPrint('CallProvider: [PSTN] Direct IQ Protocol Forced');
-        // HARDENING: Give ICE gathering 500ms to find srflx candidates before sending initiate
-        debugPrint('CallProvider: Waiting 500ms for initial ICE gathering...');
-        await Future.delayed(const Duration(milliseconds: 500));
-        
-        signaling.sendSessionInitiate(
-          toJid,
-          _sessionId!,
-          offer.sdp!,
-          isVideo: _isVideo,
-        );
-      } else {
-        debugPrint('CallProvider: [CHAT] XEP-0353 Message Protocol Forced');
-        signaling.sendSessionInitiateViaMessage(
-          toJid,
-          _sessionId!,
-          offer.sdp!,
-          isVideo: _isVideo,
-        );
-      }
+      await _sendJingleInitiateViaAppropriateChannel(
+        signaling: signaling,
+        jid: toJid,
+        sdp: offer.sdp!,
+        isVideo: _isVideo,
+      );
 
       debugPrint('CallProvider: Session initiate sent');
       _startCallTimeoutTimer();
@@ -1540,25 +1554,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
       if (isGateway) {
         debugPrint('CallProvider: === GATEWAY PROTOCOL ENFORCED (Direct Jingle IQ) ===');
-        // HARDENING: Give ICE gathering 500ms to find srflx candidates before sending initiate
-        debugPrint('CallProvider: Waiting 500ms for initial ICE gathering...');
-        await Future.delayed(const Duration(milliseconds: 500));
-        
-        signaling.sendSessionInitiate(
-          effectiveJid,
-          _sessionId!,
-          offer.sdp!,
-          isVideo: isVideo,
-        );
       } else {
         debugPrint('CallProvider: === CHAT PROTOCOL ENFORCED (XEP-0353 Message) ===');
-        signaling.sendSessionInitiateViaMessage(
-          effectiveJid,
-          _sessionId!,
-          offer.sdp!,
-          isVideo: isVideo,
-        );
       }
+      await _sendJingleInitiateViaAppropriateChannel(
+        signaling: signaling,
+        jid: effectiveJid,
+        sdp: offer.sdp!,
+        isVideo: isVideo,
+      );
       debugPrint('CallProvider: Session initiate dispatched via ${isGateway ? "IQ" : "MESSAGE"}');
 
       _startOutgoingCountdown();
@@ -1716,24 +1720,15 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
       // Detect if caller is a gateway (phone number via cheogram, etc.)
       final isGateway = isPstnGatewayJid(_remoteJid!);
-      if (isGateway) {
-        debugPrint(
-          'CallProvider: [PSTN] Direct IQ Protocol Forced (Session Accept)',
-        );
-        signaling.sendSessionAccept(
-          _remoteJid!,
-          _sessionId!,
-          answer.sdp!,
-          isVideo: _isVideo,
-        );
-      } else {
-        signaling.sendSessionAcceptViaMessage(
-          _remoteJid!,
-          _sessionId!,
-          answer.sdp!,
-          isVideo: _isVideo,
-        );
-      }
+      debugPrint(
+        'CallProvider: [PSTN] Direct IQ Protocol Forced for gateway=$isGateway (Session Accept)',
+      );
+      _sendSessionAcceptViaAppropriateChannel(
+        signaling: signaling,
+        jid: _remoteJid!,
+        sdp: answer.sdp!,
+        isVideo: _isVideo,
+      );
       debugPrint('CallProvider: Session accept sent');
 
       // Set a timeout - if we don't get media in 20 seconds, fail the call
@@ -2086,16 +2081,12 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
               _authService?.getJingleService(_callAccountId ?? '') ??
               _authService?.jingleSignaling;
           if (signaling != null && _remoteJid != null && _sessionId != null) {
-            final isGateway = isPstnGatewayJid(_remoteJid!);
-            if (isGateway) {
-              signaling.sendSessionAccept(
-                _remoteJid!, _sessionId!, answer.sdp!, isVideo: _isVideo,
-              );
-            } else {
-              signaling.sendSessionAcceptViaMessage(
-                _remoteJid!, _sessionId!, answer.sdp!, isVideo: _isVideo,
-              );
-            }
+            _sendSessionAcceptViaAppropriateChannel(
+              signaling: signaling,
+              jid: _remoteJid!,
+              sdp: answer.sdp!,
+              isVideo: _isVideo,
+            );
           }
         } else {
           debugPrint('CallProvider: Ignoring renegotiation offer in non-active state $_state');
