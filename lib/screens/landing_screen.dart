@@ -283,7 +283,7 @@ class _LandingScreenState extends State<LandingScreen>
           ),
           const SizedBox(height: 28),
           Text(
-            'Your Network, Your Rules.',
+            'Chat With Everyone, Everywhere.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: isMobile ? 32 : 56,
@@ -295,8 +295,8 @@ class _LandingScreenState extends State<LandingScreen>
           ),
           const SizedBox(height: 20),
           Text(
-            'Chat, call, and post across every network — without the compromise.\n'
-            'No account required. No tracking. No ads.',
+            'Jump into trending chat rooms or bring your own server.\n'
+            'Open source. Decentralized. Yours.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: isMobile ? 15 : 18,
