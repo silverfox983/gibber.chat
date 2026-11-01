@@ -245,7 +245,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
             top: 8, right: 8,
             child: Column(children: [
               _iconBtn(Icons.settings_rounded, () async {
-                final changed = await context.pushNamed('spaceSettings', extra: {'space': space, 'spacesService': widget.spacesService});
+                final changed = await context.pushNamed('spaceSettings', extra: {'space': space});
                 if (changed == 'deleted') {
                   widget.onBack();
                 } else if (changed == true) {
@@ -1738,7 +1738,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () {
-            context.pushNamed('postDetail', extra: {'post': item, 'space': widget.space, 'spacesService': widget.spacesService, 'allItems': _items ?? []}).then((_) => _reload());
+            context.pushNamed('postDetail', extra: {'post': item, 'space': widget.space, 'allItems': _items ?? []}).then((_) => _reload());
           },
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             // Pinned badge
@@ -1890,7 +1890,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView>
                 _emojiReactionBtn(theme, '😂', item, item.reactions['😂'] ?? 0),
                 _reactionBtn(theme, Icons.chat_bubble_outline_rounded, 'Reply', theme.colorScheme.onSurfaceVariant, onTap: () => _showReplyDialog(item)),
                 _reactionBtn(theme, Icons.forum_rounded, 'Thread', theme.colorScheme.onSurfaceVariant, onTap: () {
-                  context.pushNamed('postThread', extra: {'post': item, 'space': widget.space, 'spacesService': widget.spacesService}).then((_) => _reload());
+                  context.pushNamed('postThread', extra: {'post': item, 'space': widget.space}).then((_) => _reload());
                 }),
                 const Spacer(),
                 _reactionBtn(theme, Icons.ios_share_rounded, '', theme.colorScheme.onSurfaceVariant, onTap: () => _handleShare(item)),

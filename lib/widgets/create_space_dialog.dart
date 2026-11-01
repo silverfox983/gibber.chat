@@ -364,7 +364,6 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
                             Navigator.pop(ctx);
                             context.pushNamed('spaceDetail', extra: {
                               'space': space,
-                              'spacesService': widget.spacesService,
                             });
                           },
                           icon: const Icon(Icons.open_in_new_rounded, size: 16),

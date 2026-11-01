@@ -79,6 +79,16 @@ GoRouter createAppRouter({
   required ChatProvider chatProvider,
   required CallProvider callProvider,
 }) {
+  // Resolves the cached per-account SpacesService. Non-null for any active
+  // session: the global redirect blocks unauthenticated access to /app routes.
+  SpacesService _spacesServiceOrThrow() {
+    final svc = authService.spacesService;
+    if (svc == null) {
+      throw StateError('SpacesService unavailable - no active XMPP connection');
+    }
+    return svc;
+  }
+
   return GoRouter(
     debugLogDiagnostics: kDebugMode,
     initialLocation: '/',
@@ -275,7 +285,7 @@ GoRouter createAppRouter({
                   final args = state.extra as Map<String, dynamic>;
                   return _fadePage(state: state, child: SpaceSettingsScreen(
                     space: args['space'] as SpaceNode,
-                    spacesService: args['spacesService'] as SpacesService,
+                    spacesService: _spacesServiceOrThrow(),
                   ));
                 },
               ),
@@ -286,7 +296,7 @@ GoRouter createAppRouter({
                   final args = state.extra as Map<String, dynamic>;
                   return _fadePage(state: state, child: SpaceDetailView(
                     space: args['space'] as SpaceNode,
-                    spacesService: args['spacesService'] as SpacesService,
+                    spacesService: _spacesServiceOrThrow(),
                     onBack: () => context.pop(),
                   ));
                 },
@@ -299,7 +309,7 @@ GoRouter createAppRouter({
                   return _fadePage(state: state, child: PostDetailScreen(
                     post: args['post'] as SpaceItem,
                     space: args['space'] as SpaceNode,
-                    spacesService: args['spacesService'] as SpacesService,
+                    spacesService: _spacesServiceOrThrow(),
                     allItems: args['allItems'] as List<SpaceItem>,
                   ));
                 },
@@ -312,7 +322,7 @@ GoRouter createAppRouter({
                   return _fadePage(state: state, child: PostThreadScreen(
                     post: args['post'] as SpaceItem,
                     space: args['space'] as SpaceNode,
-                    spacesService: args['spacesService'] as SpacesService,
+                    spacesService: _spacesServiceOrThrow(),
                   ));
                 },
               ),
@@ -323,7 +333,7 @@ GoRouter createAppRouter({
                   final args = state.extra as Map<String, dynamic>;
                   return _fadePage(state: state, child: ArticleViewScreen(
                     item: args['item'] as SpaceItem,
-                    spacesService: args['spacesService'] as SpacesService?,
+                    spacesService: _spacesServiceOrThrow(),
                   ));
                 },
               ),

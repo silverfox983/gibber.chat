@@ -173,7 +173,6 @@ class _JoinSpaceDialogState extends State<JoinSpaceDialog> {
                   );
                   context.pushNamed('spaceDetail', extra: {
                     'space': space,
-                    'spacesService': widget.spacesService,
                   });
                 },
               ),
