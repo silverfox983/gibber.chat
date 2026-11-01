@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'ice_config.dart';
 import 'web_audio_effects_stub.dart' if (dart.library.html) 'web_audio_effects_service.dart';
 
 typedef OnLocalStream = void Function(MediaStream stream);
@@ -48,48 +49,15 @@ class WebRTCManager {
   bool _isDisposed = false;
   bool get isDisposed => _isDisposed;
 
-  final Map<String, dynamic> _config = {
-    'iceServers': [
-      {'urls': 'stun:stun.l.google.com:19302'},
-      {'urls': 'stun:stun1.l.google.com:19302'},
-      {
-        'urls': 'turn:openrelay.metered.ca:80',
-        'username': 'openrelayproject',
-        'credential': 'openrelayproject',
-      },
-      {
-        'urls': 'turn:openrelay.metered.ca:443',
-        'username': 'openrelayproject',
-        'credential': 'openrelayproject',
-      },
-    ],
-    'iceTransportPolicy': 'all',
-    'sdpSemantics': 'unified-plan',
-    'iceCandidatePoolSize': 10,
-  };
+  final Map<String, dynamic> _config = Map<String, dynamic>.from(defaultRtcConfiguration);
 
   Map<String, dynamic>? _customIceConfig;
   bool _currentIsVideo = true;
 
-  static const _fallbackIceServers = [
-    {'urls': 'stun:stun.l.google.com:19302'},
-    {'urls': 'stun:stun1.l.google.com:19302'},
-    {
-      'urls': 'turn:openrelay.metered.ca:80',
-      'username': 'openrelayproject',
-      'credential': 'openrelayproject',
-    },
-    {
-      'urls': 'turn:openrelay.metered.ca:443',
-      'username': 'openrelayproject',
-      'credential': 'openrelayproject',
-    },
-  ];
-
   void setIceServers(List<Map<String, dynamic>> servers) {
     final allServers = <Map<String, dynamic>>[...servers];
 
-    for (var fallback in _fallbackIceServers) {
+    for (var fallback in fallbackIceServers) {
       final urls = fallback['urls'] as String;
       if (!allServers.any((s) => s['urls'] == urls)) {
         allServers.add(fallback);
