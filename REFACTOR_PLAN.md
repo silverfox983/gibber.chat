@@ -124,8 +124,12 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
       visual verification on device/screenshots. Deferred deliberately.
 - [ ] Attachment web-guards: 2 remaining copies differ only by image height — trivial inline
       conditionals, extraction would over-abstract. Closed as no-op.
-- [ ] Router: stop passing live services/models via `state.extra` (`SpacesService` instance at
-      5 routes) — move to IDs/params (deep-link prep).
+- [x] Router: live services removed from `state.extra` — the 5 Spaces routes resolve the cached
+      per-account `SpacesService` via the router's `AuthService` (non-null guaranteed by the
+      auth redirect); 5 push sites simplified. Remaining extras are data payloads (space/post/
+      conversation objects) — ID-based resolution belongs to the deferred deep-link work below.
+- [x] Discovered: `articleView` route is never navigated to (defined + screen, zero push sites).
+      Left in place until SFS/article feature wiring (matches `_parseSfs` story).
 - [ ] Wire SFS ingest (`_parseSfs`) into the message pipeline.
 
 ## Phase 6 — Data layer
