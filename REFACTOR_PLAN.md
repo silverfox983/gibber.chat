@@ -98,12 +98,17 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
 - [x] Audio-level `notifyListeners()` throttled in a single shared `_onRtcAudioLevels`
       (value change ≥0.05, talk-while-muted flag change, or 150ms cadence — previously every
       stats tick rebuilt the whole app; 3 duplicated listeners deleted) (`843a025`).
-- [ ] Full split by transport: `XmppCallController` (offer/answer/ICE via signaling),
-      `SipCallController`, `GroupCallController` (Janus + mesh). Keep `CallProvider` as
-      state/notifier façade. Remaining duplication: audio-level listener ordering differences
-      in acceptCall vs start path are now unified; `_setupRtcListeners` (270 lines) still
-      provider-internal — extraction target for the transport split.
-- [ ] SIP service bootstrap (`_initializeSipService`) and Janus/SFU wiring are next seams to lift.
+- [x] `_setupRtcListeners` split: ICE watchdog stays inline; `onTrack` → `_onRtcRemoteTrack`
+      (media-established transition + Android audio-fix cascade), `onConnectionState` →
+      `_onRtcConnectionState` (disconnect grace), `onIceConnectionState` →
+      `_onRtcIceConnectionState` (restart state machine), `onIceCandidate` →
+      `_onRtcIceCandidate` (gateway-routed trickle). Orchestrator ~50 lines, callbacks
+      individually reviewable (`7a5ef5b`).
+- [ ] Full split by transport: `XmppCallController` / `SipCallController` / `GroupCallController`
+      (Janus + mesh). Keep `CallProvider` as state/notifier façade. Note: `_initializeSipService`
+      and `_setupJanusListeners` touch 8+ provider fields (state, renderers, timers, cleanup) —
+      controller extraction should happen in one focused session with the call flow exercised
+      manually on device (weak automated coverage for SIP/Janus paths).
 
 ## Phase 5 — UI
 
