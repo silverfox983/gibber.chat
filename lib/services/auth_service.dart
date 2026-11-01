@@ -1094,6 +1094,81 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
 
   Future<String?> joinGenericRoom(String destination, {String? accountId}) async =>
       _roomService.joinGenericRoom(destination, accountId: accountId);
+  void _handleRosterItems(List<xmpp.Buddy> items, String id) {
+    bool changed = false;
+    for (var item in items) {
+      final jidObj = item.jid;
+      final String? contactId = jidObj?.fullJid ?? jidObj?.domain;
+      if (contactId == null) continue;
+      final normalizedId = contactId.split('/').first.toLowerCase();
+      final existingIndex = _currentContacts.indexWhere(
+        (c) => c.id.toLowerCase().split('/').first == normalizedId,
+      );
+
+      if (existingIndex != -1) {
+        // Update existing contact: name
+        if (item.name != null && item.name!.isNotEmpty) {
+          _currentContacts[existingIndex].name = item.name!;
+        }
+        changed = true;
+      } else {
+        // Add new contact
+        _currentContacts.add(
+          Contact(
+            id: normalizedId,
+            name: item.name ?? jidObj?.local ?? 'User',
+            protocol: 'XMPP',
+          ),
+        );
+        changed = true;
+      }
+    }
+    if (changed) {
+      _contactStreamController.add(List.from(_currentContacts));
+      _fetchAllVCards(id);
+    }
+  }
+
+  void _handlePresenceUpdate(xmpp.PresenceData presence, String id) {
+    final pid = presence.jid?.fullJid ?? presence.jid?.domain;
+    if (pid != null) {
+      final barePid = pid.split('/').first.toLowerCase();
+      // Skip MUC presence — handled in inStanzasStream
+      final mucServices = _discoveredMucServices[id] ?? [];
+      if (pid.contains('/') && mucServices.any((d) => barePid.endsWith(d.toLowerCase()))) {
+        return;
+      }
+      final index = _currentContacts.indexWhere(
+        (c) => c.id.toLowerCase().split('/').first == barePid,
+      );
+      if (index != -1) {
+        if (presence.showElement == xmpp.PresenceShowElement.XA &&
+            presence.status == 'Unavailable') {
+          _currentContacts[index].status = ContactStatus.offline;
+          _currentContacts[index].presenceMessage = null;
+        } else {
+          _currentContacts[index].status = _mapPresenceToShow(
+            presence.showElement,
+          );
+          _currentContacts[index].presenceMessage = presence.status;
+        }
+        _contactStreamController.add(List.from(_currentContacts));
+      } else {
+        // Presence for unknown contact — add them
+        _currentContacts.add(Contact(
+          id: barePid,
+          name: barePid.split('@').first,
+          status: presence.showElement == xmpp.PresenceShowElement.XA && presence.status == 'Unavailable'
+              ? ContactStatus.offline
+              : _mapPresenceToShow(presence.showElement),
+          presenceMessage: presence.status,
+          protocol: 'XMPP',
+        ));
+        _contactStreamController.add(List.from(_currentContacts));
+      }
+    }
+  }
+
   Future<void> _onXmppConnectionState(
     xmpp.XmppConnectionState state, {
     required String id,
@@ -1178,38 +1253,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
           rosterManager.getRoster();
           _rosterSubs[id]?.cancel();
           _rosterSubs[id] = rosterManager.rosterStream.listen((items) {
-            bool changed = false;
-            for (var item in items) {
-              final jidObj = item.jid;
-              final String? contactId = jidObj?.fullJid ?? jidObj?.domain;
-              if (contactId == null) continue;
-              final normalizedId = contactId.split('/').first.toLowerCase();
-              final existingIndex = _currentContacts.indexWhere(
-                (c) => c.id.toLowerCase().split('/').first == normalizedId,
-              );
-
-              if (existingIndex != -1) {
-                // Update existing contact: name
-                if (item.name != null && item.name!.isNotEmpty) {
-                  _currentContacts[existingIndex].name = item.name!;
-                }
-                changed = true;
-              } else {
-                // Add new contact
-                _currentContacts.add(
-                  Contact(
-                    id: normalizedId,
-                    name: item.name ?? jidObj?.local ?? 'User',
-                    protocol: 'XMPP',
-                  ),
-                );
-                changed = true;
-              }
-            }
-            if (changed) {
-              _contactStreamController.add(List.from(_currentContacts));
-              _fetchAllVCards(id);
-            }
+            _handleRosterItems(items, id);
           });
 
           // Handle Presence
@@ -1222,49 +1266,12 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
           }
           _presenceSubs[id]?.cancel();
           _presenceSubs[id] = presenceManager.presenceStream.listen((presence) {
-            final pid = presence.jid?.fullJid ?? presence.jid?.domain;
-            if (pid != null) {
-              final barePid = pid.split('/').first.toLowerCase();
-              // Skip MUC presence — handled in inStanzasStream
-              final mucServices = _discoveredMucServices[id] ?? [];
-              if (pid.contains('/') && mucServices.any((d) => barePid.endsWith(d.toLowerCase()))) {
-                return;
-              }
-              final index = _currentContacts.indexWhere(
-                (c) => c.id.toLowerCase().split('/').first == barePid,
-              );
-              if (index != -1) {
-                if (presence.showElement == xmpp.PresenceShowElement.XA &&
-                    presence.status == 'Unavailable') {
-                  _currentContacts[index].status = ContactStatus.offline;
-                  _currentContacts[index].presenceMessage = null;
-                } else {
-                  _currentContacts[index].status = _mapPresenceToShow(
-                    presence.showElement,
-                  );
-                  _currentContacts[index].presenceMessage = presence.status;
-                }
-                _contactStreamController.add(List.from(_currentContacts));
-              } else {
-                // Presence for unknown contact — add them
-                _currentContacts.add(Contact(
-                  id: barePid,
-                  name: barePid.split('@').first,
-                  status: presence.showElement == xmpp.PresenceShowElement.XA && presence.status == 'Unavailable'
-                      ? ContactStatus.offline
-                      : _mapPresenceToShow(presence.showElement),
-                  presenceMessage: presence.status,
-                  protocol: 'XMPP',
-                ));
-                _contactStreamController.add(List.from(_currentContacts));
-              }
-            }
+            _handlePresenceUpdate(presence, id);
           });
 
           // Handle Messages - Relegated entirely to inStanzasStream below
           // to prevent duplicate message emissions and avoid redundant OTR/OMEMO decryption overlaps.
 
-          _xmppStanzaSubs[id]?.cancel();
           _xmppStanzaSubs[id]?.cancel();
           _xmppStanzaSubs[id] = conn.inStanzasStream.listen((stanza) async {
               await _dispatchXmppStanza(stanza, id: id, conn: conn);
