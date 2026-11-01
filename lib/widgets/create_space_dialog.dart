@@ -40,7 +40,7 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
   bool _domainValid = false;
   bool _showTitleError = false;
 
-  String _accessModel = 'authorize';
+  String _accessModel = 'whitelist';
   bool _createChatRoom = true;
   Uint8List? _avatarBytes;
   Uint8List? _bannerBytes;
@@ -575,11 +575,11 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
   Widget _buildPrivacyStep(ThemeData theme) {
     final models = [
       (
-        id: 'authorize',
+        id: 'whitelist',
         icon: Icons.lock_rounded,
         title: 'Private (Recommended)',
-        subtitle: 'Join requests require owner approval',
-        desc: 'Users request to join; owners approve or deny',
+        subtitle: 'Owners decide exactly who joins',
+        desc: 'Only members can read the space; owners add members directly',
       ),
       (
         id: 'open',
@@ -587,13 +587,6 @@ class _CreateSpaceDialogState extends State<CreateSpaceDialog> {
         title: 'Public',
         subtitle: 'Anyone can discover and join',
         desc: 'Listed in directory, anyone can subscribe immediately',
-      ),
-      (
-        id: 'whitelist',
-        icon: Icons.admin_panel_settings_rounded,
-        title: 'Whitelist Only',
-        subtitle: 'Owners manually add members',
-        desc: 'No join requests — owners control membership directly',
       ),
     ];
 

@@ -15,7 +15,7 @@ class SpacesService extends ChangeNotifier {
 
   final IqRequestManager _iqReqs = IqRequestManager();
 
-  // ── Bounded LRU caches with TTL ──────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Bounded LRU caches with TTL Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   final _discoverCache  = _BoundedCache<String, List<SpaceNode>>(maxSize: 20, ttl: const Duration(minutes: 30));
   final _metadataCache  = _BoundedCache<String, SpaceNode>(maxSize: 100, ttl: const Duration(minutes: 15));
   final _contentCache   = _BoundedCache<String, List<SpaceItem>>(maxSize: 30, ttl: const Duration(minutes: 5));
@@ -38,7 +38,7 @@ class SpacesService extends ChangeNotifier {
       _iqReqs.complete(stanza.id, stanza);
     }
 
-    // XEP-0060 §12: Real-time PubSub event delivery via <message>
+    // XEP-0060 Ã‚Â§12: Real-time PubSub event delivery via <message>
     if (stanza is xmpp.MessageStanza) {
       _handlePubSubEvent(stanza);
     }
@@ -790,7 +790,21 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
-  Future<String?> createSpace(String domain, String node, String name, {String? description, String accessModel = 'authorize', String publishModel = 'publishers', bool createChatRoom = true, String? avatarUrl, String? coverUrl}) async {
+  Future<String?> createSpace(
+    String domain,
+    String node,
+    String name, {
+    String? description,
+    // Prosody 13's mod_pubsub only accepts access models 'open'/'whitelist'
+    // in check_node_config; 'authorize' is kept for callers that need it on
+    // servers (e.g. Movim) that support the authorize workflow.
+    String? accessModel,
+    String? publishModel,
+    String accessModelFallback = 'open',
+    bool createChatRoom = true,
+    String? avatarUrl,
+    String? coverUrl,
+  }) async {
     // Build the XEP-0060 node configuration form (Movim-style Space config).
     xmpp.XmppElement buildConfigForm() {
       final x = xmpp.XmppElement();
@@ -817,19 +831,19 @@ class SpacesService extends ChangeNotifier {
       if (description != null && description.isNotEmpty) addField('pubsub#description', description);
       if (avatarUrl != null && avatarUrl.isNotEmpty) addField('pubsub#node_avatar_url', avatarUrl);
       if (coverUrl != null && coverUrl.isNotEmpty) addField('pubsub#node_cover_url', coverUrl);
-      addField('pubsub#access_model', accessModel);
-      addField('pubsub#publish_model', publishModel);
+      addField('pubsub#access_model', accessModel ?? accessModelFallback);
+      addField('pubsub#publish_model', publishModel ?? 'publishers');
       addField('pubsub#type', 'urn:xmpp:spaces:0');
-      addField('pubsub#persist_items', 'true');
-      addField('pubsub#deliver_payloads', 'true');
+      addField('pubsub#persist_items', '1');
+      addField('pubsub#deliver_payloads', '1');
       // NOTE: 'max' is not an integer value servers accept in forms; use the
       // same cap the component config uses (pubsub_max_items).
       addField('pubsub#max_items', '10000');
-      addField('pubsub#notify_retract', 'true');
-      addField('pubsub#notify_sub', 'true');
-      addField('pubsub#notify_config', 'true');
-      addField('pubsub#notify_delete', 'true');
-      addField('pubsub#purge_offline', 'false');
+      addField('pubsub#notify_retract', '1');
+      addField('pubsub#notify_sub', '1');
+      addField('pubsub#notify_config', '1');
+      addField('pubsub#notify_delete', '1');
+      addField('pubsub#purge_offline', '0');
       return x;
     }
 
@@ -854,7 +868,7 @@ class SpacesService extends ChangeNotifier {
     }
 
     /// Fetches the server's default configuration form for a node
-    /// (XEP-0060 §8.1.2 "retrieve default node configuration").
+    /// (XEP-0060 Ã‚Â§8.1.2 "retrieve default node configuration").
     Future<xmpp.XmppElement?> fetchDefaultConfigForm(String domain) async {
       final iq = xmpp.IqStanza(
         'def_form_${DateTime.now().microsecondsSinceEpoch}',
@@ -878,6 +892,72 @@ class SpacesService extends ChangeNotifier {
       }
     }
 
+    /// Restricts a form to the fields the server advertises and coerces the
+    /// values to the server's field types. Unknown fields cause
+    /// not-acceptable; booleans must be `1`/`0` (XEP/prosody wire values),
+    /// not `true`/`false`.
+    xmpp.XmppElement trimFormToServer(xmpp.XmppElement configForm, xmpp.XmppElement? serverForm) {
+      if (serverForm == null) {
+        // Normalize booleans even without the server's form as a floor.
+        final normalized = xmpp.XmppElement();
+        normalized.name = 'x';
+        normalized.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
+        normalized.addAttribute(xmpp.XmppAttribute('type', 'submit'));
+        for (final field in configForm.children.whereType<xmpp.XmppElement>()) {
+          if (field.name != 'field') {
+            normalized.addChild(field);
+            continue;
+          }
+          final type = field.getAttribute('type')?.value;
+          final valueField = field.getChild('value');
+          final value = valueField?.textValue;
+          if (value != null && (type == null || type == 'boolean') &&
+              (value == 'true' || value == 'false')) {
+            valueField!.textValue = value == 'true' ? '1' : '0';
+          }
+          normalized.addChild(field);
+        }
+        return normalized;
+      }
+
+      final serverFieldTypes = <String, String>{};
+      for (final f in serverForm.children.whereType<xmpp.XmppElement>().where((e) => e.name == 'field')) {
+        final varAttr = f.getAttribute('var')?.value;
+        final typeAttr = f.getAttribute('type')?.value;
+        if (varAttr != null) serverFieldTypes[varAttr] = typeAttr ?? 'text-single';
+      }
+      final trimmed = xmpp.XmppElement();
+      trimmed.name = 'x';
+      trimmed.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
+      trimmed.addAttribute(xmpp.XmppAttribute('type', 'submit'));
+      for (final field in configForm.children.whereType<xmpp.XmppElement>()) {
+        if (field.name != 'field') {
+          trimmed.addChild(field);
+          continue;
+        }
+        final varAttr = field.getAttribute('var')?.value ?? '';
+        if (!serverFieldTypes.containsKey(varAttr)) continue;
+        final serverType = serverFieldTypes[varAttr]!;
+        final valueField = field.getChild('value');
+        final value = valueField?.textValue ?? '';
+        // Re-type the field to the server's declared type when it differs.
+        field.getAttribute('type')?.value = serverType == 'hidden' ? 'hidden' : serverType;
+        if (serverType == 'boolean') {
+          if (valueField == null) {
+            final v = xmpp.XmppElement()..name = 'value'..textValue = '0';
+            field.addChild(v);
+          } else {
+            valueField.textValue = (value == 'true' || value == '1') ? '1' : '0';
+          }
+        } else if (value.isEmpty) {
+          // Empty value on a non-boolean: drop the field rather than send "".
+          continue;
+        }
+        trimmed.addChild(field);
+      }
+      return trimmed;
+    }
+
     /// Submits the node configuration, restricting the form to fields the
     /// server itself advertises (unknown fields cause not-acceptable).
     Future<xmpp.IqStanza> sendConfigureNode(
@@ -886,30 +966,7 @@ class SpacesService extends ChangeNotifier {
       String? nodeOverride,
     }) async {
       final serverForm = await fetchDefaultConfigForm(domain);
-      xmpp.XmppElement formToSend = configForm;
-      if (serverForm != null) {
-        final serverVars = serverForm.children
-            .whereType<xmpp.XmppElement>()
-            .where((e) => e.name == 'field')
-            .map((e) => e.getAttribute('var')?.value)
-            .whereType<String>()
-            .toSet();
-        final trimmed = xmpp.XmppElement();
-        trimmed.name = 'x';
-        trimmed.addAttribute(xmpp.XmppAttribute('xmlns', 'jabber:x:data'));
-        trimmed.addAttribute(xmpp.XmppAttribute('type', 'submit'));
-        for (final field in configForm.children.whereType<xmpp.XmppElement>()) {
-          if (field.name != 'field') {
-            trimmed.addChild(field);
-            continue;
-          }
-          final varAttr = field.getAttribute('var')?.value;
-          if (varAttr != null && serverVars.contains(varAttr)) {
-            trimmed.addChild(field);
-          }
-        }
-        formToSend = trimmed;
-      }
+      final formToSend = trimFormToServer(configForm, serverForm);
 
       final iq = xmpp.IqStanza('config_space_${DateTime.now().microsecondsSinceEpoch}', xmpp.IqStanzaType.SET);
       iq.toJid = xmpp.Jid.fromFullJid(domain);
@@ -1006,7 +1063,7 @@ class SpacesService extends ChangeNotifier {
       for (final targetDomain in domains) {
         lastError = await tryCreateOnDomain(targetDomain);
         if (lastError == null) {
-          // SUCCESS — now create MUC room (optional) and auto-subscribe
+          // SUCCESS Ã¢â‚¬â€ now create MUC room (optional) and auto-subscribe
           final myJid = _connection.account.fullJid.userAtDomain;
 
           if (createChatRoom) {
@@ -1439,7 +1496,7 @@ class SpacesService extends ChangeNotifier {
     if (_roomService != null) {
       final accountId = this.accountId;
       if (accountId == null) {
-        debugPrint('SpacesService: Cannot configure channel $channelJid — no accountId for connection');
+        debugPrint('SpacesService: Cannot configure channel $channelJid Ã¢â‚¬â€ no accountId for connection');
       } else {
         final configError = await _roomService!.configureXmppRoom(
           channelJid,
@@ -2067,7 +2124,7 @@ class SpacesService extends ChangeNotifier {
     
     final items = xmpp.XmppElement();
     items.name = 'items';
-    // When isServiceNode=true, the "node" is actually the service JID — don't set it as the
+    // When isServiceNode=true, the "node" is actually the service JID Ã¢â‚¬â€ don't set it as the
     // pubsub node attribute. Only set it for real node names.
     if (!isServiceNode) {
       items.addAttribute(xmpp.XmppAttribute('node', node));
@@ -2255,7 +2312,7 @@ class SpacesService extends ChangeNotifier {
                 rawContent = contentNode.children
                     .map((c) => c.buildXmlString())
                     .join('');
-                // Normalise content type so renderer knows to convert HTML→MD
+                // Normalise content type so renderer knows to convert HTMLÃ¢â€ â€™MD
                 if (contentType == null || contentType == 'xhtml') {
                   contentType = 'text/html';
                 }
@@ -2678,7 +2735,7 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
-  /// Client-side post search — fetches items and filters by query string.
+  /// Client-side post search Ã¢â‚¬â€ fetches items and filters by query string.
   Future<List<SpaceItem>> searchPosts(String domain, String node, String query) async {
     if (query.trim().isEmpty) return fetchSpaceContent(domain, node);
     final all = await fetchSpaceContent(domain, node);
@@ -2884,7 +2941,7 @@ class SpacesService extends ChangeNotifier {
     for (var child in item.children) {
       final ns = child.getAttribute('xmlns')?.value;
 
-      // XEP-0048: Bookmarks (modern) — MUC room in a space
+      // XEP-0048: Bookmarks (modern) Ã¢â‚¬â€ MUC room in a space
       if (child.name == 'conference' && ns == 'urn:xmpp:bookmarks:1') {
         type = 'room';
         name = child.getAttribute('name')?.value;
@@ -2900,7 +2957,7 @@ class SpacesService extends ChangeNotifier {
         break;
       }
 
-      // Legacy conference invite — MUC room in a space
+      // Legacy conference invite Ã¢â‚¬â€ MUC room in a space
       if (child.name == 'x' && ns == 'jabber:x:conference') {
         type = 'room';
         name = child.getAttribute('name')?.value;
