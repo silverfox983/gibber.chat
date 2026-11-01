@@ -132,6 +132,41 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   double get remoteVolume => _remoteVolume;
   bool get isTalkingWhileMuted => _isTalkingWhileMuted;
   int get outgoingCallSeconds => _outgoingCallSeconds;
+
+  static const double _volumeNotifyMinDelta = 0.05;
+  static const Duration _volumeNotifyMinInterval = Duration(milliseconds: 150);
+  DateTime? _lastVolumeNotifyAt;
+  double _lastNotifiedLocalVolume = 0.0;
+  double _lastNotifiedRemoteVolume = 0.0;
+
+  void _onRtcAudioLevels(Map<String, dynamic> levels) {
+    debugPrint(
+      'CallProvider: Audio levels - local: ${levels['local']}, remote: ${levels['remote']}',
+    );
+    _localVolume = levels['local'] ?? 0.0;
+    _remoteVolume = levels['remote'] ?? 0.0;
+
+    // TALK-WHILE-MUTED DETECTION (Peak Energy > 0.3)
+    final wasTalkingWhileMuted = _isTalkingWhileMuted;
+    _isTalkingWhileMuted = _isMicMuted && _localVolume > 0.3;
+
+    // Throttle rebuild fan-out: stats ticks arrive at audio-frame rate, and
+    // every notifyListeners() reaches the whole app (overlay included).
+    final now = DateTime.now();
+    final talkingChanged = wasTalkingWhileMuted != _isTalkingWhileMuted;
+    final volumeJumped =
+        (_localVolume - _lastNotifiedLocalVolume).abs() >= _volumeNotifyMinDelta ||
+        (_remoteVolume - _lastNotifiedRemoteVolume).abs() >= _volumeNotifyMinDelta;
+    final due = _lastVolumeNotifyAt == null ||
+        now.difference(_lastVolumeNotifyAt!) >= _volumeNotifyMinInterval;
+
+    if (talkingChanged || volumeJumped || due) {
+      _lastVolumeNotifyAt = now;
+      _lastNotifiedLocalVolume = _localVolume;
+      _lastNotifiedRemoteVolume = _remoteVolume;
+      notifyListeners();
+    }
+  }
   bool get isSipCall => _isSipCall;
   bool get isSipRegistered => _sipService?.isRegistered ?? false;
   SipService? get sipService => _sipService;
@@ -792,14 +827,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
       // MONITOR: Attach stats listener to expose volume to UI
       _statsSub?.cancel();
-      _statsSub = _rtcManager.audioLevels.listen((levels) {
-        debugPrint(
-          'CallProvider: Audio levels - local: ${levels['local']}, remote: ${levels['remote']}',
-        );
-        _localVolume = levels['local'] ?? 0.0;
-        _remoteVolume = levels['remote'] ?? 0.0;
-        notifyListeners();
-      });
+      _statsSub = _rtcManager.audioLevels.listen(_onRtcAudioLevels);
 
       _qualityStatsSub?.cancel();
       _qualityStatsSub = _rtcManager.qualityStats.listen((stats) {
@@ -1498,23 +1526,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
       // MONITOR: Attach stats listener to expose volume to UI
       _statsSub?.cancel();
-      _statsSub = _rtcManager.audioLevels.listen((levels) {
-        debugPrint(
-          'CallProvider: Audio levels - local: ${levels['local']}, remote: ${levels['remote']}',
-        );
-        _localVolume = levels['local'] ?? 0.0;
-        _remoteVolume = levels['remote'] ?? 0.0;
-
-        // TALK-WHILE-MUTED DETECTION (Peak Energy > 0.3)
-        final wasTalkingWhileMuted = _isTalkingWhileMuted;
-        _isTalkingWhileMuted = _isMicMuted && _localVolume > 0.3;
-
-        if (wasTalkingWhileMuted != _isTalkingWhileMuted) {
-          notifyListeners();
-        } else {
-          notifyListeners(); // Still need to update volume for visualizer
-        }
-      });
+      _statsSub = _rtcManager.audioLevels.listen(_onRtcAudioLevels);
 
       final offer = await _rtcManager.createOffer();
       debugPrint('CallProvider: Offer created');
@@ -1682,22 +1694,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: RTC listeners attached');
 
       _statsSub?.cancel();
-      _statsSub = _rtcManager.audioLevels.listen((levels) {
-        debugPrint(
-          'CallProvider: Audio levels - local: ${levels['local']}, remote: ${levels['remote']}',
-        );
-        _localVolume = levels['local'] ?? 0.0;
-        _remoteVolume = levels['remote'] ?? 0.0;
-
-        final wasTalkingWhileMuted = _isTalkingWhileMuted;
-        _isTalkingWhileMuted = _isMicMuted && _localVolume > 0.3;
-
-        if (wasTalkingWhileMuted != _isTalkingWhileMuted) {
-          notifyListeners();
-        } else {
-          notifyListeners();
-        }
-      });
+      _statsSub = _rtcManager.audioLevels.listen(_onRtcAudioLevels);
 
       debugPrint('CallProvider: Creating answer...');
       final answer = await _rtcManager.createAnswer(
