@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
+import 'iq_request_manager.dart';
 import '../models/space_models.dart';
 
 class PubSubInteractionService {
@@ -9,7 +10,7 @@ class PubSubInteractionService {
 
   PubSubInteractionService(this._connections, this._xmppJids);
 
-  final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
+  final IqRequestManager _iqReqs = IqRequestManager();
 
   final StreamController<PubSubLikeEvent> _likeEventController =
       StreamController<PubSubLikeEvent>.broadcast();
@@ -446,32 +447,25 @@ class PubSubInteractionService {
     }
 
     final completer = Completer<xmpp.IqStanza>();
-    _pendingIqs[id] = completer;
+    _iqReqs.register(id, completer);
     conn.writeStanza(iq);
 
     try {
       return await completer.future.timeout(timeout);
     } catch (e) {
-      _pendingIqs.remove(id);
+      _iqReqs.forget(id);
       rethrow;
     }
   }
 
   void handleIqResponse(xmpp.IqStanza iq) {
-    final id = iq.id;
-    if (id != null && _pendingIqs.containsKey(id)) {
-      _pendingIqs[id]!.complete(iq);
-      _pendingIqs.remove(id);
-    }
+    _iqReqs.complete(iq.id, iq);
   }
 
   void dispose() {
     _likeEventController.close();
     _commentEventController.close();
-    for (final completer in _pendingIqs.values) {
-      if (!completer.isCompleted) completer.completeError('Service disposed');
-    }
-    _pendingIqs.clear();
+    _iqReqs.failAll('Service disposed');
   }
 }
 

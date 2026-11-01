@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
+import 'iq_request_manager.dart';
 
 class XmppMucSelfPingService {
   final Map<String, xmpp.Connection> _connections;
@@ -77,8 +78,6 @@ class XmppMdsService {
 
   XmppMdsService(this._connections, this._xmppJids);
 
-  final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
-
   Future<void> markDisplayed(String accountId, String roomJid, String messageId) async {
     final conn = _connections[accountId];
     if (conn == null) return;
@@ -149,7 +148,7 @@ class XmppChannelSearchService {
 
   XmppChannelSearchService(this._connections, _xmppJids) : _xmppJids = _xmppJids;
 
-  final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
+  final IqRequestManager _iqReqs = IqRequestManager();
 
   Future<List<ChannelSearchResult>> searchChannels({
     required String accountId,
@@ -259,23 +258,19 @@ class XmppChannelSearchService {
     }
 
     final completer = Completer<xmpp.IqStanza>();
-    _pendingIqs[id] = completer;
+    _iqReqs.register(id, completer);
     conn.writeStanza(iq);
 
     try {
       return await completer.future.timeout(timeout);
     } catch (e) {
-      _pendingIqs.remove(id);
+      _iqReqs.forget(id);
       rethrow;
     }
   }
 
   void handleIqResponse(xmpp.IqStanza iq) {
-    final id = iq.id;
-    if (id != null && _pendingIqs.containsKey(id)) {
-      _pendingIqs[id]!.complete(iq);
-      _pendingIqs.remove(id);
-    }
+    _iqReqs.complete(iq.id, iq);
   }
 }
 
