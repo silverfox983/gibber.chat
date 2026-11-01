@@ -152,9 +152,14 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
       Note: `clearAllData` semantics intentionally unchanged (shared by delete + restore flows).
 - [x] Remaining direct DB users (deliberately left): `chat_settings_screen` (2),
       `account_preferences_screen` (1) — these belong to the repository phase.
+- [x] Reaction serialization unified (`69492ec`): `toMap` writes only `reactions_json`,
+      `fromMap` falls back to the legacy `reactions` column for pre-existing rows, smart upsert
+      no longer binds the dead column. **Fixed latent bug**: `_decodeReactions` only accepted
+      Maps but DB rows are JSON strings — persisted reactions were never actually reloaded.
+      +4 model round-trip tests (`test/chat_models_test.dart`).
 - [ ] Model split: UI-state vs persistence payload in `Conversation` (typing flags, unread
-      count live alongside DB row mapping); unify reaction key ('reactions_json' + 'reactions'
-      dual write in ChatMessage.toMap).
+      count live alongside DB row mapping). Dedicated session: DatabaseService conversation-row
+      mapping + every `Conversation` field consumer.
 
 ## Notes
 
