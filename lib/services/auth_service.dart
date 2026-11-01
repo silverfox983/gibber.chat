@@ -39,6 +39,7 @@ import './xmpp_server_info_service.dart';
 import './xmpp_sticker_service.dart';
 import './iq_request_manager.dart';
 import './presence_mapping.dart';
+import './transport_service.dart';
 import './xmpp_session_lookup.dart';
 
 enum ConnectionProtocol { xmpp, none }
@@ -406,6 +407,14 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
   XmppChannelSearchService get channelSearchService => _channelSearchService;
   XmppServerInfoService get serverInfoService => _serverInfoService;
   XmppStickerService get stickerService => _stickerService;
+
+  /// Per-account transport (gateway) service for the active connection,
+  /// created on Ready so gateway discovery/registration always has live IQ.
+  Map<String, TransportService> _transportServices = {};
+  TransportService? get transportService {
+    final id = _activeAccountId;
+    return _transportServices[id];
+  }
   List<Room> get joinedRooms => _roomService.joinedRooms;
   Stream<List<Room>> get joinedRoomsStream => _roomService.joinedRoomsStream;
   Stream<Map<String, List<RoomParticipant>>> get roomParticipantsStream => _roomService.roomParticipantsStream;
@@ -1214,6 +1223,17 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
     // XEP-0357: Enable push notifications so Prosody triggers mod_http_push
     _enablePushNotifications(conn, id);
 
+    // Gateway transports (biboumi IRC / Slidge): live IQ plumbing for
+    // discovery + XEP-0077 registration.
+    final previousTransport = _transportServices[id];
+    if (previousTransport != null) {
+      previousTransport.dispose();
+    }
+    final transport = TransportService(conn);
+    transport.setDatabase(_db);
+    transport.setAccountId(id);
+    _transportServices[id] = transport;
+
     onAuthenticated?.call(bareJid);
   }
 
@@ -1827,6 +1847,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
             // SpacesService (its own IQ correlation + PubSub events) so it does
             // not need a second inStanzasStream subscription.
             _spacesServices[id]?.handleStanza(stanza);
+            _transportServices[id]?.handleStanza(stanza);
 
             if (stanza is xmpp.PresenceStanza) {
               final fromJid = stanza.fromJid;

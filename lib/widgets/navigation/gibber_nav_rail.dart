@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../gateways/gateway_connect_sheet.dart';
 import '../../core/app_colors.dart';
 import '../../core/design_tokens.dart';
 import '../../models/chat_models.dart';
@@ -234,6 +235,10 @@ class _GibberNavRailState extends State<GibberNavRail> {
               setState(() => _fabOpen = false);
               context.pushNamed('createPost');
             },
+            onConnectNetwork: () {
+              setState(() => _fabOpen = false);
+              showGatewayConnectSheet(context);
+            },
             isDark: isDark,
           ),
         ],
@@ -248,6 +253,7 @@ class _QuickActionMenu extends StatelessWidget {
   final VoidCallback onNewChat;
   final VoidCallback onNewSpace;
   final VoidCallback onNewPost;
+  final VoidCallback onConnectNetwork;
   final bool isDark;
 
   const _QuickActionMenu({
@@ -256,6 +262,7 @@ class _QuickActionMenu extends StatelessWidget {
     required this.onNewChat,
     required this.onNewSpace,
     required this.onNewPost,
+    required this.onConnectNetwork,
     required this.isDark,
   });
 
@@ -268,6 +275,8 @@ class _QuickActionMenu extends StatelessWidget {
       children: [
         if (isOpen) ...[
           _AnimatedActionBtn(icon: Icons.chat_bubble_outline_rounded, label: 'Chat', onTap: onNewChat, primary: primary, isDark: isDark),
+          const SizedBox(height: 6),
+          _AnimatedActionBtn(icon: Icons.hub_outlined, label: 'Network', onTap: onConnectNetwork, primary: primary, isDark: isDark),
           const SizedBox(height: 6),
           _AnimatedActionBtn(icon: Icons.workspaces_outlined, label: 'Space', onTap: onNewSpace, primary: primary, isDark: isDark),
           const SizedBox(height: 6),

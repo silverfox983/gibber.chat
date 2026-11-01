@@ -48,7 +48,6 @@ class _AddTransportContactDialogState extends State<AddTransportContactDialog> {
     final ts = TransportService(conn);
     ts.setDatabase(DatabaseService());
     ts.setAccountId(widget.authService.activeAccountId);
-    ts.startListening();
     _ownedTransportService = ts;
     return ts;
   }

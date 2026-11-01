@@ -8,7 +8,6 @@ import 'iq_request_manager.dart';
 class TransportService {
   final xmpp.Connection _connection;
   final IqRequestManager _iqReqs = IqRequestManager();
-  late StreamSubscription<xmpp.AbstractStanza?> _subscription;
   DatabaseService? _db;
   String? _accountId;
 
@@ -22,19 +21,16 @@ class TransportService {
     _accountId = accountId;
   }
 
-  void startListening() {
-    _subscription = _connection.inStanzasStream.listen(_handleStanza);
-  }
-
-  void dispose() {
-    _subscription.cancel();
-    _iqReqs.failAll('Service disposed');
-  }
-
-  void _handleStanza(xmpp.AbstractStanza? stanza) {
+  /// Central-dispatch entry point: the connection owner routes incoming
+  /// stanzas here (no per-service inStanzasStream subscription).
+  void handleStanza(xmpp.AbstractStanza? stanza) {
     if (stanza is xmpp.IqStanza) {
       _iqReqs.complete(stanza.id, stanza);
     }
+  }
+
+  void dispose() {
+    _iqReqs.failAll('Service disposed');
   }
 
   Future<xmpp.IqStanza> _sendIq(xmpp.IqStanza originalIq, {int retries = 1}) async {

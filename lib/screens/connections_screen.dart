@@ -200,10 +200,12 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> with SingleTicker
       return;
     }
     if (_transportService == null) {
-      _transportService = TransportService(conn);
-      _transportService!.setDatabase(DatabaseService());
-      _transportService!.setAccountId(auth.activeAccountId);
-      _transportService!.startListening();
+      _transportService = auth.transportService ?? () {
+        final ts = TransportService(conn);
+        ts.setDatabase(DatabaseService());
+        ts.setAccountId(auth.activeAccountId);
+        return ts;
+      }();
     }
     final domain = conn.fullJid.domain;
     if (mounted) {

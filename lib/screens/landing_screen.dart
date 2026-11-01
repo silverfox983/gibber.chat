@@ -11,6 +11,7 @@ import '../services/auth_service.dart';
 import '../services/pending_join_service.dart';
 import '../models/space_models.dart';
 import '../models/join_intent.dart';
+import '../widgets/gateways/gateway_connect_sheet.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
 
@@ -177,6 +178,7 @@ class _LandingScreenState extends State<LandingScreen>
   SliverToBoxAdapter(child: _buildHero(isDark, isMobile)),
   SliverToBoxAdapter(child: _buildRoomStatsStrip(isDark, isMobile)),
   SliverToBoxAdapter(child: _buildTrendingRooms(isDark, isMobile)),
+  SliverToBoxAdapter(child: _buildChatAnywhere(isDark, isMobile)),
   SliverToBoxAdapter(child: _buildSpacesPreview(isDark, isMobile)),
   SliverToBoxAdapter(child: _buildFeatures(isDark, isMobile)),
   SliverToBoxAdapter(child: _buildHowItWorks(isDark, isMobile)),
@@ -1050,7 +1052,101 @@ class _LandingScreenState extends State<LandingScreen>
                   child: stat(s.$1, s.$2, s.$3),
                 )),
               ],
+             ),
+    );
+  }
+
+  /// Opens the cohesive gateway-connect sheet (auto sign-in aware).
+  void _openConnectSheet() {
+    _awaitSignInThen(() {
+      showGatewayConnectSheet(context);
+    });
+  }
+
+  Widget _buildChatAnywhere(bool isDark, bool isMobile) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final onSurfaceVariant = Theme.of(context).colorScheme.onSurfaceVariant;
+
+    final networks = <(IconData, String, String)>[
+      (Icons.tag_rounded, 'IRC', 'Channels & IRC users'),
+      (Icons.send_rounded, 'Telegram', 'Chats, groups & channels'),
+      (Icons.chat_rounded, 'Discord', 'Servers & DMs'),
+      (Icons.grid_view_rounded, 'Matrix', 'Homeserver chats'),
+      (Icons.chat_bubble_rounded, 'WhatsApp', 'Full messaging'),
+      (Icons.call_rounded, 'SIP / PSTN', 'Dial real phones'),
+    ];
+
+    Widget netCard((IconData, String, String) n) {
+      return InkWell(
+        onTap: _openConnectSheet,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerLow.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: primary.withValues(alpha: 0.2)),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: primary.withValues(alpha: 0.14),
+                child: Icon(n.$1, color: primary, size: 24),
+              ),
+              const SizedBox(height: 10),
+              Text(n.$2, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: onSurface)),
+              const SizedBox(height: 4),
+              Text(
+                n.$3,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11.5, color: onSurfaceVariant),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 40, vertical: isMobile ? 40 : 64),
+      child: Column(
+        children: [
+          Text(
+            'Chat Anywhere, From One App',
+            style: TextStyle(
+              fontSize: isMobile ? 24 : 32,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.8,
+              color: onSurface,
             ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Your server bridges the networks — pick one and sign in with it. '
+            'One contact list, one chat, every network.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: onSurfaceVariant, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 22),
+          GridView.count(
+            crossAxisCount: isMobile ? 2 : 6,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: isMobile ? 1.7 : 0.95,
+            children: networks.map(netCard).toList(),
+          ),
+          const SizedBox(height: 22),
+          _ctaButton('Connect a network →', isDark: isDark, onTap: _openConnectSheet),
+        ],
+      ),
     );
   }
 
