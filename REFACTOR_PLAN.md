@@ -132,10 +132,23 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
       Left in place until SFS/article feature wiring (matches `_parseSfs` story).
 - [ ] Wire SFS ingest (`_parseSfs`) into the message pipeline.
 
-## Phase 6 — Data layer
+## Phase 6 — Data layer  — in progress
 
-- [ ] Repository layer over `DatabaseService` (25+ direct calls from `ChatProvider`/screens).
-- [ ] Split UI-state vs persistence payload in `Conversation`; unify model JSON mapping.
+- [x] `ChatProvider` now receives its `DatabaseService` via constructor injection
+      (default unchanged for production); all 23 singleton-factory reach-ins removed (`4fa3dcf`).
+- [x] `DatabaseService.forTest(path)` factory — per-instance isolated DBs (sqflite path-cache
+      makes `:memory:` non-isolating across instances; tests use distinct temp files).
+- [x] +3 integration tests (`chat_provider_db_test.dart`): provider persists through the injected
+      instance; separate injected instances do not share rows; fresh provider starts empty.
+- [ ] Remaining `DatabaseService()` reach-ins to inject the same way (each touches service ctor
+      wiring — one service at a time): auth_service (4), xmpp_contact_service (4),
+      chat_settings_screen (2), xmpp_stanza_handler (1), account_preferences_screen (1),
+      offline_queue_service (1).
+- [ ] Model split: UI-state vs persistence payload in `Conversation` (typing flags, unread
+      count live alongside DB row mapping); unify reaction key ('reactions_json' + 'reactions'
+      dual write in ChatMessage.toMap).
+- [ ] Repository abstraction (mock-able chat repo) — deferred until provider tests need a fake;
+      injection point now exists.
 
 ## Notes
 
