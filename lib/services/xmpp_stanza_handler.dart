@@ -42,6 +42,31 @@ class XmppStanzaHandler {
 
   String _extractFileName(String url) => PickedFile.fileNameFromUrl(url);
 
+  Future<String> _decryptOmemoBody(
+    xmpp.XmppElement encrypted, {
+    required String fromBareJid,
+    required bool isHistorical,
+    required bool isGroupChat,
+  }) async {
+    final decrypted = await _d.omemoService.decryptMessage(
+      encrypted,
+      fromBareJid: fromBareJid,
+      isHistorical: isHistorical,
+    );
+    if (decrypted != null) return decrypted;
+
+    if (isGroupChat) {
+      _d.omemoService.fetchDeviceList(fromBareJid).then((devices) {
+        for (var devId in devices) {
+          _d.omemoService.buildSession(fromBareJid, devId);
+        }
+      });
+    } else {
+      _d.refreshOmemoDevices(fromBareJid);
+    }
+    return '🔒 [Decryption Failed - Rebuilding Session...]';
+  }
+
   SfsFile? _parseSfs(xmpp.XmppElement stanza) {
     for (final applyTo in stanza.children.where((c) => c.name == 'apply-to')) {
       final sfs = applyTo.children.firstWhere(
@@ -375,21 +400,12 @@ class XmppStanzaHandler {
       final encrypted = stanza.getChild('encrypted');
       if (encrypted != null) {
         final delay = stanza.getChild('delay');
-        final decrypted = await _d.omemoService.decryptMessage(
+        finalBody = await _decryptOmemoBody(
           encrypted,
           fromBareJid: roomJid.toLowerCase(),
           isHistorical: delay != null,
+          isGroupChat: true,
         );
-        if (decrypted != null) {
-          finalBody = decrypted;
-        } else {
-          finalBody = '🔒 [Decryption Failed - Rebuilding Session...]';
-          _d.omemoService.fetchDeviceList(roomJid.toLowerCase()).then((devices) {
-            for (var devId in devices) {
-              _d.omemoService.buildSession(roomJid.toLowerCase(), devId);
-            }
-          });
-        }
       }
 
       final subject = stanza.getChild('subject')?.textValue;
@@ -481,17 +497,12 @@ class XmppStanzaHandler {
       final encrypted = stanza.getChild('encrypted');
       if (encrypted != null) {
         final delay = stanza.getChild('delay');
-        final decrypted = await _d.omemoService.decryptMessage(
+        finalBody = await _decryptOmemoBody(
           encrypted,
           fromBareJid: bareJid,
           isHistorical: delay != null,
+          isGroupChat: false,
         );
-        if (decrypted != null) {
-          finalBody = decrypted;
-        } else {
-          finalBody = '🔒 [Decryption Failed - Rebuilding Session...]';
-          _d.refreshOmemoDevices(bareJid);
-        }
       }
 
       if (finalBody != null) {
@@ -590,17 +601,12 @@ class XmppStanzaHandler {
             final encrypted = innerMessage.getChild('encrypted');
             if (encrypted != null && fromJidStr != null) {
               final bareJid = fromJidStr.split('/').first.toLowerCase();
-              final decrypted = await _d.omemoService.decryptMessage(
+              body = await _decryptOmemoBody(
                 encrypted,
                 fromBareJid: bareJid,
                 isHistorical: true,
+                isGroupChat: false,
               );
-              if (decrypted != null) {
-                body = decrypted;
-              } else {
-                body = '🔒 [Decryption Failed - Rebuilding Session...]';
-                _d.refreshOmemoDevices(bareJid);
-              }
             } else if (body == null) {
               final ciphertext = innerMessage.getChild('body')?.textValue;
               if (ciphertext != null && ciphertext.isNotEmpty) {
@@ -700,17 +706,12 @@ class XmppStanzaHandler {
           if (encrypted != null && buddyJid != null) {
             final bareJid = buddyJid.split('/').first.toLowerCase();
             final delay = forwarded?.getChild('delay');
-            final decrypted = await _d.omemoService.decryptMessage(
+            body = await _decryptOmemoBody(
               encrypted,
               fromBareJid: bareJid,
               isHistorical: delay != null,
+              isGroupChat: false,
             );
-            if (decrypted != null) {
-              body = decrypted;
-            } else {
-              body = '🔒 [Decryption Failed - Rebuilding Session...]';
-              _d.refreshOmemoDevices(bareJid);
-            }
           }
 
           if (body != null) {
