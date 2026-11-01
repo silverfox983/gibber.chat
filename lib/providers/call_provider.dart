@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:proximity_sensor/proximity_sensor.dart';
 import '../services/webrtc_manager.dart';
+import '../utils/pstn_gateway.dart';
 import '../services/jingle_signaling_service.dart';
 import '../services/sip_service.dart';
 import '../services/sip_gateway_config.dart';
@@ -31,17 +32,6 @@ bool isPhoneNumber(String input) {
 
 enum CallState { idle, incoming, outgoing, active }
 
-bool _isPstnGatewayJid(String jid) {
-  final lower = jid.toLowerCase();
-  if (lower.contains('cheogram')) return true;
-  if (lower.contains('sip2jabber')) return true;
-  if (lower.contains('jit.si')) return true;
-  if (lower.contains('jabber.ccc')) return true;
-  if (lower.contains('pstn')) return true;
-  if (RegExp(r'^\+[^@]+@').hasMatch(jid)) return true;
-  if (RegExp(r'^[\d\-]+@').hasMatch(jid)) return true;
-  return false;
-}
 
 class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   CallState _state = CallState.idle;
@@ -820,7 +810,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       final offer = await _rtcManager.createOffer();
       debugPrint('CallProvider: Offer created');
 
-      final isGateway = _isPstnGatewayJid(toJid);
+      final isGateway = isPstnGatewayJid(toJid);
       debugPrint('CallProvider: [ROUTING] isGateway=$isGateway for $toJid');
 
       if (isGateway) {
@@ -1095,7 +1085,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: Already in a call, rejecting new incoming call from $fromJid');
       final signaling = _authService?.getJingleService(accountId ?? '') ?? _authService?.jingleSignaling;
       if (signaling != null) {
-        final isGateway = _isPstnGatewayJid(fromJid);
+        final isGateway = isPstnGatewayJid(fromJid);
         if (isGateway) {
           signaling.sendSessionTerminate(fromJid, sessionId, reason: 'busy');
         } else {
@@ -1529,7 +1519,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       final offer = await _rtcManager.createOffer();
       debugPrint('CallProvider: Offer created');
 
-      final isGateway = _isPstnGatewayJid(effectiveJid);
+      final isGateway = isPstnGatewayJid(effectiveJid);
 
       if (isGateway) {
         debugPrint('CallProvider: === GATEWAY PROTOCOL ENFORCED (Direct Jingle IQ) ===');
@@ -1723,7 +1713,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('CallProvider: Sending session accept...');
 
       // Detect if caller is a gateway (phone number via cheogram, etc.)
-      final isGateway = _isPstnGatewayJid(_remoteJid!);
+      final isGateway = isPstnGatewayJid(_remoteJid!);
       if (isGateway) {
         debugPrint(
           'CallProvider: [PSTN] Direct IQ Protocol Forced (Session Accept)',
@@ -1773,7 +1763,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     debugPrint('CallProvider: Setting up RTC listeners for $toJid');
 
     // Detect if target is a gateway
-    final isGateway = _isPstnGatewayJid(toJid);
+    final isGateway = isPstnGatewayJid(toJid);
 
     // Reset counters
     _candidateSendCount = 0;
@@ -2094,7 +2084,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
               _authService?.getJingleService(_callAccountId ?? '') ??
               _authService?.jingleSignaling;
           if (signaling != null && _remoteJid != null && _sessionId != null) {
-            final isGateway = _isPstnGatewayJid(_remoteJid!);
+            final isGateway = isPstnGatewayJid(_remoteJid!);
             if (isGateway) {
               signaling.sendSessionAccept(
                 _remoteJid!, _sessionId!, answer.sdp!, isVideo: _isVideo,
@@ -2303,7 +2293,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         }
         _log('Group call ended', isSent: true);
       } else if (targetJid != null) {
-        final isGateway = _isPstnGatewayJid(targetJid);
+        final isGateway = isPstnGatewayJid(targetJid);
         debugPrint('CallProvider: [TEARDOWN] isGateway=$isGateway for $targetJid');
 
         if (wasActive || isGateway) {
@@ -2351,7 +2341,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
 
     // 3. Send termination signaling
     if (targetJid != null && sid != null) {
-      final isGateway = _isPstnGatewayJid(targetJid);
+      final isGateway = isPstnGatewayJid(targetJid);
       debugPrint('CallProvider: [DECLINE] isGateway=$isGateway for $targetJid');
 
       if (wasActive || isGateway) {
