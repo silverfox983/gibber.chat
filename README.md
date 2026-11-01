@@ -1,134 +1,137 @@
-<a href="https://play.google.com/apps/testing/com.gibber.desertrobotservices" target="_blank">
-    <img src="https://images.squarespace-cdn.com/content/5c213a383c3a53bf091b1c36/74658c71-a6e5-494f-adcf-cda0d8173527/button-android-us.png?content-type=image%2Fpng" alt="Get it on Google Play" style="height: 60px; border-radius: 8px; transition: transform 0.2s; transform: scale(1);" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
-  </a>
+<div align="center">
 
-
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/sethfox)
-
+<img src="assets/logo.png" width="72" alt="Gibber logo" />
 
 # 🌌 Gibber
 
-![Flutter Version](https://img.shields.io/badge/Flutter-3.41.5-blue.svg?logo=flutter)
-![Dart Version](https://img.shields.io/badge/Dart-3.11.3-blue.svg?logo=dart)
-![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
+**Free & local chat for everyone. Everything unlocked, no pricing, no data harvesting.**
 
-## 🚀 Application Summary
+[![Flutter](https://img.shields.io/badge/Flutter-3.47-blue.svg?logo=flutter)](https://flutter.dev)
+[![Dart](https://img.shields.io/badge/Dart-3.11-blue.svg?logo=dart)](https://dart.dev)
+[![Platforms](https://img.shields.io/badge/Platform-Web%20%7C%20Android%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#platforms)
+[![Self-hosted](https://img.shields.io/badge/Self--hosted-docker%20compose-2496ED.svg?logo=docker&logoColor=white)](#run-the-whole-stack)
 
-**Gibber** is a modern, high-performance, and beautifully crafted unified communication client built natively with **Flutter** and **Dart**. 
+</div>
 
-Designed to break down walled gardens, Gibber acts as a universal bridge for disparate chat networks. It seamlessly integrates traditional protocols like **XMPP (Jabber)** alongside support architectures for IRC, Discord, and SIP/VoIP, aggregating all your conversations into a single, cohesive interface.
+**Gibber** is a modern communication client built with **Flutter / Dart**: XMPP messaging, encrypted OMEMO chats, WebRTC voice & video (1:1, group, SIP/PSTN), Spaces (PubSub communities/microblogging), and bridges into **IRC, Telegram, Discord, Matrix and WhatsApp** — all in one polished, glassmorphic UI.
 
-Unlike contemporary proprietary platforms, **Gibber is strictly a client application**. There is no centralized "Gibber Server" harvesting your data, nor is there a proprietary backend database. Gibber connects *directly* to standard, decentralized network servers (like `movim.eu` or your own self-hosted XMPP server), ensuring absolute data ownership, zero vendor lock-in, and uncompromising privacy for its users.
-
----
-
-## 🌟 Why Gibber?
-
-- **Uncompromised Privacy:** Your keys, your data. Gibber uses local SQLite databases and direct server connections.
-- **Premium Design:** Say goodbye to utilitarian, boring open-source clients. Gibber features a dynamic glassmorphic UI, rich gradients, smooth micro-animations, and responsive layouts that look stunning on both mobile and desktop.
-- **Always Connected:** Engineered with intelligent background persistence, Android WakeLocks, and desktop tray-minimization, Gibber ensures you never miss a critical message or incoming call.
-- **High Fidelity:** From markdown rendering to WebRTC video calls, Gibber supports the rich features expected of a modern chat app without sacrificing its decentralized roots.
+Gibber is *free and open source*. There is no paid tier, no ads and no tracking. Your data lives on your device (SQLite) and on the server you point it at — bring your own XMPP server, or run the entire stack locally with one command.
 
 ---
 
-## STATE OF GIBBER.
+## ✨ Highlights
 
-Gibber is a mobile first application for xmpp. things are somewhat unstable in alpha release. most things work. If there are funds it will get development otherwise it is provided as is.
+- **XMPP messenger** — XEP-0384 OMEMO encryption, MAM history, carbons, XEP-0308 edits, message moderation, hats, spoilers, locations, reactions, voice notes, file sharing (XEP-0363 / SFS), stickers
+- **Calls** — Jingle (XEP-0166/0353) with trickle ICE, PSTN via SIP gateways, group calls over Janus SFU or full mesh, screen sharing, DTMF, transfer, hold, call recording
+- **Spaces** — communities over XEP-0060 PubSub: feeds, posts, threads, likes, comments, rooms, member management, stories
+- **Gateways** — one-click bridges into IRC (biboumi), Telegram / Discord / Matrix / WhatsApp (Slidge)
+- **Trending rooms** — the landing page lists the most active public IRC rooms (from [netsplit.de](https://netsplit.de/channels/popular.php)) and deep-links into a join flow
+- **Free & local** — unlimited transcription/AI, unlimited group calls, full history, every protocol; self-host everything with docker compose
 
+## 🚀 Run the whole stack
 
-## ✨ Key Features
+The repo ships a complete self-hostable stack:
 
-### 🌐 Multi-Protocol Connectivity
-Gibber abstracts the complexities of different networks behind a unified, polished UI layer:
-- **XMPP (Jabber):** First-class, modern XMPP support including Message Archive Management (MAM), Carbons, and PubSub.
-- **Gateway & Transport Discovery:** Seamlessly map and connect to legacy networks (IRC) via XMPP transports.
+```
+web (Flutter) → caddy (TLS, self-signed) → gibber-backend (REST + WS proxy)
+                                          → prosody (XMPP) → biboumi IRC / slidge ×4
+                                          → janus (SFU) · coturn (TURN)
+```
 
-### 🔒 Advanced Security & Encryption
-Gibber guarantees message confidentiality across untrusted networks:
-- **OTR (Off-the-Record):** Integrated OTR engine for highly secure, deniable, peer-to-peer messaging.
-- **OMEMO:** Multi-end to multi-end encryption support for modern group chats and offline message security.
-- **XEP-0392 Consistent Colors:** Cryptographically secure, deterministic avatar and username color generation to prevent identity spoofing.
+```bash
+cp .env.example .env      # optional: edit secrets for a long-lived install
+docker compose up -d      # core web app
+# add all gateways:
+docker compose --profile slidge up -d
+# or just IRC (trending-room joins):
+docker compose --profile irc up -d
+```
 
-### 📞 WebRTC Audio & Video Calling
-Gibber features a robust, state-of-the-art WebRTC signaling engine built entirely in Dart.
-- **Jingle (XEP-0166 / XEP-0353):** Standardized XMPP signaling for lightning-fast peer-to-peer media connections.
-- **Trickle ICE & Early Media:** Lightning-fast connection establishment, incremental candidate gathering, and support for native ringback tones.
+Then open:
 
-### 👥 Communities & Spaces (PubSub)
-Discover, organize, and engage with global communities through Gibber's integrated Spaces module.
-- **Unified Activity Feed:** An intelligent community feed that aggregates posts from subscribed spaces across multiple servers, backed by hyper-fast in-memory caching to eliminate load times.
-- **Node Discovery:** Robust `disco#items` crawling to discover featured communities and rooms natively.
-- **Rich Interaction:** Support for microblogging, threading, dynamic participant population in MUCs, and rich media sharing.
+- **`https://localhost`** — TLS with a Caddy-managed self-signed certificate (browsers prompt once to trust it)
+- **`http://localhost:8080`** — plain HTTP via the backend (useful before DNS is set up)
 
-### 🎨 Premium UI / UX
-- **Glassmorphism & Gradients:** Sleek aesthetics using dynamic blurs, rich themes, and high-contrast dark modes.
-- **Responsive Layouts:** Seamless scaling from mobile screens to expansive desktop monitors with intelligent split-views.
-- **Markdown & Rich Media:** GitHub-Flavored Markdown support with custom parsing for mentions, inline code, links, images, and voice notes.
+Create an account right in the app (in-band XMPP registration through your local Prosody) and join rooms — including the trending IRC rooms on the landing page.
 
----
+> Cloudflare / Let's Encrypt plumbing was removed by design. This is a local-first stack; certificates are self-signed. When you later point a real domain at it, Caddy can be switched back to ACME.
 
-## 🏗 Architecture & Tech Stack
+### Gateway profiles
 
-- **Framework:** Flutter (Channel stable, ~3.41+)
-- **Language:** Dart 3.11+
-- **Database:** Embedded SQLite (`sqflite_ffi` for Desktop, standard `sqflite` for Mobile)
-- **State Management:** Provider / Custom Listeners
-- **Media Processing:** GStreamer (Linux desktop), `record`, `audioplayers`
-- **Networking Engine:** Raw TCP/TLS Sockets, custom robust protocol parsers.
+| Profile | Gateway | Notes |
+|---|---|---|
+| `irc` | biboumi | Bridges one IRC network (`IRC_SERVER_HOSTNAME`, default `irc.libera.chat`) — used by the landing-page join flow |
+| `telegram` | slidgram | Users register with their own Telegram account |
+| `discord` | slidcord | Users register with their own Discord account |
+| `matrix` | matridge | Users register with their own Matrix account |
+| `whatsapp` | slidge-whatsapp | Linked-device pairing |
+| `slidge` | all of the above | Bring up everything |
 
-### Core Services
-The application logic is cleanly decoupled into specialized services:
-- `AuthService`: Manages network connections, Presence stanzas, and protocol lifecycles.
-- `JingleSignalingService`: The decentralized brain behind WebRTC media negotiation.
-- `SpacesService`: Handles PubSub subscriptions, community discovery, and in-memory feed caching.
-- `OtrEngine`: Pure Dart implementation of the OTR encryption protocol.
+## 💻 Client development
 
----
+The client is a standard Flutter app. Web is the primary platform; desktop and Android work too.
 
-## 🚀 Getting Started
+```bash
+flutter pub get
 
-### Prerequisites
-1. **Flutter SDK:** Ensure you have the Flutter SDK installed (`v3.41.5`) and added to your `PATH`.
-2. **Native Build Tools:**
-   - **Linux:** `ninja-build`, `libgtk-3-dev`, `pkg-config`, `cmake`, `clang`, `libgstreamer1.0-dev`, `llvm-18`.
-   - **Android:** Android Studio and appropriate NDKs.
-   - **Windows:** Visual Studio 2022 with C++ workload.
+flutter run -d chrome          # web (recommended for local testing)
+flutter run -d windows         # windows
+flutter run -d linux           # linux (see native build notes below)
+flutter run -d android         # android
 
-### Installation & Build
+flutter test                   # full suite
+flutter analyze                # lint
+```
 
-1. **Clone the repository and fetch dependencies:**
-   ```bash
-   flutter pub get
-   ```
+Linux native builds need GTK/GStreamer toolchain (`ninja-build`, `libgtk-3-dev`, `libgstreamer1.0-dev`, `clang`, `cmake`); if you hit C++ include errors, export `CPLUS_INCLUDE_PATH=/usr/include/c++/13:/usr/include/x86_64-linux-gnu/c++/13` first.
 
-2. **Run on Desktop (Debug):**
-   *(Note: Due to C++ standard library linking on certain Linux setups, you may need to export include paths prior to building)*
-   ```bash
-   export CPLUS_INCLUDE_PATH="/usr/include/c++/13:/usr/include/x86_64-linux-gnu/c++/13"
-   flutter run -d linux
-   ```
+Without a server, any XMPP account works — point the login at any XMPP domain, or host the stack above and the client auto-configures from `GET /config`.
 
-3. **Run on Android:**
-   ```bash
-   flutter run -d android
-   ```
+## 🧪 Test gate
 
-4. **Testing:**
-   ```bash
-   flutter test
-   ```
+`flutter analyze` (0 errors enforced) and the core suite run in CI:
 
----
+```bash
+flutter test test/iq_request_manager_test.dart \
+             test/chat_models_test.dart \
+             test/chat_provider_db_test.dart \
+             test/join_intent_test.dart \
+             test/popular_rooms_test.dart \
+             test/pstn_gateway_test.dart \
+             test/omemo_test.dart test/call_test.dart test/simple_test.dart
+```
 
-## 🛠 Known Gotchas & Troubleshooting
+The XMPP stack itself (`packages/xmpp_stone`) carries its own tests: `dart test` inside that folder.
 
-- **Linux Release Builds:** `flutter build linux` (release) may fail with permission errors if attempting to install directly to `/usr/local/`. Use `--debug` or `flutter run -d linux` for development.
-- **C++ Headers:** The `flutter_webrtc` plugin on Linux requires LLVM/Clang and standard library headers. Ensure `libstdc++.so` is correctly symlinked if linking errors occur.
-- **Testing Constraints:** Some widget tests intentionally fail due to legacy codebase mismatch assertions (e.g., database context loading). Core network tests (`omemo_test.dart`, `call_test.dart`, `simple_test.dart`) run successfully.
-- **No Local Server Needed:** Remember, Gibber is a *client*. It does not require you to host a backend server or database. Simply point it at your favorite XMPP domain and log in.
+## 🏗 Architecture
 
----
+```
+lib/
+├── screens/            # landing (trending rooms), chat, spaces, calls, settings
+├── providers/          # ChatProvider, CallProvider — UI state machines
+├── services/           # XMPP stack (auth, rooms, OMEMO, Jingle, IqRequestManager…)
+│                       # gateways, notifications, database (SQLite), media
+├── models/             # chat/spaces models, join intents
+├── widgets/            # chat_view, dialogs, nav rail, shared components
+└── router/             # go_router configuration (deep links for room joins)
+gibber-backend/         # Dart shelf server: registration, JWT, entitlements,
+                        # gateway mgmt, XMPP websocket proxy, static web host
+docker/                 # web.Dockerfile, Caddyfile.compose, biboumi config
+packages/
+├── xmpp_stone/         # vendored, patched fork (SASL2, stream-mgmt fix, SMACK)
+└── sip_ua/             # vendored, patch (strict JS-interop for web builds)
+```
+
+Key services (post-refactor): `AuthService` owns connections; per-feature services (`XmppRoomService`, `XmppMessageService`, `OmemoService`, `JingleSignalingService`, `SpacesService`…) communicate through shared primitives (`IqRequestManager`/`CompleterMap`, `XmppSessionLookup`, single stanza dispatch). `REFACTOR_PLAN.md` documents the architecture work and its gates.
+
+## 🛠 Notes & gotchas
+
+- **Self-signed certs are intentional.** Caddy uses `tls internal`; Prosody ships a self-signed cert. Federation *from* other servers won't validate — fine for local/private deployments.
+- **WSL2/Docker Desktop**: if a pull or build wedges (containerd "read-only file system"), a full Docker Desktop restart plus `docker builder prune -af` clears it.
+- **Windows checkouts**: entrypoint scripts are CRLF-normalized at build time; `.gitattributes` keeps shell/Lua files LF.
+- **Loopback port 443**: WSL's localhost-forwarding relay can shadow published ports on `127.0.0.1`. Browsers are unaffected (Docker Desktop handles them); CLI tools can use `--resolve <domain>:443:127.0.0.2`.
+- **Alpha software**: expect rough edges — the IRC bridge serves one network per biboumi instance; gateway availability is reported by the backend `/gateways` endpoint which the join flow reflects honestly (bridge missing / join failed / success).
 
 ## 📜 License
-This project is licensed under the MIT License - see the LICENSE file for details.
+
+MIT. Chat is a right, not a product.
