@@ -766,6 +766,342 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
 
       _connectionStateSubs[id]?.cancel();
       _connectionStateSubs[id] = conn.connectionStateStream.listen((state) async {
+          await _onXmppConnectionState(
+            state,
+            id: id,
+            conn: conn,
+            fullJidStr: fullJidStr,
+            domain: domain,
+            connectionCompleter: connectionCompleter,
+          );
+      }, onError: _handleXmppStreamError);
+
+      conn.connect();
+      await connectionCompleter.future;
+    } catch (e) {
+      debugPrint('XMPP Proxy Error: $e');
+      rethrow;
+    } finally {
+      _xmppConnecting = false;
+      notifyListeners();
+    }
+  }
+
+  // Fetch Older History (XEP-0313 + XEP-0059)
+  Future<void> fetchOlderHistory(
+    String accountId,
+    String buddyJid, {
+    String? beforeId,
+  }) async {
+    final conn = _xmppConnections[accountId];
+    if (conn == null) return;
+
+    final mamManager = xmpp.MessageArchiveManager.getInstance(conn);
+    // xmpp_stone's MessageArchiveManager usually handles RSM internally
+    // when using queryById with beforeId/afterId.
+    mamManager.queryById(
+      jid: xmpp.Jid.fromFullJid(buddyJid),
+      beforeId: beforeId,
+    );
+  }
+
+  Future<void> sendXmppMessage(
+    String targetJid,
+    String text, {
+    String? accountId,
+    MessageType type = MessageType.text,
+    String? filePath,
+    String? fileName,
+    String? replyToId,
+    bool isGroup = false,
+  }) =>
+      _messageService.sendXmppMessage(
+        targetJid, text,
+        accountId: accountId, type: type, filePath: filePath,
+        fileName: fileName, replyToId: replyToId, isGroup: isGroup,
+      );
+
+  Future<void> _flushPendingMessages(String accountId) =>
+      _messageService.flushPendingMessages(accountId);
+
+  void _enablePushNotifications(xmpp.Connection conn, String accountId) {
+    try {
+      final iq = xmpp.IqStanza(
+        'push-enable-${DateTime.now().millisecondsSinceEpoch}',
+        xmpp.IqStanzaType.SET,
+      );
+      final enable = xmpp.XmppElement();
+      enable.name = 'enable';
+      enable.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:push:0'));
+      enable.addAttribute(xmpp.XmppAttribute('jid', 'gibberapp.online'));
+      enable.addAttribute(xmpp.XmppAttribute('node', 'gibber-push'));
+      iq.addChild(enable);
+      conn.writeStanza(iq);
+      debugPrint('XEP-0357: Push notifications enabled for $accountId');
+    } catch (e) {
+      debugPrint('XEP-0357: Failed to enable push: $e');
+    }
+  }
+
+  Future<void> sendEditedMessage(
+    String targetJid,
+    String originalMsgId,
+    String newText, {
+    String? accountId,
+    bool isGroup = false,
+  }) =>
+      _messageService.sendEditedMessage(targetJid, originalMsgId, newText, accountId: accountId, isGroup: isGroup);
+
+  // XEP-0333: Chat Markers
+  void sendChatMarker(
+    String targetJid,
+    String msgId,
+    String markerType, {
+    String? accountId,
+    bool isGroup = false,
+  }) =>
+      _messageService.sendChatMarker(targetJid, msgId, markerType, accountId: accountId, isGroup: isGroup);
+
+  Future<void> sendXmppReaction(
+    String targetJid,
+    String originalMsgId,
+    String emoji, {
+    String? accountId,
+    bool isGroup = false,
+  }) =>
+      _messageService.sendXmppReaction(targetJid, originalMsgId, emoji, accountId: accountId, isGroup: isGroup);
+
+  void sendReaction(
+    String chatId,
+    String messageId,
+    String emoji, {
+    String? accountId,
+    bool isGroup = false,
+  }) =>
+      _messageService.sendReaction(chatId, messageId, emoji, accountId: accountId, isGroup: isGroup);
+
+  // Unified Message Sender (Standalone)
+  Future<void> sendMessage(
+    String accountId,
+    String toId,
+    String text, {
+    MessageType type = MessageType.text,
+    String? fileName,
+    String? filePath,
+    String? replyToId,
+    bool isGroup = false,
+    bool isSpoiler = false,
+    String? spoilerHint,
+  }) =>
+      _messageService.sendMessage(accountId, toId, text, type: type, fileName: fileName, filePath: filePath, replyToId: replyToId, isGroup: isGroup, isSpoiler: isSpoiler, spoilerHint: spoilerHint);
+
+  Future<void> sendLocationMessage(
+    String accountId,
+    String toId, {
+    required double latitude,
+    required double longitude,
+    String? label,
+    bool isGroup = false,
+  }) =>
+      _messageService.sendLocationMessage(accountId, toId, latitude: latitude, longitude: longitude, label: label, isGroup: isGroup);
+
+  // Retraction (XEP-0424)
+  Future<void> retractXmppMessage(
+    String targetJid,
+    String messageId, {
+    String? accountId,
+    bool isGroup = false,
+  }) =>
+      _messageService.retractXmppMessage(targetJid, messageId, accountId: accountId, isGroup: isGroup);
+
+  Future<String?> _getMyAvatarHash(String accountId) async {
+    final myJid = _xmppJids[accountId];
+    if (myJid == null) return null;
+    
+    final bytes = await AvatarCacheService().getAvatar(myJid.split('/').first);
+    if (bytes != null) {
+      return sha1.convert(bytes).toString();
+    }
+    return null;
+  }
+
+  Future<void> updateMyStatus(ContactStatus status, {String? message}) async {
+    _myStatus = status;
+    _myStatusMessage = message;
+    notifyListeners();
+
+    // 1. Sync XMPP
+    for (var entry in _xmppConnections.entries) {
+      final accountId = entry.key;
+      final conn = entry.value;
+      if (conn.state == xmpp.XmppConnectionState.Ready ||
+          conn.state == xmpp.XmppConnectionState.Resumed) {
+        
+        final hash = await _getMyAvatarHash(accountId);
+
+        final presence = xmpp.PresenceStanza();
+        if (_isUnavailableStatus(status)) {
+          presence.type = xmpp.PresenceType.UNAVAILABLE;
+        } else {
+          presence.show = _mapShowToPresence(status);
+        }
+        presence.status = message ?? '';
+        
+        // XEP-0153: vCard-Based Avatars
+        final xUpdate = xmpp.XmppElement();
+        xUpdate.name = 'x';
+        xUpdate.addAttribute(xmpp.XmppAttribute('xmlns', 'vcard-temp:x:update'));
+        final photo = xmpp.XmppElement();
+        photo.name = 'photo';
+        if (hash != null) {
+          photo.textValue = hash;
+        }
+        xUpdate.addChild(photo);
+        presence.addChild(xUpdate);
+
+        conn.writeStanza(presence);
+      }
+    }
+  }
+
+  // Shared Account Persistence (Simplified for now)
+  Future<void> saveAccount(SavedAccount account, String pass) async {
+    final prefs = await SharedPreferences.getInstance();
+    final index = _savedAccounts.indexWhere(
+      (a) => a.fullJid == account.fullJid,
+    );
+    if (index != -1) {
+      _savedAccounts[index] = account;
+    } else {
+      _savedAccounts.add(account);
+    }
+
+    final jsonList = _savedAccounts.map((a) => a.toJson()).toList();
+    await prefs.setString('saved_accounts_json', json.encode(jsonList));
+    await _secureStorage.write(key: 'pass_${account.fullJid}', value: pass);
+    notifyListeners();
+  }
+
+  Future<void> updateSavedAccount(
+    SavedAccount oldAcc,
+    SavedAccount newAcc,
+    String? newPass,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final index = _savedAccounts.indexWhere((a) => a.fullJid == oldAcc.fullJid);
+    if (index != -1) {
+      _savedAccounts[index] = newAcc;
+    } else {
+      _savedAccounts.add(newAcc);
+    }
+
+    // Manage passwords
+    if (newPass != null && newPass.isNotEmpty) {
+      await _secureStorage.write(key: 'pass_${newAcc.fullJid}', value: newPass);
+    }
+    // Clean up old pass if JID changed
+    if (oldAcc.fullJid != newAcc.fullJid) {
+      await _secureStorage.delete(key: 'pass_${oldAcc.fullJid}');
+    }
+
+    final jsonList = _savedAccounts.map((a) => a.toJson()).toList();
+    await prefs.setString('saved_accounts_json', json.encode(jsonList));
+    notifyListeners();
+  }
+
+  void clearVCardState() {
+    _pendingVCardFetches.clear();
+    _vCardLastFetch.clear();
+    _vCardUnsupportedJids.clear();
+  }
+
+  Future<void> deleteSavedAccount(SavedAccount acc) async {
+    final prefs = await SharedPreferences.getInstance();
+    _savedAccounts.removeWhere((a) => a.fullJid == acc.fullJid);
+    await _secureStorage.delete(key: 'pass_${acc.fullJid}');
+
+    final jsonList = _savedAccounts.map((a) => a.toJson()).toList();
+    await prefs.setString('saved_accounts_json', json.encode(jsonList));
+
+    // Disconnect if currently connected — clean up all subscriptions and resources
+    if (acc.protocol == 'XMPP' && _xmppConnections.containsKey(acc.fullJid)) {
+      final conn = _xmppConnections[acc.fullJid]!;
+      xmpp.PingManager.removeInstance(conn);
+      ConnectionLifecycleService.instance.unregisterConnection(acc.fullJid);
+      _connectionStateSubs[acc.fullJid]?.cancel();
+      _connectionStateSubs.remove(acc.fullJid);
+      _presenceSubs[acc.fullJid]?.cancel();
+      _presenceSubs.remove(acc.fullJid);
+      _rosterSubs[acc.fullJid]?.cancel();
+      _rosterSubs.remove(acc.fullJid);
+      _xmppMessageSubs[acc.fullJid]?.cancel();
+      _xmppMessageSubs.remove(acc.fullJid);
+      _jingleEventSubs[acc.fullJid]?.cancel();
+      _jingleEventSubs.remove(acc.fullJid);
+      _xmppStanzaSubs[acc.fullJid]?.cancel();
+      _xmppStanzaSubs.remove(acc.fullJid);
+      _xmppProxies[acc.fullJid]?.stop();
+      _xmppProxies.remove(acc.fullJid);
+      _spacesServices[acc.fullJid]?.dispose();
+      _spacesServices.remove(acc.fullJid);
+      conn.dispose();
+      _xmppConnections.remove(acc.fullJid);
+    }
+
+    _authenticatedAccountIds.remove(acc.fullJid);
+    notifyListeners();
+  }
+
+  Future<void> loadSavedAccounts() async {
+    await _loadJoinedRooms();
+    await _loadVCardState();
+    await _loadSubscriptionRequests();
+    final prefs = await SharedPreferences.getInstance();
+
+    // Load Profile
+    final profileStr = prefs.getString('current_profile');
+    if (profileStr != null) {
+      _currentProfile = UserProfile.fromJson(json.decode(profileStr));
+    }
+
+    // Load privacy prefs
+    _sendReadReceipts = prefs.getBool('pref_send_read_receipts') ?? true;
+    _sendTypingIndicators = prefs.getBool('pref_send_typing') ?? true;
+
+    final jsonStr = prefs.getString('saved_accounts_json');
+    if (jsonStr != null) {
+      final List<dynamic> decoded = json.decode(jsonStr);
+      _savedAccounts.clear();
+      _savedAccounts.addAll(decoded.map((j) => SavedAccount.fromJson(j)));
+      notifyListeners();
+    }
+  }
+
+  Future<String?> joinRoom(String accountId, String roomJid, String nickname) async =>
+      _roomService.joinRoom(accountId, roomJid, nickname);
+
+  Future<void> inviteToRoom(String accountId, String roomJid, String userJid, {String? reason}) async =>
+      _roomService.inviteToRoom(accountId, roomJid, userJid, reason: reason);
+
+  Future<void> inviteToRoomDirect(String accountId, String roomJid, String userJid, {String? reason, String? password}) async =>
+      _roomService.inviteToRoomDirect(accountId, roomJid, userJid, reason: reason, password: password);
+
+  Future<String?> createRoom(String accountId, String roomJid, String nickname) async =>
+      _roomService.createRoom(accountId, roomJid, nickname);
+
+  Future<void> leaveRoom(String accountId, String roomJid) async =>
+      _roomService.leaveRoom(accountId, roomJid);
+
+  Future<String?> joinGenericRoom(String destination, {String? accountId}) async =>
+      _roomService.joinGenericRoom(destination, accountId: accountId);
+  Future<void> _onXmppConnectionState(
+    xmpp.XmppConnectionState state, {
+    required String id,
+    required xmpp.Connection conn,
+    required String fullJidStr,
+    required String domain,
+    required Completer<void> connectionCompleter,
+  }) async {
         debugPrint('XMPP Account $id State: $state');
         notifyListeners();
         if (state == xmpp.XmppConnectionState.Ready) {
@@ -1764,326 +2100,8 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
           // Re-broadcast presence on resumption
           updateMyStatus(_myStatus, message: _myStatusMessage);
         }
-      }, onError: _handleXmppStreamError);
-
-      conn.connect();
-      await connectionCompleter.future;
-    } catch (e) {
-      debugPrint('XMPP Proxy Error: $e');
-      rethrow;
-    } finally {
-      _xmppConnecting = false;
-      notifyListeners();
-    }
   }
 
-  // Fetch Older History (XEP-0313 + XEP-0059)
-  Future<void> fetchOlderHistory(
-    String accountId,
-    String buddyJid, {
-    String? beforeId,
-  }) async {
-    final conn = _xmppConnections[accountId];
-    if (conn == null) return;
-
-    final mamManager = xmpp.MessageArchiveManager.getInstance(conn);
-    // xmpp_stone's MessageArchiveManager usually handles RSM internally
-    // when using queryById with beforeId/afterId.
-    mamManager.queryById(
-      jid: xmpp.Jid.fromFullJid(buddyJid),
-      beforeId: beforeId,
-    );
-  }
-
-  Future<void> sendXmppMessage(
-    String targetJid,
-    String text, {
-    String? accountId,
-    MessageType type = MessageType.text,
-    String? filePath,
-    String? fileName,
-    String? replyToId,
-    bool isGroup = false,
-  }) =>
-      _messageService.sendXmppMessage(
-        targetJid, text,
-        accountId: accountId, type: type, filePath: filePath,
-        fileName: fileName, replyToId: replyToId, isGroup: isGroup,
-      );
-
-  Future<void> _flushPendingMessages(String accountId) =>
-      _messageService.flushPendingMessages(accountId);
-
-  void _enablePushNotifications(xmpp.Connection conn, String accountId) {
-    try {
-      final iq = xmpp.IqStanza(
-        'push-enable-${DateTime.now().millisecondsSinceEpoch}',
-        xmpp.IqStanzaType.SET,
-      );
-      final enable = xmpp.XmppElement();
-      enable.name = 'enable';
-      enable.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:push:0'));
-      enable.addAttribute(xmpp.XmppAttribute('jid', 'gibberapp.online'));
-      enable.addAttribute(xmpp.XmppAttribute('node', 'gibber-push'));
-      iq.addChild(enable);
-      conn.writeStanza(iq);
-      debugPrint('XEP-0357: Push notifications enabled for $accountId');
-    } catch (e) {
-      debugPrint('XEP-0357: Failed to enable push: $e');
-    }
-  }
-
-  Future<void> sendEditedMessage(
-    String targetJid,
-    String originalMsgId,
-    String newText, {
-    String? accountId,
-    bool isGroup = false,
-  }) =>
-      _messageService.sendEditedMessage(targetJid, originalMsgId, newText, accountId: accountId, isGroup: isGroup);
-
-  // XEP-0333: Chat Markers
-  void sendChatMarker(
-    String targetJid,
-    String msgId,
-    String markerType, {
-    String? accountId,
-    bool isGroup = false,
-  }) =>
-      _messageService.sendChatMarker(targetJid, msgId, markerType, accountId: accountId, isGroup: isGroup);
-
-  Future<void> sendXmppReaction(
-    String targetJid,
-    String originalMsgId,
-    String emoji, {
-    String? accountId,
-    bool isGroup = false,
-  }) =>
-      _messageService.sendXmppReaction(targetJid, originalMsgId, emoji, accountId: accountId, isGroup: isGroup);
-
-  void sendReaction(
-    String chatId,
-    String messageId,
-    String emoji, {
-    String? accountId,
-    bool isGroup = false,
-  }) =>
-      _messageService.sendReaction(chatId, messageId, emoji, accountId: accountId, isGroup: isGroup);
-
-  // Unified Message Sender (Standalone)
-  Future<void> sendMessage(
-    String accountId,
-    String toId,
-    String text, {
-    MessageType type = MessageType.text,
-    String? fileName,
-    String? filePath,
-    String? replyToId,
-    bool isGroup = false,
-    bool isSpoiler = false,
-    String? spoilerHint,
-  }) =>
-      _messageService.sendMessage(accountId, toId, text, type: type, fileName: fileName, filePath: filePath, replyToId: replyToId, isGroup: isGroup, isSpoiler: isSpoiler, spoilerHint: spoilerHint);
-
-  Future<void> sendLocationMessage(
-    String accountId,
-    String toId, {
-    required double latitude,
-    required double longitude,
-    String? label,
-    bool isGroup = false,
-  }) =>
-      _messageService.sendLocationMessage(accountId, toId, latitude: latitude, longitude: longitude, label: label, isGroup: isGroup);
-
-  // Retraction (XEP-0424)
-  Future<void> retractXmppMessage(
-    String targetJid,
-    String messageId, {
-    String? accountId,
-    bool isGroup = false,
-  }) =>
-      _messageService.retractXmppMessage(targetJid, messageId, accountId: accountId, isGroup: isGroup);
-
-  Future<String?> _getMyAvatarHash(String accountId) async {
-    final myJid = _xmppJids[accountId];
-    if (myJid == null) return null;
-    
-    final bytes = await AvatarCacheService().getAvatar(myJid.split('/').first);
-    if (bytes != null) {
-      return sha1.convert(bytes).toString();
-    }
-    return null;
-  }
-
-  Future<void> updateMyStatus(ContactStatus status, {String? message}) async {
-    _myStatus = status;
-    _myStatusMessage = message;
-    notifyListeners();
-
-    // 1. Sync XMPP
-    for (var entry in _xmppConnections.entries) {
-      final accountId = entry.key;
-      final conn = entry.value;
-      if (conn.state == xmpp.XmppConnectionState.Ready ||
-          conn.state == xmpp.XmppConnectionState.Resumed) {
-        
-        final hash = await _getMyAvatarHash(accountId);
-
-        final presence = xmpp.PresenceStanza();
-        if (_isUnavailableStatus(status)) {
-          presence.type = xmpp.PresenceType.UNAVAILABLE;
-        } else {
-          presence.show = _mapShowToPresence(status);
-        }
-        presence.status = message ?? '';
-        
-        // XEP-0153: vCard-Based Avatars
-        final xUpdate = xmpp.XmppElement();
-        xUpdate.name = 'x';
-        xUpdate.addAttribute(xmpp.XmppAttribute('xmlns', 'vcard-temp:x:update'));
-        final photo = xmpp.XmppElement();
-        photo.name = 'photo';
-        if (hash != null) {
-          photo.textValue = hash;
-        }
-        xUpdate.addChild(photo);
-        presence.addChild(xUpdate);
-
-        conn.writeStanza(presence);
-      }
-    }
-  }
-
-  // Shared Account Persistence (Simplified for now)
-  Future<void> saveAccount(SavedAccount account, String pass) async {
-    final prefs = await SharedPreferences.getInstance();
-    final index = _savedAccounts.indexWhere(
-      (a) => a.fullJid == account.fullJid,
-    );
-    if (index != -1) {
-      _savedAccounts[index] = account;
-    } else {
-      _savedAccounts.add(account);
-    }
-
-    final jsonList = _savedAccounts.map((a) => a.toJson()).toList();
-    await prefs.setString('saved_accounts_json', json.encode(jsonList));
-    await _secureStorage.write(key: 'pass_${account.fullJid}', value: pass);
-    notifyListeners();
-  }
-
-  Future<void> updateSavedAccount(
-    SavedAccount oldAcc,
-    SavedAccount newAcc,
-    String? newPass,
-  ) async {
-    final prefs = await SharedPreferences.getInstance();
-    final index = _savedAccounts.indexWhere((a) => a.fullJid == oldAcc.fullJid);
-    if (index != -1) {
-      _savedAccounts[index] = newAcc;
-    } else {
-      _savedAccounts.add(newAcc);
-    }
-
-    // Manage passwords
-    if (newPass != null && newPass.isNotEmpty) {
-      await _secureStorage.write(key: 'pass_${newAcc.fullJid}', value: newPass);
-    }
-    // Clean up old pass if JID changed
-    if (oldAcc.fullJid != newAcc.fullJid) {
-      await _secureStorage.delete(key: 'pass_${oldAcc.fullJid}');
-    }
-
-    final jsonList = _savedAccounts.map((a) => a.toJson()).toList();
-    await prefs.setString('saved_accounts_json', json.encode(jsonList));
-    notifyListeners();
-  }
-
-  void clearVCardState() {
-    _pendingVCardFetches.clear();
-    _vCardLastFetch.clear();
-    _vCardUnsupportedJids.clear();
-  }
-
-  Future<void> deleteSavedAccount(SavedAccount acc) async {
-    final prefs = await SharedPreferences.getInstance();
-    _savedAccounts.removeWhere((a) => a.fullJid == acc.fullJid);
-    await _secureStorage.delete(key: 'pass_${acc.fullJid}');
-
-    final jsonList = _savedAccounts.map((a) => a.toJson()).toList();
-    await prefs.setString('saved_accounts_json', json.encode(jsonList));
-
-    // Disconnect if currently connected — clean up all subscriptions and resources
-    if (acc.protocol == 'XMPP' && _xmppConnections.containsKey(acc.fullJid)) {
-      final conn = _xmppConnections[acc.fullJid]!;
-      xmpp.PingManager.removeInstance(conn);
-      ConnectionLifecycleService.instance.unregisterConnection(acc.fullJid);
-      _connectionStateSubs[acc.fullJid]?.cancel();
-      _connectionStateSubs.remove(acc.fullJid);
-      _presenceSubs[acc.fullJid]?.cancel();
-      _presenceSubs.remove(acc.fullJid);
-      _rosterSubs[acc.fullJid]?.cancel();
-      _rosterSubs.remove(acc.fullJid);
-      _xmppMessageSubs[acc.fullJid]?.cancel();
-      _xmppMessageSubs.remove(acc.fullJid);
-      _jingleEventSubs[acc.fullJid]?.cancel();
-      _jingleEventSubs.remove(acc.fullJid);
-      _xmppStanzaSubs[acc.fullJid]?.cancel();
-      _xmppStanzaSubs.remove(acc.fullJid);
-      _xmppProxies[acc.fullJid]?.stop();
-      _xmppProxies.remove(acc.fullJid);
-      _spacesServices[acc.fullJid]?.dispose();
-      _spacesServices.remove(acc.fullJid);
-      conn.dispose();
-      _xmppConnections.remove(acc.fullJid);
-    }
-
-    _authenticatedAccountIds.remove(acc.fullJid);
-    notifyListeners();
-  }
-
-  Future<void> loadSavedAccounts() async {
-    await _loadJoinedRooms();
-    await _loadVCardState();
-    await _loadSubscriptionRequests();
-    final prefs = await SharedPreferences.getInstance();
-
-    // Load Profile
-    final profileStr = prefs.getString('current_profile');
-    if (profileStr != null) {
-      _currentProfile = UserProfile.fromJson(json.decode(profileStr));
-    }
-
-    // Load privacy prefs
-    _sendReadReceipts = prefs.getBool('pref_send_read_receipts') ?? true;
-    _sendTypingIndicators = prefs.getBool('pref_send_typing') ?? true;
-
-    final jsonStr = prefs.getString('saved_accounts_json');
-    if (jsonStr != null) {
-      final List<dynamic> decoded = json.decode(jsonStr);
-      _savedAccounts.clear();
-      _savedAccounts.addAll(decoded.map((j) => SavedAccount.fromJson(j)));
-      notifyListeners();
-    }
-  }
-
-  Future<String?> joinRoom(String accountId, String roomJid, String nickname) async =>
-      _roomService.joinRoom(accountId, roomJid, nickname);
-
-  Future<void> inviteToRoom(String accountId, String roomJid, String userJid, {String? reason}) async =>
-      _roomService.inviteToRoom(accountId, roomJid, userJid, reason: reason);
-
-  Future<void> inviteToRoomDirect(String accountId, String roomJid, String userJid, {String? reason, String? password}) async =>
-      _roomService.inviteToRoomDirect(accountId, roomJid, userJid, reason: reason, password: password);
-
-  Future<String?> createRoom(String accountId, String roomJid, String nickname) async =>
-      _roomService.createRoom(accountId, roomJid, nickname);
-
-  Future<void> leaveRoom(String accountId, String roomJid) async =>
-      _roomService.leaveRoom(accountId, roomJid);
-
-  Future<String?> joinGenericRoom(String destination, {String? accountId}) async =>
-      _roomService.joinGenericRoom(destination, accountId: accountId);
 
   void sendChatState(
     String targetJid,
