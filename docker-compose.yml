@@ -49,15 +49,8 @@ services:
       - ./gibber-backend/config/slidge-providers.conf.lua:/etc/prosody/slidge-providers.conf:ro
       - prosody_data:/var/lib/prosody
       - prosody_certs:/etc/prosody/certs
-      - acme_data:/root/.acme.sh
     environment:
       DOMAIN: ${GIBBER_SITE:-gibberapp.online}
-      NAMECHEAP_USERNAME: ${NAMECHEAP_USERNAME:-}
-      NAMECHEAP_API_KEY: ${NAMECHEAP_API_KEY:-}
-      CLOUDFLARE_EMAIL: ${CLOUDFLARE_EMAIL:-}
-      CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY:-}
-      CLOUDFLARE_GLOBAL_API_KEY: ${CLOUDFLARE_GLOBAL_API_KEY:-}
-      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
       # Gateway component secrets — MUST MATCH the values on the gateway
       # containers below.
       SLIDIRC_SECRET: ${SLIDIRC_SECRET:-change-me-irc-secret}
@@ -161,7 +154,6 @@ services:
       - web_build:/srv/gibber-web:ro
     environment:
       GIBBER_SITE: ${GIBBER_SITE:-gibberapp.online}
-      GIBBER_ADMIN_EMAIL: ${GIBBER_ADMIN_EMAIL:-admin@gibberapp.online}
     depends_on:
       gibber-backend:
         condition: service_started
@@ -341,7 +333,6 @@ services:
 volumes:
   prosody_data:
   prosody_certs:
-  acme_data:
   backend_data:
   web_build:
   caddy_data:

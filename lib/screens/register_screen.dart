@@ -123,7 +123,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return false;
     }
 
-    setState(() { _checkingUsername = true; _usernameAvailable = false; });
+    setState(() { _checkingUsername = true; });
 
     final backendConfig = Provider.of<BackendConfig>(context, listen: false);
     final available = await RegistrationService.checkUsernameAvailable(
@@ -134,15 +134,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (mounted) {
       setState(() {
         _checkingUsername = false;
-        _usernameAvailable = available;
-        if (!available) {
+        _usernameAvailable = available ?? true;
+        if (available == false) {
           _usernameError = 'Username is already taken.';
         } else {
           _usernameError = null;
         }
       });
     }
-    return available;
+    return _usernameAvailable;
   }
 
   Timer? _debounceTimer;

@@ -197,9 +197,12 @@ class ApiRouter {
       print('Registration result: success=${result.success}, jid=${result.jid}, message=${result.message}');
 
       if (!result.success) {
+        final message = result.message.length > 300
+            ? 'Registration failed'
+            : result.message;
         return Response(
           409,
-          body: jsonEncode({'error': result.message, 'jid': result.jid}),
+          body: jsonEncode({'error': message, 'jid': result.jid}),
           headers: _jsonHeaders,
         );
       }
@@ -577,11 +580,14 @@ class ApiRouter {
     final prosodyUri = Uri.parse(xmppRegistrar.prosodyHttpUrl);
 
     final hostHeader = request.headers['x-forwarded-host'] ?? request.headers['host'] ?? 'localhost';
-    final isHttps = request.headers['x-forwarded-proto'] == 'https' || request.headers['x-forwarded-proto'] == 'https';
+    final isHttps = request.headers['x-forwarded-proto'] == 'https';
     final wsScheme = isHttps ? 'wss' : 'ws';
-    final wsPort = isHttps ? '' : ':8080';
+    // The Host header may already carry a port (e.g. "localhost:8080" when
+    // hitting the backend directly). Only add the backend port when absent.
+    final hasPort = hostHeader.contains(':');
+    final wsPort = (!isHttps && !hasPort) ? ':8080' : '';
     final uploadScheme = isHttps ? 'https' : 'http';
-    final uploadPort = isHttps ? '' : ':8080';
+    final uploadPort = (!isHttps && !hasPort) ? ':8080' : '';
 
     final websocketUrl = '$wsScheme://$hostHeader$wsPort/xmpp-websocket';
     final uploadUrl = '$uploadScheme://$hostHeader$uploadPort/upload';
@@ -596,22 +602,17 @@ class ApiRouter {
     };
 
     if (_effectiveJanusUrl != null && _effectiveJanusUrl!.isNotEmpty) {
-      final janusUrl = _effectiveJanusUrl!;
-      // In monolith deployments Janus runs on localhost, so proxy through the
-      // backend at /janus. For external Janus or docker-compose, use the URL
-      // directly (client must be able to resolve it).
-      if (janusUrl.contains('localhost') || janusUrl.contains('127.0.0.1')) {
-        final janusWsScheme = isHttps ? 'wss' : 'ws';
-        config['sfuUrl'] = '$janusWsScheme://$hostHeader/janus';
-      } else {
-        config['sfuUrl'] = janusUrl;
-      }
+      // Always route SFU traffic through the backend's /janus websocket proxy:
+      // internal hostnames (ws://janus:8188) are not resolvable by browsers,
+      // and this works identically behind a TLS edge or on plain HTTP.
+      final janusWsScheme = isHttps ? 'wss' : 'ws';
+      config['sfuUrl'] = '$janusWsScheme://$hostHeader$wsPort/janus';
     }
     if (_effectiveJanusApiKey != null && _effectiveJanusApiKey!.isNotEmpty) {
       config['sfuApiKey'] = _effectiveJanusApiKey;
     }
 
-    final iceServers = _buildIceServers(prosodyUri.host);
+    final iceServers = _buildIceServers(hostHeader);
     if (iceServers.isNotEmpty) {
       config['iceServers'] = iceServers;
     }
@@ -627,31 +628,44 @@ class ApiRouter {
       {'urls': 'stun:stun.l.google.com:19302'},
     ];
 
-    final turnHost = Platform.environment['GIBBER_TURN_HOST'] ?? '';
-    if (turnHost.isNotEmpty) {
-      servers.add({'urls': 'stun:$turnHost:3478'});
-    }
-
-    final turnUrl = Platform.environment['GIBBER_TURN_URL'] ?? '';
     final turnUser = Platform.environment['GIBBER_TURN_USER'] ?? '';
     final turnPass = Platform.environment['GIBBER_TURN_PASS'] ?? '';
 
-    if (turnUrl.isNotEmpty) {
+    // TURN host: honor GIBBER_TURN_HOST when explicitly configured; otherwise
+    // serve the host the client used to reach the site (works for localhost
+    // and LAN self-hosts where coturn is published on the same machine).
+    final turnHost =
+        Platform.environment['GIBBER_TURN_HOST'] ?? _bareHostname(host);
+
+    if (turnUser.isNotEmpty && turnPass.isNotEmpty && turnHost.isNotEmpty) {
       servers.add({
-        'urls': 'turn:$turnUrl',
+        'urls': 'turn:$turnHost:3478',
         'username': turnUser,
         'credential': turnPass,
       });
-      if (turnHost.isNotEmpty) {
-        servers.add({
-          'urls': 'turns:$turnHost:5349?transport=tcp',
-          'username': turnUser,
-          'credential': turnPass,
-        });
-      }
+      servers.add({
+        'urls': 'turns:$turnHost:5349?transport=tcp',
+        'username': turnUser,
+        'credential': turnPass,
+      });
     }
 
     return servers;
+  }
+
+  String _bareHostname(String hostHeader) {
+    final host = hostHeader.trim();
+    if (host.isEmpty) return '';
+    if (host.startsWith('[')) {
+      final end = host.indexOf(']');
+      if (end > 0) return host.substring(1, end);
+    }
+    final colon = host.lastIndexOf(':');
+    if (colon > -1 && !host.contains(']:')) {
+      final after = host.substring(colon + 1);
+      if (RegExp(r'^\d+$').hasMatch(after)) return host.substring(0, colon);
+    }
+    return host;
   }
 
   Future<Response> _handleSfuCreateRoom(Request request) async {

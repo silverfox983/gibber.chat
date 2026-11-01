@@ -4,7 +4,17 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'backend_config_same_origin.dart'
+    if (dart.library.js_interop) 'backend_config_web.dart';
+
 class BackendConfig extends ChangeNotifier {
+  /// Web builds default to the page origin (the backend serves the site).
+  /// Native clients keep the hosted default until the user sets a server.
+  static String get _defaultApiUrl {
+    final origin = sameOriginApiUrl;
+    return origin ?? 'https://gibberapp.online';
+  }
+
   String _apiUrl = 'https://gibberapp.online';
   String _poolUrl = 'wss://gibberapp.online/ws/miner';
   bool _captchaEnabled = true;
@@ -53,6 +63,7 @@ class BackendConfig extends ChangeNotifier {
   String? get adminKey => _adminKey;
 
   BackendConfig() {
+    _apiUrl = _defaultApiUrl;
     _load();
   }
 
@@ -77,8 +88,12 @@ class BackendConfig extends ChangeNotifier {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         _captchaEnabled = data['captchaEnabled'] == true;
         _domain = data['domain'] as String?;
-        _uploadUrl = data['uploadUrl'] as String?;
-        _websocketUrl = data['websocketUrl'] as String?;
+        final upload = data['uploadUrl'] as String?;
+        final ws = data['websocketUrl'] as String?;
+        // Only trust server-provided URLs that the browser can actually reach
+        // (the backend may expose internal hostnames like ws://janus:8188).
+        if (upload != null && !upload.contains('://janus')) _uploadUrl = upload;
+        if (ws != null && Uri.parse(ws).host != 'janus') _websocketUrl = ws;
         _maxUploadSize = (data['maxUploadSize'] as int?) ?? 52428800;
         _sfuUrl = data['sfuUrl'] as String?;
         _sfuApiKey = data['sfuApiKey'] as String?;

@@ -1,9 +1,15 @@
-{
-	email {$GIBBER_ADMIN_EMAIL:admin@gibberapp.online}
-}
+# Site: production domain AND localhost (local testing). Any other Host is
+# refused by default. Access:
+#   https://gibberapp.online  - real domain
+#   https://localhost         - local self-host (self-signed, prompt once)
+{$GIBBER_SITE:gibberapp.online}, localhost {
+	# Local-first stack: serve a Caddy-managed self-signed certificate instead
+	# of ACME. Browsers will prompt once per host to trust it.
+	tls internal
 
-{$GIBBER_SITE:gibberapp.online} {
-
+	# --- API / XMPP (reverse proxies) ---------------------------------------
+	# Plain reverse_proxy directives: they run in canonical order and are NOT
+	# affected by the SPA fallback below, which is scoped to @static.
 	reverse_proxy /api/* gibber-backend:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Forwarded-Host {host}
@@ -15,15 +21,11 @@
 	}
 
 	reverse_proxy /health gibber-backend:8080
-
 	reverse_proxy /config gibber-backend:8080
-
 	reverse_proxy /register gibber-backend:8080
 	reverse_proxy /register/check gibber-backend:8080
 
 	reverse_proxy /xmpp-websocket gibber-backend:8080 {
-		header_up Connection {>Connection}
-		header_up Upgrade {>Upgrade}
 	}
 
 	reverse_proxy /http-bind gibber-backend:8080
@@ -37,43 +39,45 @@
 	reverse_proxy /payments/* gibber-backend:8080
 	reverse_proxy /subscription/* gibber-backend:8080
 	reverse_proxy /gateways/* gibber-backend:8080
+	reverse_proxy /gateways gibber-backend:8080
 	reverse_proxy /user/* gibber-backend:8080
 	reverse_proxy /entitlements/* gibber-backend:8080
 	reverse_proxy /redeem gibber-backend:8080
 	reverse_proxy /pricing gibber-backend:8080
 	reverse_proxy /codes gibber-backend:8080
 	reverse_proxy /password/* gibber-backend:8080
-
-	# Account deletion endpoint
 	reverse_proxy /account/* gibber-backend:8080
+	reverse_proxy /push/* gibber-backend:8080
 
-	# SFU (Janus WebSocket)
 	reverse_proxy /janus janus:8188 {
-		header_up Connection {>Connection}
-		header_up Upgrade {>Upgrade}
 	}
 
-	# SFU API endpoints
 	reverse_proxy /sfu/* gibber-backend:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Forwarded-Host {host}
 	}
 
-	# Static web frontend (Flutter web build)
-	root * /srv/gibber-web
-	try_files {path} /index.html
+	# --- Static web frontend (Flutter web build) ----------------------------
+	# Scoped with a matcher so it can never swallow API paths: Caddy's
+	# canonical ordering sorts try_files before reverse_proxy, and an ungated
+	# try_files rewrites /health, /xmpp-websocket etc. to index.html.
+	@static not path /api/* /auth/* /health /config /register /register/check /xmpp-websocket /http-bind /upload /janus /sfu/* /gateways /gateways/* /entitlements/* /redeem /pricing /payments/* /subscription* /miner/* /codes /password/* /account/* /user/* /push/*
+	handle @static {
+		root * /srv/gibber-web
 
-	@jsFiles {
-		path *.js
+		@jsFiles {
+			path *.js
+		}
+		header @jsFiles Content-Type "application/javascript"
+
+		@wasmFiles {
+			path *.wasm
+		}
+		header @wasmFiles Content-Type "application/wasm"
+
+		try_files {path} /index.html
+		file_server
 	}
-	header @jsFiles Content-Type "application/javascript"
-
-	@wasmFiles {
-		path *.wasm
-	}
-	header @wasmFiles Content-Type "application/wasm"
-
-	file_server
 
 	# Upload size limit (for HTTP File Upload)
 	request_body {

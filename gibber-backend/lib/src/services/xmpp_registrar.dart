@@ -411,17 +411,21 @@ class XmppRegistrar {
     }
   }
 
+  // userExists: prefer the account store mounted at /var/lib/prosody
+  // (prosody_data volume in docker-compose). Prosody has no HTTP /check
+  // endpoint, so the HTTP variant only works when an external checker module
+  // is installed.
   Future<bool> userExists(String username, {String? host}) async {
     final jidDomain = host ?? _domain;
     switch (_mode) {
       case RegistrationMode.xmpp:
-        return _userExistsViaHttp(username, jidDomain);
-      case RegistrationMode.http:
-        return _userExistsViaHttp(username, jidDomain);
       case RegistrationMode.internal:
-        return _userExistsInternal(username, jidDomain);
+        if (await _userExistsInternal(username, jidDomain)) return true;
+        return await _userExistsViaHttp(username, jidDomain);
+      case RegistrationMode.http:
+        return await _userExistsViaHttp(username, jidDomain);
       case RegistrationMode.prosodyctl:
-        return _userExistsProsodyCtl(username, jidDomain);
+        return await _userExistsProsodyCtl(username, jidDomain);
     }
   }
 
@@ -445,10 +449,21 @@ class XmppRegistrar {
   }
 
   Future<bool> _userExistsInternal(String username, String domain) async {
-    final userFile = File('/var/lib/prosody/$domain/accounts/$username.dat');
-    final exists = userFile.existsSync();
-    print('XmppRegistrar [internal]: userExists $username@$domain → ${userFile.path} exists=$exists');
-    return exists;
+    // Prosody URL-encodes host labels into the data directory name
+    // (gibberapp.online -> gibberapp%2eonline, lowercase percent-encoding).
+    final encodedDomain = domain.replaceAll('.', '%2e');
+    final candidates = [
+      File('/var/lib/prosody/$domain/accounts/$username.dat'),
+      File('/var/lib/prosody/$encodedDomain/accounts/$username.dat'),
+    ];
+    for (final userFile in candidates) {
+      if (userFile.existsSync()) {
+        stdout.writeln('XmppRegistrar [internal]: userExists $username@$domain -> ${userFile.path} exists=true');
+        return true;
+      }
+    }
+    stdout.writeln('XmppRegistrar [internal]: userExists $username@$domain -> not found');
+    return false;
   }
 
   Future<bool> _userExistsProsodyCtl(String username, String domain) async {

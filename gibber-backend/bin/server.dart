@@ -476,16 +476,23 @@ void main(List<String> args) async {
         .addHandler((request) async {
           final path = request.requestedUri.path;
 
+          // WebSocket detection: prefer Upgrade, but when a reverse-proxy hop
+          // rewrites the hop-by-hop header set (Caddy streams TLS client
+          // sockets to the backend as plain HTTP), Sec-WebSocket-Key is an
+          // unambiguous witness of a websocket handshake. Used in both the
+          // web and non-web handler pipelines below.
+          bool isWebSocket(shelf.Request r) =>
+              (r.headers['upgrade'] ?? '').toLowerCase().contains('websocket') ||
+              r.headers['sec-websocket-key'] != null;
+
           if (xmppWsPaths.contains(path)) {
-            final upgrade = request.headers['upgrade'];
-            if (upgrade != null && upgrade.toLowerCase() == 'websocket') {
+            if (isWebSocket(request)) {
               return xmppWsHandler(request);
             }
           }
 
           if (janusWsPaths.contains(path)) {
-            final upgrade = request.headers['upgrade'];
-            if (upgrade != null && upgrade.toLowerCase() == 'websocket') {
+            if (isWebSocket(request)) {
               return janusWsHandler(request);
             }
           }

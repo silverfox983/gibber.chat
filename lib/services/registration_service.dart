@@ -405,7 +405,11 @@ class RegistrationService {
     }
   }
 
-  static Future<bool> checkUsernameAvailable({
+  /// Returns true if the server definitely reports the username as free.
+  /// Returns null when the check cannot be performed (network error, server
+  /// down, unknown response) — callers should then proceed with the actual
+  /// registration and let the XMPP server arbitrate conflicts.
+  static Future<bool?> checkUsernameAvailable({
     required String apiUrl,
     required String username,
     String? host,
@@ -424,9 +428,9 @@ class RegistrationService {
         final body = jsonDecode(response.body) as Map<String, dynamic>;
         return body['available'] == true;
       }
-      return false;
+      return null;
     } catch (_) {
-      return false;
+      return null;
     }
   }
 
