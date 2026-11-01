@@ -68,6 +68,16 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
   RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   bool _isCleaningUp = false;
   final SoundService _soundService = SoundService();
+
+  Future<void> _resetRtcManager() async {
+    await _rtcManager.dispose();
+    _rtcManager = WebRTCManager();
+  }
+
+  void _resetMultiPeerManager() {
+    _multiPeerManager?.dispose();
+    _multiPeerManager = MultiPeerWebRTCManager();
+  }
   SipService? _sipService;
   StreamSubscription? _signalingSub;
   StreamSubscription? _statsSub;
@@ -423,8 +433,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _groupRenderers.clear();
     _groupAudioLevels.clear();
 
-    _multiPeerManager?.dispose();
-    _multiPeerManager = MultiPeerWebRTCManager();
+    _resetMultiPeerManager();
 
     final iceServers = <Map<String, dynamic>>[];
     if (_backendConfig != null) {
@@ -652,8 +661,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _groupAudioLevels.clear();
 
     // Initialize MultiPeer WebRTC Manager
-    _multiPeerManager?.dispose();
-    _multiPeerManager = MultiPeerWebRTCManager();
+    _resetMultiPeerManager();
     _multiPeerManager!.onRemoteStreamAdded = (peerId, stream) async {
       debugPrint('CallProvider: Remote stream added for $peerId in group call');
       final renderer = RTCVideoRenderer();
@@ -778,8 +786,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     _statsSub?.cancel();
     _qualityStatsSub?.cancel();
     _qualityStatsSub = null;
-    await _rtcManager.dispose();
-    _rtcManager = WebRTCManager();
+    await _resetRtcManager();
 
     final signaling =
         _authService?.getJingleService(accountId ?? '') ??
@@ -1126,8 +1133,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     // HARDENING: Clean up any stale sessions before accepting a new one, 
     // BUT preserve the manager if this is the same session transitioning from proposal to initiation.
     if (_sessionId != sessionId || _state == CallState.idle) {
-      await _rtcManager.dispose();
-      _rtcManager = WebRTCManager();
+      await _resetRtcManager();
       _isAccepted = false;
       _isRinging = false;
     }
@@ -1428,8 +1434,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
     }
 
     // HARDENING: Clean up any stale manager before starting a new call
-    await _rtcManager.dispose();
-    _rtcManager = WebRTCManager();
+    await _resetRtcManager();
 
     final signaling =
         _authService?.getJingleService(accountId ?? '') ??
