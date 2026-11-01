@@ -322,13 +322,7 @@ class AuthService with ChangeNotifier {
     }
     final conn = _xmppConnections[accountId];
     if (conn != null) {
-      final service = SpacesService(conn, roomService: _roomService);
-      service.setAccountIdMapper((c) {
-        for (var entry in _xmppConnections.entries) {
-          if (entry.value == c) return entry.key;
-        }
-        return null;
-      });
+      final service = SpacesService(conn, roomService: _roomService, accountId: accountId);
       _spacesServices[accountId] = service;
       return service;
     }
@@ -930,6 +924,11 @@ class AuthService with ChangeNotifier {
 
           _xmppStanzaSubs[id]?.cancel();
           _xmppStanzaSubs[id] = conn.inStanzasStream.listen((stanza) async {
+            // Single-dispatch bus: route every stanza to per-account
+            // SpacesService (its own IQ correlation + PubSub events) so it does
+            // not need a second inStanzasStream subscription.
+            _spacesServices[id]?.handleStanza(stanza);
+
             if (stanza is xmpp.PresenceStanza) {
               final fromJid = stanza.fromJid;
               

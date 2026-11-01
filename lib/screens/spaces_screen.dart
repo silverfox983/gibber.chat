@@ -1291,22 +1291,12 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                   onPressed: () {
                     final auth = Provider.of<AuthService>(context, listen: false);
                     final conn = auth.activeXmppConnection;
-                    if (conn != null) {
-                      final svc = auth.spacesService;
-                      final effectiveSvc = svc ?? (() {
-                        final s = SpacesService(conn, roomService: auth.roomService);
-                        s.setAccountIdMapper((c) {
-                          for (var entry in auth.connectionMap.entries) {
-                            if (entry.value == c) return entry.key;
-                          }
-                          return null;
-                        });
-                        return s;
-                      })();
+                    final svc = auth.spacesService;
+                    if (conn != null && svc != null) {
                       showDialog(
                         context: context,
                         builder: (context) => CreateSpaceDialog(
-                          spacesService: effectiveSvc,
+                          spacesService: svc,
                           domain: conn.fullJid.domain,
                           onSuccess: _refresh,
                         ),
@@ -1320,22 +1310,12 @@ class _SpacesScreenState extends State<SpacesScreen> with AutomaticKeepAliveClie
                   onPressed: () {
                     final auth = Provider.of<AuthService>(context, listen: false);
                     final conn = auth.activeXmppConnection;
-                    if (conn != null) {
-                      final svc = auth.spacesService;
-                      final effectiveSvc = svc ?? (() {
-                        final s = SpacesService(conn, roomService: auth.roomService);
-                        s.setAccountIdMapper((c) {
-                          for (var entry in auth.connectionMap.entries) {
-                            if (entry.value == c) return entry.key;
-                          }
-                          return null;
-                        });
-                        return s;
-                      })();
+                    final svc = auth.spacesService;
+                    if (conn != null && svc != null) {
                       showDialog(
                         context: context,
                         builder: (context) => JoinSpaceDialog(
-                          spacesService: effectiveSvc,
+                          spacesService: svc,
                           currentUserDomain: conn.fullJid.domain,
                           onSuccess: _refresh,
                         ),

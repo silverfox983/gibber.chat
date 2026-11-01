@@ -10,9 +10,9 @@ import 'xmpp_room_service.dart';
 class SpacesService extends ChangeNotifier {
   final xmpp.Connection _connection;
   final XmppRoomService? _roomService;
-  String? Function(xmpp.Connection)? _accountIdForConnection;
+  final String accountId;
   xmpp.Connection get connection => _connection;
-  
+
   final IqRequestManager _iqReqs = IqRequestManager();
 
   // ── Bounded LRU caches with TTL ──────────────────────────────────────────
@@ -25,15 +25,23 @@ class SpacesService extends ChangeNotifier {
   final StreamController<SpaceItem> _liveItemController = StreamController<SpaceItem>.broadcast();
   Stream<SpaceItem> get liveItemStream => _liveItemController.stream;
 
-  late StreamSubscription<xmpp.AbstractStanza?> _subscription;
+  SpacesService(this._connection, {
+    XmppRoomService? roomService,
+    required this.accountId,
+  }) : _roomService = roomService;
 
-  SpacesService(this._connection, {XmppRoomService? roomService})
-      : _roomService = roomService {
-    _subscription = _connection.inStanzasStream.listen(_handleStanza);
-  }
+  /// Central dispatch entry point. Called by the connection owner's single
+  /// stanza listener instead of subscribing to [xmpp.Connection.inStanzasStream]
+  /// directly (avoids double dispatch).
+  void handleStanza(xmpp.AbstractStanza? stanza) {
+    if (stanza is xmpp.IqStanza) {
+      _iqReqs.complete(stanza.id, stanza);
+    }
 
-  void setAccountIdMapper(String? Function(xmpp.Connection)? mapper) {
-    _accountIdForConnection = mapper;
+    // XEP-0060 §12: Real-time PubSub event delivery via <message>
+    if (stanza is xmpp.MessageStanza) {
+      _handlePubSubEvent(stanza);
+    }
   }
 
   Future<SpaceNode> fetchSpaceDetails(SpaceNode space, {bool forceRefresh = false}) async {
@@ -128,7 +136,6 @@ class SpacesService extends ChangeNotifier {
     _discoverCache.clear();
     _metadataCache.clear();
     _contentCache.clear();
-    _subscription.cancel();
     _liveItemController.close();
     _iqReqs.failAll('Service disposed');
     super.dispose();
@@ -921,7 +928,7 @@ class SpacesService extends ChangeNotifier {
               );
               debugPrint('SpacesService: MUC room joined/created at $mucJid');
               if (mucJoined && _roomService != null) {
-                final accountId = _getAccountIdForConnection(_connection);
+                final accountId = this.accountId;
                 final configError = await _roomService!.configureXmppRoom(
                   mucJid,
                   accountId: accountId,
@@ -1334,7 +1341,7 @@ class SpacesService extends ChangeNotifier {
     }
 
     if (_roomService != null) {
-      final accountId = _getAccountIdForConnection(_connection);
+      final accountId = this.accountId;
       if (accountId == null) {
         debugPrint('SpacesService: Cannot configure channel $channelJid — no accountId for connection');
       } else {
@@ -1784,7 +1791,7 @@ class SpacesService extends ChangeNotifier {
 
       // Use XmppRoomService for proper tracking and persistence when available
       if (_roomService != null) {
-        final accountId = _getAccountIdForConnection(_connection);
+        final accountId = this.accountId;
         final error = await _roomService!.joinXmppRoom(
           roomJid,
           nick,
@@ -1808,16 +1815,6 @@ class SpacesService extends ChangeNotifier {
     }
   }
 
-  String? _getAccountIdForConnection(xmpp.Connection conn) {
-    // This is a heuristic - in practice, _roomService.joinXmppRoom uses
-    // _activeAccountId if accountId is null, so we can pass null.
-    // The _roomService stores rooms by (accountId|roomJid) so we need the accountId.
-    // We find it by matching the connection object.
-    if (_accountIdForConnection != null) {
-      return _accountIdForConnection!(conn);
-    }
-    return null;
-  }
 
   /// Leave a MUC room via presence unavailable.
   Future<bool> leaveMucRoom(String domain, String node, String bareJid) async {
