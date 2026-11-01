@@ -80,17 +80,29 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
   the XEP commit — wire it when SFS ingest lands (Phase 5/6); OMEMO/OTR send branches in
   XmppMessageService still have separate paths — candidate for later consolidation.
 
-## Phase 4 — Call stack
+## Phase 4 — Call stack  — opened
 
-- [ ] `CallProvider` → call state machine + per-transport controllers (Jingle/XMPP, SIP, Janus, mesh).
-- [ ] Managed `WebRTCManager` factory; dedupe ICE fallback lists (also hardcoded openrelay creds → config).
-- [ ] Throttle audio-level `notifyListeners()` fan-out.
+- [x] Shared `ice_config.dart`: single source for the ICE fallback list + default RTC
+      configuration; duplicated constants deleted from both WebRTC managers (`747c4dd`).
+      Hardcoded openrelay creds still live there pending backend `iceServers` provisioning.
+- [ ] `CallProvider` (2,609 lines) → call state machine + per-transport controllers
+      (Jingle/XMPP, SIP, Janus, mesh):
+  1. First pass: extract WebRTC-manager creation into a managed factory (provider currently
+     `new`s `WebRTCManager` at 4 sites and `MultiPeerWebRTCManager` at 2).
+  2. Split by transport: `XmppCallController` (offer/answer/ICE via signaling), `SipCallController`,
+     `GroupCallController` (Janus + mesh). Keep `CallProvider` as state/notifier façade.
+  3. Audio-level stream: throttle `notifyListeners()` per stats tick (call_provider ~805-812,
+     ~1511-1527) — full app rebuild per frame today.
+  4. Dedupe: offer/send logic duplicated between `_startXmppCallInternal` and `startCall`;
+     audio-level listener setup duplicated in `_startXmppCallInternal`/`acceptCall`.
+- [ ] PSTN gateway detection (`_isPstnGatewayJid`) — move heuristics to a testable unit.
 
 ## Phase 5 — UI
 
 - [ ] `spaces_screen.dart` → `SpacesHubScreen` / `SpaceDetailView` / `CreatePostDialog` files.
 - [ ] Shared widgets: markdown toolbar (3 copies), post cards (2 copies), attachment web-guards.
 - [ ] Router: stop passing live services/models via `state.extra`; move to IDs/params (deep-link prep).
+- [ ] Wire `_parseSfs`/SFS ingest into message pipeline (feature completion, stanza handler).
 
 ## Phase 6 — Data layer
 
