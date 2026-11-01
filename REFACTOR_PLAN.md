@@ -59,14 +59,23 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
   - roster listener → `_handleRosterItems`; presence listener → `_handlePresenceUpdate`
     (typed `xmpp.Buddy` / `xmpp.PresenceData`) (`c2e6f32`)
 - [x] `XmppSessionLookup` implemented by AuthService (Phase 2 groundwork).
-- [ ] Ready-branch service setup (jingle/upload/discovery/sync wiring) → separate
-      `_setupAccountServices` — next extraction target.
-- [ ] Merge `auth_service_deps.dart` interfaces and legacy `XmppContactServiceDependencies`
-      into one deps surface; sub-services stop writing AuthService private fields
-      (emit events instead).
-- [ ] Centralize duplicate mappings: presence enum maps, OMEMO/OTR message-send branches.
-- [ ] `_discoveryCompleters`/`_roomInfoCompleters` typed maps still raw — fold into a small
-      CompleterMap helper alongside IqRequestManager.
+- [x] Ready-branch service setup (ping/omemo/presence/jingle/upload/discovery/sync/push)
+      → `_setupAccountServices` (`71bb458`).
+- [x] `CompleterMap<T>` generalizes IqRequestManager; auth's `_discoveryCompleters`/`_roomInfoCompleters`
+      and room-service twins migrated to it; fallback completion chains collapsed
+      (`d7b1bf4`, +5 unit tests `0a4b5c6`).
+- [x] Legacy `XmppContactServiceDependencies` snapshot layer deleted — XmppContactService uses the
+      abstract `AuthServiceContactDeps` directly; this also repairs latent crashes where the
+      service mutated the ctor-time unmodifiable snapshot (import/rename/remove contact paths)
+      (`8ab3f67`, `73fe3e3`).
+- [x] Shared presence mapping (`presence_mapping.dart`) replaces duplicated
+      `_mapShowToPresence`/`_mapPresenceToShow`/dead `mapPresenceToShow` (`d39173f`).
+- [ ] Remaining (Phase 3 close-out): `_AuthContactDeps`-style write-back setters
+      (`set myStatus/myStatusMessage/xmppConnecting/lastDiagnostic/currentProfile`, stanza-callback
+      registration) — sub-services should emit events or receive callbacks via ctor instead of
+      writing AuthService privates. Behavior-affecting; do one seam at a time.
+- [ ] Centralize OMEMO/OTR message-send branches in XmppMessageService (4 decrypt spots in
+      stanza handler remain).
 
 ## Phase 4 — Call stack
 
