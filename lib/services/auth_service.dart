@@ -38,10 +38,11 @@ import './xmpp_room_enhancements_service.dart';
 import './xmpp_server_info_service.dart';
 import './xmpp_sticker_service.dart';
 import './iq_request_manager.dart';
+import './xmpp_session_lookup.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
-class AuthService with ChangeNotifier {
+class AuthService with ChangeNotifier implements XmppSessionLookup {
   void Function(String bareJid)? onAuthenticated;
   bool _xmppConnecting = false;
 
@@ -360,8 +361,7 @@ class AuthService with ChangeNotifier {
   }
 
   AuthService() {
-    _roomService = XmppRoomService(_xmppConnections, _xmppJids);
-    _roomService.setActiveAccountIdGetter(() => _activeAccountId);
+    _roomService = XmppRoomService(this);
     _omemoService.setRoomService(_roomService);
     _contactService = XmppContactService(_AuthContactDeps(this));
     _messageService = XmppMessageService(_AuthMessageDeps(this));
@@ -413,6 +413,12 @@ class AuthService with ChangeNotifier {
 
   String? _activeAccountId;
   String? get activeAccountId => _activeAccountId;
+
+  @override
+  xmpp.Connection? connectionFor(String? accountId) => accountId == null ? null : _xmppConnections[accountId];
+
+  @override
+  String? fullJidFor(String? accountId) => accountId == null ? null : _xmppJids[accountId];
   Map<String, xmpp.Connection> get connectionMap => Map.unmodifiable(_xmppConnections);
 
   Future<void> switchAccount(String accountId) async {

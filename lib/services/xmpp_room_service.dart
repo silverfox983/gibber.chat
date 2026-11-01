@@ -4,11 +4,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/chat_models.dart';
 import 'iq_request_manager.dart';
+import 'xmpp_session_lookup.dart';
 
 class XmppRoomService with ChangeNotifier {
-  final Map<String, xmpp.Connection> _connections;
-  final Map<String, String> _jids;
-  String? Function()? _getActiveAccountId;
+  final XmppSessionLookup _sessions;
 
   final List<Room> _joinedRooms = [];
   List<Room> get joinedRooms => List.unmodifiable(_joinedRooms);
@@ -35,13 +34,9 @@ class XmppRoomService with ChangeNotifier {
   final Map<String, Completer<Map<String, dynamic>>> _roomInfoCompleters = {};
   final IqRequestManager _iqReqs = IqRequestManager();
 
-  XmppRoomService(this._connections, this._jids);
+  XmppRoomService(this._sessions);
 
-  void setActiveAccountIdGetter(String? Function() getter) {
-    _getActiveAccountId = getter;
-  }
-
-  String? get _activeAccountId => _getActiveAccountId?.call();
+  String? get _activeAccountId => _sessions.activeAccountId;
 
   String getResolvedNickname(String? accountId) {
     final id = accountId ?? _activeAccountId;
@@ -56,7 +51,7 @@ class XmppRoomService with ChangeNotifier {
   }
 
   Future<void> leaveRoom(String accountId, String roomJid) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return;
 
     debugPrint('MUC: Leaving Room $roomJid');
@@ -71,7 +66,7 @@ class XmppRoomService with ChangeNotifier {
   }
 
   Future<void> destroyRoom(String accountId, String roomJid, {String? reason}) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return;
 
     debugPrint('MUC: Destroying Room $roomJid');
@@ -135,7 +130,7 @@ class XmppRoomService with ChangeNotifier {
     String userJid, {
     String? reason,
   }) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return;
 
     final msg = xmpp.MessageStanza(
@@ -173,7 +168,7 @@ class XmppRoomService with ChangeNotifier {
     String? reason,
     String? password,
   }) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return;
 
     final msg = xmpp.MessageStanza(
@@ -205,7 +200,7 @@ class XmppRoomService with ChangeNotifier {
     String accountId,
     String serviceJid,
   ) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return [];
     final id = 'disco_${DateTime.now().millisecondsSinceEpoch}';
     final iq = xmpp.IqStanza(id, xmpp.IqStanzaType.GET);
@@ -230,7 +225,7 @@ class XmppRoomService with ChangeNotifier {
     String accountId,
     String roomJid,
   ) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) {
       return {'jid': roomJid, 'name': roomJid, 'description': ''};
     }
@@ -256,7 +251,7 @@ class XmppRoomService with ChangeNotifier {
   // --- Room Configuration (XEP-0045) ---
 
   Future<void> requestRoomConfig(String accountId, String roomJid) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return;
 
     final id = 'config_${DateTime.now().millisecondsSinceEpoch}';
@@ -274,7 +269,7 @@ class XmppRoomService with ChangeNotifier {
     String roomJid,
     Map<String, String> fields,
   ) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return;
 
     final id = 'submit_${DateTime.now().millisecondsSinceEpoch}';
@@ -307,7 +302,7 @@ class XmppRoomService with ChangeNotifier {
   }
 
   Future<Map<String, dynamic>?> fetchRoomConfig(String accountId, String roomJid) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return null;
 
     final id = 'config_${DateTime.now().millisecondsSinceEpoch}';
@@ -352,7 +347,7 @@ class XmppRoomService with ChangeNotifier {
   }
 
   Future<List<Map<String, String>>> fetchRoomAffiliations(String accountId, String roomJid, String affiliation) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return [];
 
     final id = 'affil_${DateTime.now().millisecondsSinceEpoch}';
@@ -404,7 +399,7 @@ class XmppRoomService with ChangeNotifier {
     String role, {
     String? reason,
   }) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return;
 
     final id = 'role_${DateTime.now().millisecondsSinceEpoch}';
@@ -439,7 +434,7 @@ class XmppRoomService with ChangeNotifier {
     String affiliation, {
     String? reason,
   }) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return;
 
     final id = 'affil_${DateTime.now().millisecondsSinceEpoch}';
@@ -468,7 +463,7 @@ class XmppRoomService with ChangeNotifier {
   }
 
   Future<void> sendXmppSubject(String roomJid, String subject, {String? accountId}) async {
-    final conn = _connections[accountId ?? _activeAccountId];
+    final conn = _sessions.connectionFor(accountId ?? _activeAccountId);
     if (conn == null) return;
 
     final msg = xmpp.MessageStanza(
@@ -501,7 +496,7 @@ class XmppRoomService with ChangeNotifier {
 
   Future<String?> createXmppRoom(String roomJid, String nick, {String? accountId}) async {
     final id = accountId ?? _activeAccountId;
-    final conn = _connections[id];
+    final conn = _sessions.connectionFor(id);
     if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
       return 'XMPP not connected';
     }
@@ -550,7 +545,7 @@ class XmppRoomService with ChangeNotifier {
   Future<xmpp.IqStanza?> fetchRoomConfigForm(String roomJid, {String? accountId}) async {
     final id = accountId ?? _activeAccountId;
     if (id == null) return null;
-    final conn = _connections[id];
+    final conn = _sessions.connectionFor(id);
     if (conn == null) return null;
 
     final iqId = 'mucConfigFetch_${DateTime.now().millisecondsSinceEpoch}';
@@ -579,7 +574,7 @@ class XmppRoomService with ChangeNotifier {
   Future<String?> submitRoomConfigForm(String roomJid, xmpp.XmppElement formElement, {String? accountId}) async {
     final id = accountId ?? _activeAccountId;
     if (id == null) return 'No active account';
-    final conn = _connections[id];
+    final conn = _sessions.connectionFor(id);
     if (conn == null) return 'No connection';
 
     final iqId = 'mucConfigSubmit_${DateTime.now().millisecondsSinceEpoch}';
@@ -624,7 +619,7 @@ class XmppRoomService with ChangeNotifier {
   }) async {
     final id = accountId ?? _activeAccountId;
     if (id == null) return 'No active account';
-    final conn = _connections[id];
+    final conn = _sessions.connectionFor(id);
     if (conn == null) return 'No connection';
 
     final iqId = 'mucConfig_${DateTime.now().millisecondsSinceEpoch}';
@@ -710,7 +705,7 @@ class XmppRoomService with ChangeNotifier {
   }) async {
     final id = accountId ?? _activeAccountId;
     if (id == null) return 'No active account';
-    final conn = _connections[id];
+    final conn = _sessions.connectionFor(id);
     if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
       return 'XMPP not connected';
     }
@@ -765,7 +760,7 @@ class XmppRoomService with ChangeNotifier {
   // XEP-0503: MUC Subscriptions — subscribe to a room without joining
   Future<String?> subscribeToRoom(String roomJid, String nickname, {String? accountId}) async {
     final id = accountId ?? _activeAccountId;
-    final conn = _connections[id];
+    final conn = _sessions.connectionFor(id);
     if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
       return 'XMPP not connected';
     }
@@ -794,7 +789,7 @@ class XmppRoomService with ChangeNotifier {
 
   Future<String?> unsubscribeFromRoom(String roomJid, {String? accountId}) async {
     final id = accountId ?? _activeAccountId;
-    final conn = _connections[id];
+    final conn = _sessions.connectionFor(id);
     if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
       return 'XMPP not connected';
     }
@@ -841,7 +836,7 @@ class XmppRoomService with ChangeNotifier {
     }
 
     for (final acc in accountGroups.keys) {
-      final conn = _connections[acc];
+      final conn = _sessions.connectionFor(acc);
       if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) {
         continue;
       }
@@ -996,7 +991,7 @@ class XmppRoomService with ChangeNotifier {
   // --- XEP-0410: MUC Self-Ping ---
 
   Future<bool> selfPingRoom(String accountId, String roomJid) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return false;
 
     final nick = getNickname(accountId, roomJid.toLowerCase());
@@ -1038,10 +1033,10 @@ class XmppRoomService with ChangeNotifier {
   // --- XEP-0492: Chat Notification Settings ---
 
   Future<ChatNotificationSettings?> getChatNotificationSettings(String accountId, String peerJid) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return null;
 
-    final bareJid = _jids[accountId]?.split('/').first ?? '';
+    final bareJid = _sessions.fullJidFor(accountId)?.split('/').first ?? '';
     if (bareJid.isEmpty) return null;
 
     final iq = xmpp.IqStanza(
@@ -1094,10 +1089,10 @@ class XmppRoomService with ChangeNotifier {
   }
 
   Future<bool> setChatNotificationSettings(String accountId, String peerJid, ChatNotificationSettings settings) async {
-    final conn = _connections[accountId];
+    final conn = _sessions.connectionFor(accountId);
     if (conn == null) return false;
 
-    final bareJid = _jids[accountId]?.split('/').first ?? '';
+    final bareJid = _sessions.fullJidFor(accountId)?.split('/').first ?? '';
     if (bareJid.isEmpty) return false;
 
     final iq = xmpp.IqStanza(
