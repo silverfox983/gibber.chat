@@ -89,6 +89,8 @@ modules_enabled = {
     "vcard";
     "register";
     "admin_adhoc";
+    "admin_socket";  -- the admin shell socket (prosodyctl shell)
+    "admin_shell";
     "blocklist";
     "csi";
     "ping";
@@ -196,7 +198,14 @@ muc_room_default_anonymous = false
 
 -- PubSub (XEP-0060) for general use (blogs, feeds, etc.)
 Component "pubsub.gibberapp.online" "pubsub"
-    modules_enabled = { "disco" }
+    modules_enabled = { "disco", "gibber_seed" }
+    -- Seed starter spaces on fresh servers (safe to re-run: existing nodes are untouched)
+    gibber_domain = "gibberapp.online"
+    gibber_starter_nodes = {
+        { node = "welcome"; title = "Welcome"; description = "Start here: what this server is about and first steps."; },
+        { node = "general"; title = "General"; description = "Everything and anything - say hello!"; },
+        { node = "support"; title = "Support"; description = "Questions, feedback and help."; },
+    }
     -- Map all users on this server to the registered role so the permission below applies
     server_user_role = "prosody:registered"
     -- Allow any registered user on this server to create PubSub nodes

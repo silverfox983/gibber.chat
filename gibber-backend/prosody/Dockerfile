@@ -35,6 +35,8 @@ COPY modules_custom/mod_privilege.lua /usr/lib/prosody/modules/mod_privilege.lua
 # Minimal offline push trigger (the upstream http_push module is no longer
 # packaged in the 13.0 monolith image).
 COPY modules_custom/mod_gibber_push.lua /usr/lib/prosody/modules/mod_gibber_push.lua
+# Starter-space seeding for fresh servers.
+COPY modules_custom/mod_gibber_seed.lua /usr/lib/prosody/modules/mod_gibber_seed.lua
 
 # Gateway components mount the cert volume read-only to trust the prosody
 # TLS endpoint (for file-share uploads); make the directory traversable.
