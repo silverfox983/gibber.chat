@@ -4,6 +4,7 @@ import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/chat_models.dart';
 import '../models/picked_file.dart';
 import 'auth_service_deps.dart';
+import 'database_service.dart';
 import 'jingle_signaling_service.dart';
 import 'xmpp_omemo_service.dart';
 import 'xmpp_message_enhancements.dart';
@@ -40,6 +41,78 @@ class XmppStanzaHandler {
   }
 
   String _extractFileName(String url) => PickedFile.fileNameFromUrl(url);
+
+  SfsFile? _parseSfs(xmpp.XmppElement stanza) {
+    for (final applyTo in stanza.children.where((c) => c.name == 'apply-to')) {
+      final sfs = applyTo.children.firstWhere(
+        (c) => c.name == 'file-sharing' && c.getAttribute('xmlns')?.value == 'urn:xmpp:sfs:0',
+        orElse: () => xmpp.XmppElement()..name = '',
+      );
+      if (sfs.name == 'file-sharing') {
+        return _parseFileSharing(sfs);
+      }
+    }
+    final sfs = stanza.children.firstWhere(
+      (c) => c.name == 'file-sharing' && c.getAttribute('xmlns')?.value == 'urn:xmpp:sfs:0',
+      orElse: () => xmpp.XmppElement()..name = '',
+    );
+    if (sfs.name == 'file-sharing') {
+      return _parseFileSharing(sfs);
+    }
+    return null;
+  }
+
+  SfsFile _parseFileSharing(xmpp.XmppElement sfs) {
+    final fileEl = sfs.children.firstWhere(
+      (c) => c.name == 'file' && c.getAttribute('xmlns')?.value == 'urn:xmpp:file:metadata:0',
+      orElse: () => xmpp.XmppElement()..name = '',
+    );
+    String? name, mimeType, desc;
+    int? size;
+    int? width, height;
+    String? duration;
+    if (fileEl.name == 'file') {
+      name = fileEl.getChild('name')?.textValue;
+      final sizeStr = fileEl.getChild('size')?.textValue;
+      size = sizeStr != null ? int.tryParse(sizeStr) : null;
+      mimeType = fileEl.getChild('media-type')?.textValue;
+      desc = fileEl.getChild('desc')?.textValue;
+      final dims = fileEl.getChild('dimensions')?.textValue;
+      if (dims != null) {
+        final parts = dims.split('x');
+        if (parts.length == 2) {
+          width = int.tryParse(parts[0]);
+          height = int.tryParse(parts[1]);
+        }
+      }
+      duration = fileEl.getChild('duration')?.textValue;
+    }
+
+    final sources = <SfsSource>[];
+    for (final sourcesEl in sfs.children.where((c) => c.name == 'sources')) {
+      for (final ref in sourcesEl.children.where((c) => c.name == 'reference')) {
+        final uri = ref.getAttribute('uri')?.value;
+        if (uri != null) sources.add(SfsSource(url: SfsUrlSource(uri)));
+      }
+      for (final dataCarrier in sourcesEl.children.where((c) => c.name == 'data-carrier')) {
+        final urlEl = dataCarrier.getChild('url');
+        if (urlEl != null) {
+          sources.add(SfsSource(url: SfsUrlSource(urlEl.textValue ?? '')));
+        }
+      }
+    }
+
+    return SfsFile(
+      name: name ?? 'Unknown file',
+      mimeType: mimeType,
+      size: size,
+      description: desc,
+      width: width,
+      height: height,
+      duration: duration,
+      sources: sources,
+    );
+  }
 
   Future<void> handleMessageStanza(
     xmpp.MessageStanza stanza,
@@ -428,6 +501,13 @@ class XmppStanzaHandler {
             ?.value;
         final isRetraction =
             stanza.getChild('apply-to')?.getChild('retract') != null;
+        final moderationEl =
+            stanza.getChild('apply-to')?.getChild('moderate');
+        final isModerated = moderationEl != null &&
+            moderationEl.getAttribute('xmlns')?.value == 'urn:xmpp:message-moderate:1';
+        final moderatedId = isModerated
+            ? stanza.getChild('apply-to')?.getAttribute('id')?.value
+            : null;
 
         if (bareJid.isNotEmpty) {
           finalBody = _d.otrService.processIncomingMessage(bareJid, finalBody);
@@ -451,6 +531,11 @@ class XmppStanzaHandler {
           lat = double.tryParse(geoEl.getChild('lat')?.textValue ?? '');
           lon = double.tryParse(geoEl.getChild('lon')?.textValue ?? '');
           locLabel = geoEl.getChild('label')?.textValue;
+        }
+
+        if (isModerated && moderatedId != null) {
+          DatabaseService().markMessageRetracted(moderatedId);
+          return;
         }
 
         _d.messageStreamController.add(

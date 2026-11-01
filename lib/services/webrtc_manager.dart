@@ -361,7 +361,6 @@ class WebRTCManager {
     }
     _remoteStream = null;
     _remoteDescriptionSet = false;
-    _remoteCandidatesQueue.clear();
     debugPrint('WebRTC: Peer connection disposed');
   }
 
@@ -378,6 +377,7 @@ class WebRTCManager {
 
     // CRITICAL: Dispose and recreate peer connection for fresh state
     await _disposePeerConnection();
+    _remoteCandidatesQueue.clear();
     await _initPeerConnection();
 
     if (_isDisposed || _peerConnection == null) {
@@ -462,8 +462,9 @@ class WebRTCManager {
   }
 
   Future<RTCSessionDescription> createAnswer(
-    RTCSessionDescription offer,
-  ) async {
+    RTCSessionDescription offer, {
+    bool renegotiate = false,
+  }) async {
     if (_isDisposed) throw Exception('WebRTC: Engine Disposed');
 
     debugPrint('WebRTC: === CREATE ANSWER START ===');
@@ -471,53 +472,51 @@ class WebRTCManager {
     _currentIsVideo = offer.sdp?.contains('m=video') ?? false;
     debugPrint('WebRTC: Offer has video: $_currentIsVideo');
 
-    // Save pending candidates that arrived early via trickle ICE before they are wiped
-    final pendingCandidates = List<RTCIceCandidate>.from(_remoteCandidatesQueue);
+    if (!renegotiate) {
+      final pendingCandidates = List<RTCIceCandidate>.from(_remoteCandidatesQueue);
 
-    // CRITICAL: Dispose and recreate peer connection for fresh state.
-    // Note: Remote candidates arriving during this window (between dispose completing
-    // and the new onIceCandidate being attached) are saved to _remoteCandidatesQueue
-    // and restored below, preventing ICE candidates from being lost in that gap.
-    await _disposePeerConnection();
-    await _initPeerConnection();
+      await _disposePeerConnection();
+      _remoteCandidatesQueue.clear();
+      await _initPeerConnection();
 
-    // Restore pending candidates
-    if (pendingCandidates.isNotEmpty) {
-      debugPrint('WebRTC: Restored ${pendingCandidates.length} early remote candidates');
-      _remoteCandidatesQueue.addAll(pendingCandidates);
+      if (pendingCandidates.isNotEmpty) {
+        debugPrint('WebRTC: Restored ${pendingCandidates.length} early remote candidates');
+        _remoteCandidatesQueue.addAll(pendingCandidates);
+      }
     }
 
     if (_isDisposed || _peerConnection == null) {
       throw Exception('WebRTC: Engine Disposed during init');
     }
 
-    // CRITICAL: Set remote description FIRST - this is REQUIRED for createAnswer() to work
-    // Remote candidates that arrive before this are queued and will be added here
-    await setRemoteDescription(offer);
-    debugPrint('WebRTC: Remote description set');
+    if (!renegotiate) {
+      await setRemoteDescription(offer);
+      debugPrint('WebRTC: Remote description set');
 
-    // CRITICAL: Add tracks AFTER setting remote description
-    if (_localStream != null) {
-      debugPrint(
-        'WebRTC: Adding ${_localStream!.getTracks().length} tracks to peer connection',
-      );
-      for (var track in _localStream!.getTracks()) {
-        debugPrint('WebRTC: Adding ${track.kind} track: ${track.id}');
-        await _peerConnection!.addTrack(track, _localStream!);
-      }
-
-      // Log audio track status
-      final audioTracks = _localStream!.getAudioTracks();
-      debugPrint(
-        'WebRTC: Local stream has ${audioTracks.length} audio track(s)',
-      );
-      for (var track in audioTracks) {
+      if (_localStream != null) {
         debugPrint(
-          'WebRTC: Local audio track - id: ${track.id}, enabled: ${track.enabled}',
+          'WebRTC: Adding ${_localStream!.getTracks().length} tracks to peer connection',
         );
+        for (var track in _localStream!.getTracks()) {
+          debugPrint('WebRTC: Adding ${track.kind} track: ${track.id}');
+          await _peerConnection!.addTrack(track, _localStream!);
+        }
+
+        final audioTracks = _localStream!.getAudioTracks();
+        debugPrint(
+          'WebRTC: Local stream has ${audioTracks.length} audio track(s)',
+        );
+        for (var track in audioTracks) {
+          debugPrint(
+            'WebRTC: Local audio track - id: ${track.id}, enabled: ${track.enabled}',
+          );
+        }
+      } else {
+        debugPrint('WebRTC: WARNING - Local stream is null!');
       }
     } else {
-      debugPrint('WebRTC: WARNING - Local stream is null!');
+      await _peerConnection!.setRemoteDescription(offer);
+      debugPrint('WebRTC: Remote description set (renegotiation)');
     }
 
     debugPrint('WebRTC: Creating answer...');
@@ -526,7 +525,6 @@ class WebRTCManager {
       'WebRTC: Answer created, SDP length: ${answer.sdp?.length ?? 0}',
     );
 
-    // Verify audio is in SDP
     if (answer.sdp != null) {
       final hasAudio = answer.sdp!.contains('m=audio');
       final hasVideo = answer.sdp!.contains('m=video');
@@ -534,7 +532,6 @@ class WebRTCManager {
         'WebRTC: Answer SDP contains audio: $hasAudio, video: $hasVideo',
       );
 
-      // Log first 500 chars of SDP for debugging
       debugPrint(
         'WebRTC: Answer SDP preview: ${answer.sdp!.substring(0, answer.sdp!.length > 500 ? 500 : answer.sdp!.length)}',
       );
@@ -544,8 +541,6 @@ class WebRTCManager {
       }
     }
 
-    // CRITICAL: Set local description to complete the answer exchange
-    // This starts ICE gathering for our side
     await _peerConnection!.setLocalDescription(answer);
     debugPrint('WebRTC: Local description set - ICE gathering active');
 

@@ -224,6 +224,9 @@ class XmppMessageService {
       urlEl.textValue = text;
       oobX.addChild(urlEl);
       msg.addChild(oobX);
+
+      final sfs = _buildSfsElement(text, fileName: filePath?.split('/').last);
+      if (sfs != null) msg.addChild(sfs);
     }
 
     conn.writeStanza(msg);
@@ -822,5 +825,81 @@ class XmppMessageService {
         filePath: original.filePath,
       );
     }
+  }
+
+  xmpp.XmppElement? _buildSfsElement(String url, {String? fileName, String? mimeType, int? fileSize}) {
+    final sfs = xmpp.XmppElement();
+    sfs.name = 'file-sharing';
+    sfs.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:sfs:0'));
+
+    final file = xmpp.XmppElement();
+    file.name = 'file';
+    file.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:file:metadata:0'));
+
+    if (fileName != null && fileName.isNotEmpty) {
+      final name = xmpp.XmppElement()..name = 'name'..textValue = fileName;
+      file.addChild(name);
+    }
+    if (fileSize != null) {
+      final size = xmpp.XmppElement()..name = 'size'..textValue = fileSize.toString();
+      file.addChild(size);
+    }
+    if (mimeType != null) {
+      final mt = xmpp.XmppElement()..name = 'media-type'..textValue = mimeType;
+      file.addChild(mt);
+    }
+    sfs.addChild(file);
+
+    final sources = xmpp.XmppElement();
+    sources.name = 'sources';
+    final ref = xmpp.XmppElement();
+    ref.name = 'reference';
+    ref.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:reference:0'));
+    ref.addAttribute(xmpp.XmppAttribute('uri', url));
+    ref.addAttribute(xmpp.XmppAttribute('type', 'data'));
+    sources.addChild(ref);
+    sfs.addChild(sources);
+
+    return sfs;
+  }
+
+  Future<void> moderateXmppMessage(
+    String roomJid,
+    String messageStanzaId, {
+    String? accountId,
+    String? reason,
+  }) async {
+    final id = accountId ?? _d.activeAccountId;
+    final conn = _d.xmppConnections[id];
+    if (conn == null) return;
+
+    final iq = xmpp.IqStanza(
+      'moderate_${DateTime.now().millisecondsSinceEpoch}',
+      xmpp.IqStanzaType.SET,
+    );
+    iq.toJid = xmpp.Jid.fromFullJid(roomJid.split('/').first);
+
+    final moderate = xmpp.XmppElement();
+    moderate.name = 'moderate';
+    moderate.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:message-moderate:1'));
+    moderate.addAttribute(xmpp.XmppAttribute('id', messageStanzaId));
+
+    if (reason != null && reason.isNotEmpty) {
+      final reasonEl = xmpp.XmppElement();
+      reasonEl.name = 'reason';
+      reasonEl.textValue = reason;
+      moderate.addChild(reasonEl);
+    }
+
+    final applyTo = xmpp.XmppElement();
+    applyTo.name = 'apply-to';
+    applyTo.addAttribute(xmpp.XmppAttribute('xmlns', 'urn:xmpp:fasten:0'));
+    applyTo.addAttribute(xmpp.XmppAttribute('id', messageStanzaId));
+    applyTo.addChild(moderate);
+
+    iq.addChild(applyTo);
+
+    conn.writeStanza(iq);
+    debugPrint('XMPP: Moderated message $messageStanzaId in $roomJid');
   }
 }

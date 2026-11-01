@@ -224,21 +224,6 @@ class ChatMessage {
         ),
       );
     }
-    if (raw is String && raw.isNotEmpty) {
-      try {
-        // Stored as JSON string in DB.
-        final dynamic decoded = _jsonDecode(raw);
-        if (decoded is Map<String, dynamic>) {
-          return _dedupeReactionMap(
-            decoded.map(
-              (key, value) => MapEntry(key, List<String>.from(value as List)),
-            ),
-          );
-        }
-      } catch (_) {
-        return {};
-      }
-    }
     return {};
   }
 
@@ -260,7 +245,6 @@ class ChatMessage {
   }
 
   static dynamic _jsonDecode(String value) {
-    // Avoid top-level dart:convert import churn in this shared model file.
     return const _ChatJsonCodec().decode(value);
   }
 
@@ -312,6 +296,57 @@ class _ChatJsonCodec {
   dynamic decode(String value) {
     return json.jsonDecode(value);
   }
+}
+
+class SfsUrlSource {
+  final String url;
+  SfsUrlSource(this.url);
+}
+
+class SfsSource {
+  final SfsUrlSource url;
+  SfsSource({required this.url});
+}
+
+class SfsFile {
+  final String name;
+  final String? mimeType;
+  final int? size;
+  final String? description;
+  final int? width;
+  final int? height;
+  final String? duration;
+  final List<SfsSource> sources;
+
+  SfsFile({
+    required this.name,
+    this.mimeType,
+    this.size,
+    this.description,
+    this.width,
+    this.height,
+    this.duration,
+    this.sources = const [],
+  });
+
+  String? get bestUrl => sources.isNotEmpty ? sources.first.url.url : null;
+  bool get isImage => mimeType?.startsWith('image/') ?? false;
+  bool get isVideo => mimeType?.startsWith('video/') ?? false;
+  bool get isAudio => mimeType?.startsWith('audio/') ?? false;
+}
+
+class Hat {
+  final String title;
+  final String? uri;
+
+  Hat({required this.title, this.uri});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is Hat && title == other.title && uri == other.uri;
+
+  @override
+  int get hashCode => title.hashCode ^ (uri?.hashCode ?? 0);
 }
 
 class Conversation {
@@ -387,6 +422,7 @@ class RoomParticipant {
   final String? role;
   final ContactStatus presenceStatus;
   final String? presenceMessage;
+  final List<Hat> hats;
 
   RoomParticipant({
     required this.nickname,
@@ -395,6 +431,7 @@ class RoomParticipant {
     this.role,
     this.presenceStatus = ContactStatus.offline,
     this.presenceMessage,
+    this.hats = const [],
   });
 
   @override

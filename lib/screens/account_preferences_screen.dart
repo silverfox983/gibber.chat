@@ -145,6 +145,29 @@ class _AccountPreferencesScreenState extends State<AccountPreferencesScreen> {
                 child: _PushNotificationTile(authService: authService),
               ),
               const SizedBox(height: 32),
+              Text('ADVANCED', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
+              const SizedBox(height: 16),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Theme.of(context).colorScheme.outline),
+                ),
+                child: Column(
+                  children: [
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      leading: Icon(Icons.terminal_rounded, color: Theme.of(context).colorScheme.primary, size: 28),
+                      title: const Text('Server Commands', style: TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: const Text('Execute Ad-Hoc commands (XEP-0050)'),
+                      onTap: () {
+                        context.goNamed('adhocCommands');
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
               Text('APPEARANCE & SOUNDS', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 1.2)),
               const SizedBox(height: 16),
               Container(

@@ -748,6 +748,16 @@ class DatabaseService {
     );
   }
 
+  Future<void> markMessageRetracted(String id) async {
+    final db = await database;
+    await db.update(
+      'messages',
+      {'text': 'Message moderated', 'is_retracted': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<void> clearConversationMessages(String conversationId) async {
     final db = await database;
     await db.delete(

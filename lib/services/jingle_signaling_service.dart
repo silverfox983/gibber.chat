@@ -667,6 +667,28 @@ class JingleSignalingService {
     Map<String, dynamic> candidateMap, {
     bool isVideo = true,
   }) {
+    final candidate = candidateMap['candidate'];
+    if (candidate is String && candidate.startsWith('candidate:')) {
+      final parts = candidate.split(' ');
+      if (parts.length >= 3) {
+        final component = parts[1];
+        final protocol = parts[2].toLowerCase();
+        if (component != '1' || protocol != 'udp') {
+          debugPrint(
+            'Jingle: [XEP-0353] Skipping non-RTP/non-UDP candidate: $candidate',
+          );
+          return;
+        }
+      }
+    }
+
+    if (!_addCandidateAttributesCheck(candidate)) {
+      debugPrint(
+        'Jingle: [XEP-0353] Discarding invalid/loopback candidate: $candidate',
+      );
+      return;
+    }
+
     final message = xmpp.MessageStanza(
       DateTime.now().millisecondsSinceEpoch.toString(),
       xmpp.MessageStanzaType.CHAT,
@@ -699,16 +721,28 @@ class JingleSignalingService {
       XmppAttribute('xmlns', 'urn:xmpp:jingle:transports:ice-udp:1'),
     );
 
-    final candidate = xmpp.XmppElement();
-    candidate.name = 'candidate';
-    candidate.addAttribute(XmppAttribute('id', mid));
-    candidate.addAttribute(
+    final credentials = _sessionCredentials[sessionId];
+    if (credentials != null) {
+      final sessionUfrag = credentials['ufrag'];
+      final sessionPwd = credentials['pwd'];
+      if (sessionUfrag != null) {
+        transport.addAttribute(XmppAttribute('ufrag', sessionUfrag));
+      }
+      if (sessionPwd != null) {
+        transport.addAttribute(XmppAttribute('pwd', sessionPwd));
+      }
+    }
+
+    final candidateEl = xmpp.XmppElement();
+    candidateEl.name = 'candidate';
+    candidateEl.addAttribute(XmppAttribute('id', mid));
+    candidateEl.addAttribute(
       XmppAttribute('label', '${candidateMap['sdpMLineIndex'] ?? 0}'),
     );
 
-    _addCandidateAttributes(candidate, candidateMap['candidate']);
+    _addCandidateAttributes(candidateEl, candidateMap['candidate']);
 
-    transport.addChild(candidate);
+    transport.addChild(candidateEl);
     content.addChild(transport);
     jingle.addChild(content);
     message.addChild(jingle);
@@ -969,8 +1003,11 @@ class JingleSignalingService {
     Map<String, dynamic> candidateMap, {
     bool isVideo = true,
   }) {
-    // HARDENING: If session is not in our content map yet (e.g. candidates generated before session-initiate),
-    // or not acknowledged, queue the candidate for flushing.
+    if (_messageInitiatedSessions.contains(sessionId)) {
+      sendTransportInfoViaMessage(toJid, sessionId, candidateMap, isVideo: isVideo);
+      return;
+    }
+
     if (!_sessionContentMap.containsKey(sessionId) ||
         !_acknowledgedSessions.contains(sessionId)) {
       debugPrint(
@@ -1937,17 +1974,11 @@ class JingleSignalingService {
         transport.addChild(setupEl);
       }
 
-      int candCount = 0;
       for (var rawCand in rawCandidates) {
-        // HARD LIMIT: Send up to 5 candidates in initial session-accept/initiate.
-        // This usually includes host, srflx and relay.
-        if (candCount >= 5) break;
-
         final candEl = xmpp.XmppElement();
         candEl.name = 'candidate';
         if (_addCandidateAttributes(candEl, rawCand)) {
           transport.addChild(candEl);
-          candCount++;
         } else {
           debugPrint('Jingle: Skipping loopback/invalid candidate: $rawCand');
         }
@@ -2103,6 +2134,23 @@ class JingleSignalingService {
           }
         }
       }
+    }
+  }
+
+  bool _addCandidateAttributesCheck(String rawCandidate) {
+    try {
+      final s = rawCandidate.replaceFirst('candidate:', '').trim();
+      final parts = s.split(RegExp(r'\s+'));
+      if (parts.length >= 7) {
+        final ip = parts[4];
+        if (ip == '127.0.0.1' || ip == '::1' || ip == '0.0.0.0') {
+          return false;
+        }
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
     }
   }
 

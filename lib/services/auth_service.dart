@@ -530,6 +530,13 @@ class AuthService with ChangeNotifier {
   JingleSignalingService? getJingleService(String accountId) =>
       _jingleServices[accountId];
 
+  XmppServerInfoService? getServerInfoService(String accountId) {
+    if (_xmppConnections.containsKey(accountId)) {
+      return _serverInfoService;
+    }
+    return null;
+  }
+
   void setJingleProceedCallback(
     Function(String sessionId, String sdp, String toJid)? callback,
   ) {
@@ -944,11 +951,26 @@ class AuthService with ChangeNotifier {
                   final role = item?.getAttribute('role')?.value;
                   final realJid = item?.getAttribute('jid')?.value;
 
+                  final hats = <Hat>[];
+                  final statusCodes = mucUser.children
+                      .where((c) => c.name == 'status')
+                      .map((c) => c.getAttribute('code')?.value)
+                      .toList();
+
+                  for (final hatEl in stanza.children.where((c) => c.name == 'hat' && c.getAttribute('xmlns')?.value == 'urn:xmpp:hats:0')) {
+                    final title = hatEl.getAttribute('title')?.value ?? '';
+                    final uri = hatEl.getAttribute('uri')?.value;
+                    if (title.isNotEmpty) {
+                      hats.add(Hat(title: title, uri: uri));
+                    }
+                  }
+
                   final participant = RoomParticipant(
                     nickname: nick,
                     affiliation: affiliation,
                     role: role,
                     realJid: realJid,
+                    hats: hats,
                   );
 
                   if (isUnavailable) {

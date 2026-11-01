@@ -42,6 +42,7 @@ import '../screens/new_message_screen.dart';
 import '../screens/appearance_settings_screen.dart';
 import '../screens/register_screen.dart';
 import '../screens/nexus_search_screen.dart';
+import '../screens/adhoc_commands_screen.dart';
 
 CustomTransitionPage<void> _fadePage({
   required GoRouterState state,
@@ -362,6 +363,16 @@ GoRouter createAppRouter({
                   final args = state.extra as Map<String, dynamic>;
                   return _fadePage(state: state, child: ChatSettingsScreen(
                     conversation: args['conversation'] as Conversation,
+                  ));
+                },
+              ),
+              GoRoute(
+                path: 'adhoc-commands',
+                name: 'adhocCommands',
+                pageBuilder: (context, state) {
+                  final args = state.extra as Map<String, dynamic>?;
+                  return _fadePage(state: state, child: AdHocCommandsScreen(
+                    initialTargetJid: args?['targetJid'] as String?,
                   ));
                 },
               ),

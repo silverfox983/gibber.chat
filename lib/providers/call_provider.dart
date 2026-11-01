@@ -932,7 +932,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
         break;
       case JingleAction.sessionInitiate:
         if (event.sdp != null) {
-          if (_sessionId == event.sessionId && _state != CallState.idle) {
+          if (_sessionId == event.sessionId && _state == CallState.active) {
             debugPrint('CallProvider: Session ${event.sessionId} already active, updating remote SDP');
             if (_isGroupCall && _multiPeerManager != null) {
               _multiPeerManager!.setRemoteDescription(
@@ -942,7 +942,11 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
             } else {
               handleRemoteSdp(event.sdp!, 'offer');
             }
-          } else {
+          } else if (_sessionId == event.sessionId && _state == CallState.incoming && _isAccepted) {
+            debugPrint('CallProvider: Session-initiate arrived after proposal accepted, processing offer');
+            _incomingOfferSdp = event.sdp;
+            acceptCall();
+          } else if (_sessionId != event.sessionId || _state == CallState.idle) {
             final wasAccepted = _isAccepted;
             receiveCall(
               event.fromJid,
@@ -1550,7 +1554,6 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       }
       debugPrint('CallProvider: Session initiate dispatched via ${isGateway ? "IQ" : "MESSAGE"}');
 
-      _state = CallState.outgoing;
       _startOutgoingCountdown();
       _startCallTimeoutTimer();
       notifyListeners();
@@ -1611,6 +1614,14 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       _isAccepted = true;
       _stopAllSounds();
       signaling.sendProceed(_remoteJid!, _sessionId!);
+      _callTimeoutTimer?.cancel();
+      _callTimeoutTimer = Timer(const Duration(seconds: 30), () {
+        if (_state == CallState.incoming && _isAccepted && !_remoteAnswerProcessed) {
+          debugPrint('CallProvider: Session-initiate timeout after proceed');
+          _lastError = 'Remote party did not send call offer in time';
+          endCall();
+        }
+      });
       _isAccepting = false;
       notifyListeners();
       return;
@@ -1829,7 +1840,7 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           isVideo: _isVideo,
         );
       } else {
-        signaling.sendIceCandidate(
+        signaling.sendTransportInfoViaMessage(
           toJid,
           _sessionId!,
           candidate.toMap(),
@@ -2057,18 +2068,9 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
       );
       debugPrint('CallProvider: Remote answer applied successfully');
 
-      // NOTE: Do NOT call restartIceGathering() here
-      // ICE should automatically start checking once both descriptions are set
-      // The peer connection will form candidate pairs and begin connectivity checks
-
-      // Set a timeout - but only fail if we don't have media
-      // Some gateways (like cheogram) don't provide TURN candidates, so ICE may never connect
-      // but media can still flow through the gateway's SIP infrastructure
       debugPrint('CallProvider: Starting media timeout (20 seconds)...');
       _callTimeoutTimer?.cancel();
       _callTimeoutTimer = Timer(const Duration(seconds: 20), () {
-        // Only fail if call is NOT active (no media received)
-        // If we have a remote track, the call is active regardless of ICE state
         if (_state != CallState.active) {
           debugPrint('CallProvider: Media timeout - no remote track received');
           _lastError = 'Connection timeout - no media received';
@@ -2077,6 +2079,38 @@ class CallProvider with ChangeNotifier, WidgetsBindingObserver {
           debugPrint('CallProvider: Call active despite ICE state: $_iceState');
         }
       });
+    } else if (type == 'offer') {
+      debugPrint('CallProvider: Setting remote offer (renegotiation), state: $_state');
+      try {
+        if (_state == CallState.active) {
+          await _rtcManager.setRemoteDescription(
+            RTCSessionDescription(sdp, 'offer'),
+          );
+          final answer = await _rtcManager.createAnswer(
+            RTCSessionDescription(sdp, 'offer'),
+            renegotiate: true,
+          );
+          final signaling =
+              _authService?.getJingleService(_callAccountId ?? '') ??
+              _authService?.jingleSignaling;
+          if (signaling != null && _remoteJid != null && _sessionId != null) {
+            final isGateway = _isPstnGatewayJid(_remoteJid!);
+            if (isGateway) {
+              signaling.sendSessionAccept(
+                _remoteJid!, _sessionId!, answer.sdp!, isVideo: _isVideo,
+              );
+            } else {
+              signaling.sendSessionAcceptViaMessage(
+                _remoteJid!, _sessionId!, answer.sdp!, isVideo: _isVideo,
+              );
+            }
+          }
+        } else {
+          debugPrint('CallProvider: Ignoring renegotiation offer in non-active state $_state');
+        }
+      } catch (e) {
+        debugPrint('CallProvider: Renegotiation offer handling failed: $e');
+      }
     }
   }
 

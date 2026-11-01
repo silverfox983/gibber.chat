@@ -1440,4 +1440,16 @@ class ChatProvider with ChangeNotifier {
       notifyListeners();
     }
   }
+
+  void markMessageRetracted(String messageId) {
+    for (final conv in _conversations) {
+      final idx = conv.messages.indexWhere((m) => m.id == messageId);
+      if (idx != -1) {
+        conv.messages[idx].text = 'Message moderated';
+        conv.messages[idx].isRetracted = true;
+        notifyListeners();
+        return;
+      }
+    }
+  }
 }
