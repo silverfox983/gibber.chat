@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xmpp_stone/xmpp_stone.dart' as xmpp;
 import '../models/chat_models.dart';
+import 'iq_request_manager.dart';
 
 class XmppRoomService with ChangeNotifier {
   final Map<String, xmpp.Connection> _connections;
@@ -32,7 +33,7 @@ class XmppRoomService with ChangeNotifier {
 
   final Map<String, Completer<List<Map<String, String>>>> _discoveryCompleters = {};
   final Map<String, Completer<Map<String, dynamic>>> _roomInfoCompleters = {};
-  final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
+  final IqRequestManager _iqReqs = IqRequestManager();
 
   XmppRoomService(this._connections, this._jids);
 
@@ -319,7 +320,7 @@ class XmppRoomService with ChangeNotifier {
     iq.addChild(query);
 
     final completer = Completer<xmpp.IqStanza>();
-    _pendingIqs[id] = completer;
+    _iqReqs.register(id, completer);
     conn.writeStanza(iq);
 
     try {
@@ -346,7 +347,7 @@ class XmppRoomService with ChangeNotifier {
     } catch (e) {
       return null;
     } finally {
-      _pendingIqs.remove(id);
+      _iqReqs.forget(id);
     }
   }
 
@@ -369,7 +370,7 @@ class XmppRoomService with ChangeNotifier {
     iq.addChild(query);
 
     final completer = Completer<xmpp.IqStanza>();
-    _pendingIqs[id] = completer;
+    _iqReqs.register(id, completer);
     conn.writeStanza(iq);
 
     try {
@@ -390,7 +391,7 @@ class XmppRoomService with ChangeNotifier {
     } catch (e) {
       return [];
     } finally {
-      _pendingIqs.remove(id);
+      _iqReqs.forget(id);
     }
   }
 
@@ -561,15 +562,15 @@ class XmppRoomService with ChangeNotifier {
     iq.addChild(query);
 
     final completer = Completer<xmpp.IqStanza>();
-    _pendingIqs[iqId] = completer;
+    _iqReqs.register(iqId, completer);
     conn.writeStanza(iq);
 
     try {
       final response = await completer.future.timeout(const Duration(seconds: 10));
-      _pendingIqs.remove(iqId);
+      _iqReqs.forget(iqId);
       return response;
     } catch (e) {
-      _pendingIqs.remove(iqId);
+      _iqReqs.forget(iqId);
       debugPrint('Failed to fetch room config form: $e');
       return null;
     }
@@ -591,7 +592,7 @@ class XmppRoomService with ChangeNotifier {
     iq.addChild(query);
 
     final completer = Completer<xmpp.IqStanza>();
-    _pendingIqs[iqId] = completer;
+    _iqReqs.register(iqId, completer);
     conn.writeStanza(iq);
 
     try {
@@ -605,7 +606,7 @@ class XmppRoomService with ChangeNotifier {
       debugPrint('Room configuration error: $e');
       return e.toString();
     } finally {
-      _pendingIqs.remove(iqId);
+      _iqReqs.forget(iqId);
     }
   }
 
@@ -672,7 +673,7 @@ class XmppRoomService with ChangeNotifier {
     iq.addChild(query);
 
     final completer = Completer<xmpp.IqStanza>();
-    _pendingIqs[iqId] = completer;
+    _iqReqs.register(iqId, completer);
     conn.writeStanza(iq);
 
     try {
@@ -686,7 +687,7 @@ class XmppRoomService with ChangeNotifier {
       debugPrint('Room configuration error: $e');
       return e.toString();
     } finally {
-      _pendingIqs.remove(iqId);
+      _iqReqs.forget(iqId);
     }
   }
 
@@ -966,7 +967,7 @@ class XmppRoomService with ChangeNotifier {
 
   Map<String, Completer<List<Map<String, String>>>> get discoveryCompleters => _discoveryCompleters;
   Map<String, Completer<Map<String, dynamic>>> get roomInfoCompleters => _roomInfoCompleters;
-  Map<String, Completer<xmpp.IqStanza>> get pendingIqs => _pendingIqs;
+  IqRequestManager get pendingIqs => _iqReqs;
 
   // --- Group invite emission ---
 
@@ -1060,7 +1061,7 @@ class XmppRoomService with ChangeNotifier {
 
     try {
       final completer = Completer<xmpp.IqStanza>();
-      _pendingIqs[iq.id ?? ''] = completer;
+      _iqReqs.register(iq.id ?? '', completer);
       conn.writeStanza(iq);
       final res = await completer.future.timeout(const Duration(seconds: 10));
 
@@ -1134,7 +1135,7 @@ class XmppRoomService with ChangeNotifier {
 
     try {
       final completer = Completer<xmpp.IqStanza>();
-      _pendingIqs[iq.id ?? ''] = completer;
+      _iqReqs.register(iq.id ?? '', completer);
       conn.writeStanza(iq);
       final res = await completer.future.timeout(const Duration(seconds: 10));
       return res.type != xmpp.IqStanzaType.ERROR;

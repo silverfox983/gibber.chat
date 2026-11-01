@@ -37,6 +37,7 @@ import './pubsub_interaction_service.dart';
 import './xmpp_room_enhancements_service.dart';
 import './xmpp_server_info_service.dart';
 import './xmpp_sticker_service.dart';
+import './iq_request_manager.dart';
 
 enum ConnectionProtocol { xmpp, none }
 
@@ -206,7 +207,7 @@ class AuthService with ChangeNotifier {
   final Map<String, Completer<List<Map<String, String>>>> _discoveryCompleters =
       {};
   final Map<String, Completer<Map<String, dynamic>>> _roomInfoCompleters = {};
-  final Map<String, Completer<xmpp.IqStanza>> _pendingIqs = {};
+  final IqRequestManager _iqReqs = IqRequestManager();
   final Map<String, XmppProxyService> _xmppProxies = {};
   final Map<String, StreamSubscription> _xmppMessageSubs = {};
   final Map<String, StreamSubscription> _xmppStanzaSubs = {};
@@ -1053,13 +1054,9 @@ class AuthService with ChangeNotifier {
             if (stanza is xmpp.IqStanza) {
               final fromJidStr = stanza.fromJid?.fullJid;
 
-              if (stanza.id != null && (_pendingIqs.containsKey(stanza.id) || _roomService.pendingIqs.containsKey(stanza.id))) {
-                if (_pendingIqs.containsKey(stanza.id)) {
-                  _pendingIqs[stanza.id!]!.complete(stanza);
-                  _pendingIqs.remove(stanza.id);
-                } else {
-                  _roomService.pendingIqs[stanza.id!]!.complete(stanza);
-                  _roomService.pendingIqs.remove(stanza.id);
+              if (stanza.id != null && stanza is xmpp.IqStanza) {
+                if (!_iqReqs.complete(stanza.id, stanza)) {
+                  _roomService.pendingIqs.complete(stanza.id, stanza);
                 }
               }
 
