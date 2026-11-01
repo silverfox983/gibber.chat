@@ -2,8 +2,15 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/theme_provider.dart';
+import '../services/popular_room.dart';
+import '../services/popular_rooms_service.dart';
+import '../services/xep_0392_service.dart';
 import 'package:provider/provider.dart';
+
+/// Section anchor so nav links can target the rooms list.
+const String kTrendingRoomsHeader = 'trending-rooms';
 
 class LandingScreen extends StatefulWidget {
   const LandingScreen({super.key});
@@ -18,6 +25,10 @@ class _LandingScreenState extends State<LandingScreen>
   late AnimationController _pulseController;
   late AnimationController _fadeController;
   final ScrollController _scrollController = ScrollController();
+  final PopularRoomsService _popularRooms = PopularRoomsService();
+  String? _selectedNetwork;
+  List<PopularRoom> _rooms = const <PopularRoom>[];
+  bool _roomsLoaded = false;
 
   @override
   void initState() {
@@ -34,6 +45,14 @@ class _LandingScreenState extends State<LandingScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     )..forward();
+    _popularRooms.load().then((rooms) {
+      if (mounted) {
+        setState(() {
+          _rooms = rooms;
+          _roomsLoaded = true;
+        });
+      }
+    });
   }
 
   @override
@@ -63,6 +82,7 @@ class _LandingScreenState extends State<LandingScreen>
               slivers: [
                 SliverToBoxAdapter(child: _buildNavBar(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildHero(isDark, isMobile)),
+                SliverToBoxAdapter(child: _buildTrendingRooms(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildFeatures(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildHowItWorks(isDark, isMobile)),
                 SliverToBoxAdapter(child: _buildTiers(isDark, isMobile)),
@@ -105,10 +125,11 @@ class _LandingScreenState extends State<LandingScreen>
           ),
           const Spacer(),
           if (!isMobile) ...[
-            _navLink('Features', 700),
-            _navLink('Tiers', 1400),
-            _navLink('Support', 2100),
-            _navLink('Security', 2800),
+            _navLink('Rooms', 700, sectionKey: _roomsSectionKey),
+            _navLink('Features', 1200),
+            _navLink('Tiers', 1800),
+            _navLink('Support', 2400),
+            _navLink('Security', 3000),
           ],
           const SizedBox(width: 16),
           Consumer<ThemeProvider>(
@@ -133,15 +154,26 @@ class _LandingScreenState extends State<LandingScreen>
     );
   }
 
-  Widget _navLink(String label, double scrollOffset) {
+  Widget _navLink(String label, double scrollOffset, {GlobalKey? sectionKey}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: InkWell(
-        onTap: () => _scrollController.animateTo(
-          scrollOffset,
-          duration: const Duration(milliseconds: 600),
-          curve: Curves.easeInOutCubic,
-        ),
+        onTap: () {
+          final ctx = sectionKey?.currentContext;
+          if (ctx != null) {
+            Scrollable.ensureVisible(
+              ctx,
+              duration: const Duration(milliseconds: 600),
+              curve: Curves.easeInOutCubic,
+            );
+          } else {
+            _scrollController.animateTo(
+              scrollOffset,
+              duration: const Duration(milliseconds: 600),
+              curve: Curves.easeInOutCubic,
+            );
+          }
+        },
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -384,6 +416,399 @@ class _LandingScreenState extends State<LandingScreen>
         decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(14)),
         child: Text(text, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : const Color(0xFF374151))),
       ),
+    );
+  }
+
+  Widget _buildTrendingRooms(bool isDark, bool isMobile) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final onSurfaceVariant = Theme.of(context).colorScheme.onSurfaceVariant;
+
+    List<PopularRoom> rooms = _rooms;
+    if (_selectedNetwork != null) {
+      rooms =
+          rooms.where((r) => r.network == _selectedNetwork).toList();
+    }
+    final networks = _networksByActivity();
+    final totalUsers =
+        _rooms.fold<int>(0, (sum, r) => sum + r.users);
+
+    return Container(
+      key: _roomsSectionKey,
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 20 : 64,
+        vertical: isMobile ? 40 : 64,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.local_fire_department_rounded,
+                    color: primary, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Trending Rooms Right Now',
+                      style: TextStyle(
+                        fontSize: isMobile ? 24 : 32,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.8,
+                        color: onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'The most active public IRC rooms, live from netsplit.de. '
+                      '${_rooms.isNotEmpty ? '$totalUsers people chatting right now.' : ''}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: onSurfaceVariant,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => _openNetsplit(),
+                icon: const Icon(Icons.open_in_new_rounded, size: 14),
+                label: const Text('netsplit.de'),
+                style: TextButton.styleFrom(
+                  foregroundColor: onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          if (!_roomsLoaded)
+            _buildRoomsSkeleton(isMobile)
+          else ...[
+            SizedBox(
+              height: 40,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: networks.length + 1,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final isFirst = index == 0;
+                  final network = isFirst ? null : networks[index - 1];
+                  final selected = isFirst
+                      ? _selectedNetwork == null
+                      : _selectedNetwork == network;
+                  return _networkChip(
+                    label: network ?? 'All',
+                    users: isFirst
+                        ? _rooms.fold<int>(0, (s, r) => s + r.users)
+                        : _rooms
+                            .where((r) => r.network == network)
+                            .fold<int>(0, (s, r) => s + r.users),
+                    selected: selected,
+                    onTap: () => setState(() => _selectedNetwork = network),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 18),
+            GridView.count(
+              crossAxisCount: isMobile ? 1 : (rooms.length >= 4 ? 3 : 2),
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 14,
+              crossAxisSpacing: 14,
+              childAspectRatio: isMobile ? 2.6 : 1.15,
+              children: rooms.take(24).map((room) => _roomCard(room, isDark)).toList(),
+            ),
+            const SizedBox(height: 20),
+            Center(
+              child: _ctaButton(
+                'Join the Conversation \u2192',
+                isDark: isDark,
+                onTap: () => _joinChat(),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  final GlobalKey _roomsSectionKey = GlobalKey();
+
+  List<String> _networksByActivity() {
+    final counts = <String, int>{};
+    for (final r in _rooms) {
+      counts[r.network] = (counts[r.network] ?? 0) + r.users;
+    }
+    final entries = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return entries.map((e) => e.key).toList();
+  }
+
+  void _openNetsplit() {
+    launchUrl(
+      Uri.parse(PopularRoomsService.netsplitPopularUrl),
+      mode: LaunchMode.externalApplication,
+    );
+  }
+
+  void _joinChat() => context.go('/register');
+
+  Widget _networkChip({
+    required String label,
+    required int users,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final color = Xep0392Service.generateColor(label);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? primary.withValues(alpha: 0.9)
+              : color.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? primary : color.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.tag_rounded,
+                size: 14, color: selected ? Colors.white : color),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: selected ? Colors.white : color,
+              ),
+            ),
+            if (users > 0) ...[
+              const SizedBox(width: 6),
+              Text(
+                '${users >= 1000 ? '${(users / 1000).toStringAsFixed(users % 1000 >= 50 ? 1 : 0)}k' : users}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: selected
+                      ? Colors.white70
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _roomCard(PopularRoom room, bool isDark) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final onSurfaceVariant = Theme.of(context).colorScheme.onSurfaceVariant;
+    final networkColor = Xep0392Service.generateColor(room.network);
+
+    return InkWell(
+      onTap: () => _joinChat(),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow.withValues(alpha: 0.7),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: networkColor.withValues(alpha: 0.25),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: networkColor.withValues(alpha: 0.2),
+                  child: Text(
+                    room.displayName.length > 1
+                        ? room.displayName.substring(0, 1).toUpperCase()
+                        : '#',
+                    style: TextStyle(
+                      color: networkColor,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        room.channel,
+                        style: TextStyle(
+                          color: onSurface,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        room.network,
+                        style: TextStyle(
+                          color: networkColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.green.withValues(alpha: 0.5),
+                                blurRadius: 6,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          '${room.users}',
+                          style: TextStyle(
+                            color: onSurface,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      'online',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (room.topic != null) ...[
+              const SizedBox(height: 10),
+              Expanded(
+                child: Text(
+                  room.topic!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.45,
+                    color: onSurfaceVariant,
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (room.category != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: primary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      room.category!,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: primary,
+                      ),
+                    ),
+                  ),
+                const Spacer(),
+                Icon(Icons.arrow_forward_rounded,
+                    size: 16, color: onSurfaceVariant),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoomsSkeleton(bool isMobile) {
+    final color = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05);
+    final primary = Theme.of(context).colorScheme.primary;
+    return Column(
+      children: [
+        Row(
+          children: List.generate(
+            3,
+            (_) => Container(
+              width: 90,
+              height: 36,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        GridView.count(
+          crossAxisCount: isMobile ? 1 : 3,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 14,
+          crossAxisSpacing: 14,
+          childAspectRatio: isMobile ? 2.6 : 1.15,
+          children: List.generate(
+            6,
+            (_) => Container(
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: primary.withValues(alpha: 0.08)),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

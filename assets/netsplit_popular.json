@@ -1,0 +1,31 @@
+{
+  "source": "https://netsplit.de/channels/popular.php",
+  "capturedAt": "2026-11-01",
+  "note": "Point-in-time snapshot of the most active public IRC rooms. Fake spambot-filler channels excluded; live refresh attempted in-app when possible.",
+  "rooms": [
+    {"channel": "#linux", "network": "Libera.Chat", "users": 2350, "category": "Linux", "topic": "Welcome to #linux! Community support and discussion for everyone."},
+    {"channel": "#KualaLumpur", "network": "SkyChatz", "users": 2419, "category": "Local", "topic": "Welcome to #KualaLumpur @ SkyChatz.Org - Respect operators & users - Enjoy your stay!"},
+    {"channel": "#archlinux", "network": "Libera.Chat", "users": 1602, "category": "Arch Linux", "topic": "Welcome to Arch Linux - upstream news, support and community chat."},
+    {"channel": "#libera", "network": "Libera.Chat", "users": 1572, "category": "Support", "topic": "Libera.Chat support channel - guides for finding channels and getting help."},
+    {"channel": "#chat", "network": "CyberIRC", "users": 1520, "category": "Chat", "topic": "General social chat - meet people from around the world."},
+    {"channel": "#accueil", "network": "Chaat", "users": 1500, "category": "Chat (FR)", "topic": "Salon de discussion francophone - bienvenue a tous."},
+    {"channel": "#python", "network": "Libera.Chat", "users": 1331, "category": "Python", "topic": "Anything Python is on-topic - questions, help and community."},
+    {"channel": "#polska", "network": "IRCnet", "users": 1265, "category": "Poland", "topic": "Polish community chat - daily news and friendly discussion."},
+    {"channel": "#pcgames", "network": "SkyChatz", "users": 1201, "category": "Games", "topic": "PC gaming chat - find teammates and talk games."},
+    {"channel": "#kde", "network": "Libera.Chat", "users": 1199, "category": "KDE", "topic": "KDE Plasma support and development - state your distribution and Plasma version."},
+    {"channel": "#Chat", "network": "EfesNet", "users": 1773, "category": "Chat", "topic": "Welcome to the Efes.net family - the address for quality and enjoyable chats."},
+    {"channel": "#TalkIRC", "network": "EfesNet", "users": 3568, "category": "IRC", "topic": "TalkIRC - global IRC community - connect, chat, meet!"},
+    {"channel": "#Radio", "network": "EfesNet", "users": 3655, "category": "Radio", "topic": "FoxFM live radio - music, dj requests and community."},
+    {"channel": "#security", "network": "Libera.Chat", "users": 1080, "category": "Security", "topic": "Computer, network and physical security discussion."},
+    {"channel": "##rust", "network": "Libera.Chat", "users": 1007, "category": "Rust", "topic": "Unofficial channel for the Rust programming language - don't ask to ask, just ask!"},
+    {"channel": "##programming", "network": "Libera.Chat", "users": 853, "category": "Programming", "topic": "Programming and computer science community chat."},
+    {"channel": "#mexico", "network": "Chatzona", "users": 1012, "category": "Mexico", "topic": "Bienvenidos a #Mexico - chat amigable y respetuoso."},
+    {"channel": "#ChatWorld", "network": "ChatLife", "users": 736, "category": "International", "topic": "Where strangers become friends - meet new people and enjoy fun conversations."},
+    {"channel": "#allindiachat.com", "network": "HybridIRC", "users": 1018, "category": "India", "topic": "India chat room - be respectful and enjoy your chat."},
+    {"channel": "#sohbet", "network": "CyberIRC", "users": 1106, "category": "Turkey", "topic": "CyberIRC - old IRC spirit, new conversations."},
+    {"channel": "#Singapore", "network": "FlexChat", "users": 1002, "category": "Singapore", "topic": "Welcome to #Singapore."},
+    {"channel": "#india", "network": "FlexChat", "users": 1002, "category": "India", "topic": "Welcome to #India."},
+    {"channel": "#Lebanon", "network": "FlexChat", "users": 1002, "category": "Lebanon", "topic": "Welcome to #Lebanon."},
+    {"channel": "#game", "network": "EfesNet", "users": 710, "category": "Games", "topic": "Turkish-English trivia."}
+  ]
+}
