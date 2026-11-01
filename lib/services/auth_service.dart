@@ -205,9 +205,8 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
   final Map<String, xmpp.Connection> _xmppConnections = {};
   final Map<String, String> _xmppJids = {};
   List<SpaceNode> _cachedJoinedSpaces = [];
-  final Map<String, Completer<List<Map<String, String>>>> _discoveryCompleters =
-      {};
-  final Map<String, Completer<Map<String, dynamic>>> _roomInfoCompleters = {};
+  final CompleterMap<List<Map<String, String>>> _discoveryCompleters = CompleterMap();
+  final CompleterMap<Map<String, dynamic>> _roomInfoCompleters = CompleterMap();
   final IqRequestManager _iqReqs = IqRequestManager();
   final Map<String, XmppProxyService> _xmppProxies = {};
   final Map<String, StreamSubscription> _xmppMessageSubs = {};
@@ -2006,30 +2005,18 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
                 }
 
                 if (stanza.id != null) {
-                  if (_discoveryCompleters.containsKey(stanza.id)) {
-                    _discoveryCompleters[stanza.id]!.complete([]);
-                    _discoveryCompleters.remove(stanza.id);
-                  }
-                  if (_roomInfoCompleters.containsKey(stanza.id)) {
-                    _roomInfoCompleters[stanza.id]!.complete({
-                      'jid': stanza.fromJid?.fullJid ?? '',
-                      'name': '',
-                      'description': '',
-                    });
-                    _roomInfoCompleters.remove(stanza.id);
-                  }
-                  if (_roomService.discoveryCompleters.containsKey(stanza.id)) {
-                    _roomService.discoveryCompleters[stanza.id]!.complete([]);
-                    _roomService.discoveryCompleters.remove(stanza.id);
-                  }
-                  if (_roomService.roomInfoCompleters.containsKey(stanza.id)) {
-                    _roomService.roomInfoCompleters[stanza.id]!.complete({
-                      'jid': stanza.fromJid?.fullJid ?? '',
-                      'name': '',
-                      'description': '',
-                    });
-                    _roomService.roomInfoCompleters.remove(stanza.id);
-                  }
+                  _discoveryCompleters.complete(stanza.id, []);
+                  _roomInfoCompleters.complete(stanza.id, {
+                    'jid': stanza.fromJid?.fullJid ?? '',
+                    'name': '',
+                    'description': '',
+                  });
+                  _roomService.discoveryCompleters.complete(stanza.id, []);
+                  _roomService.roomInfoCompleters.complete(stanza.id, {
+                    'jid': stanza.fromJid?.fullJid ?? '',
+                    'name': '',
+                    'description': '',
+                  });
                 }
               }
 
@@ -2361,15 +2348,9 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
                   }
                 }
 
-                if (stanza.id != null &&
-                    _discoveryCompleters.containsKey(stanza.id)) {
-                  _discoveryCompleters[stanza.id]!.complete(discoveredRooms);
-                  _discoveryCompleters.remove(stanza.id);
-                }
-                if (stanza.id != null &&
-                    _roomService.discoveryCompleters.containsKey(stanza.id)) {
-                  _roomService.discoveryCompleters[stanza.id]!.complete(discoveredRooms);
-                  _roomService.discoveryCompleters.remove(stanza.id);
+                if (stanza.id != null) {
+                  _discoveryCompleters.complete(stanza.id, discoveredRooms);
+                  _roomService.discoveryCompleters.complete(stanza.id, discoveredRooms);
                 }
                 return;
               }
@@ -2421,8 +2402,8 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
 
                 // Handle MUC Room Info queries
                 if (stanza.id != null &&
-                    (_roomInfoCompleters.containsKey(stanza.id) ||
-                     _roomService.roomInfoCompleters.containsKey(stanza.id))) {
+                    (_roomInfoCompleters.contains(stanza.id) ||
+                     _roomService.roomInfoCompleters.contains(stanza.id))) {
                   final Map<String, dynamic> roomInfo = {
                     'jid': stanza.fromJid?.fullJid ?? '',
                     'password_protected': false,
@@ -2461,14 +2442,8 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
                     }
                   }
 
-                  if (_roomInfoCompleters.containsKey(stanza.id)) {
-                    _roomInfoCompleters[stanza.id]!.complete(roomInfo);
-                    _roomInfoCompleters.remove(stanza.id);
-                  }
-                  if (_roomService.roomInfoCompleters.containsKey(stanza.id)) {
-                    _roomService.roomInfoCompleters[stanza.id]!.complete(roomInfo);
-                    _roomService.roomInfoCompleters.remove(stanza.id);
-                  }
+                  _roomInfoCompleters.complete(stanza.id, roomInfo);
+                  _roomService.roomInfoCompleters.complete(stanza.id, roomInfo);
                 }
 
                 return;

@@ -30,8 +30,8 @@ class XmppRoomService with ChangeNotifier {
   Stream<Map<String, dynamic>> get groupInviteStream =>
       _groupInviteStreamController.stream;
 
-  final Map<String, Completer<List<Map<String, String>>>> _discoveryCompleters = {};
-  final Map<String, Completer<Map<String, dynamic>>> _roomInfoCompleters = {};
+  final CompleterMap<List<Map<String, String>>> _discoveryCompleters = CompleterMap();
+  final CompleterMap<Map<String, dynamic>> _roomInfoCompleters = CompleterMap();
   final IqRequestManager _iqReqs = IqRequestManager();
 
   XmppRoomService(this._sessions);
@@ -210,12 +210,12 @@ class XmppRoomService with ChangeNotifier {
     query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#items'));
     iq.addChild(query);
     final completer = Completer<List<Map<String, String>>>();
-    _discoveryCompleters[id] = completer;
+    _discoveryCompleters.register(id, completer);
     conn.writeStanza(iq);
     return completer.future.timeout(
       const Duration(seconds: 15),
       onTimeout: () {
-        _discoveryCompleters.remove(id);
+        _discoveryCompleters.forget(id);
         return [];
       },
     );
@@ -237,12 +237,12 @@ class XmppRoomService with ChangeNotifier {
     query.addAttribute(xmpp.XmppAttribute('xmlns', 'http://jabber.org/protocol/disco#info'));
     iq.addChild(query);
     final completer = Completer<Map<String, dynamic>>();
-    _roomInfoCompleters[id] = completer;
+    _roomInfoCompleters.register(id, completer);
     conn.writeStanza(iq);
     return completer.future.timeout(
       const Duration(seconds: 10),
       onTimeout: () {
-        _roomInfoCompleters.remove(id);
+        _roomInfoCompleters.forget(id);
         return {'jid': roomJid, 'name': roomJid, 'description': ''};
       },
     );
@@ -960,8 +960,8 @@ class XmppRoomService with ChangeNotifier {
 
   // --- IQ response routing ---
 
-  Map<String, Completer<List<Map<String, String>>>> get discoveryCompleters => _discoveryCompleters;
-  Map<String, Completer<Map<String, dynamic>>> get roomInfoCompleters => _roomInfoCompleters;
+  CompleterMap<List<Map<String, String>>> get discoveryCompleters => _discoveryCompleters;
+  CompleterMap<Map<String, dynamic>> get roomInfoCompleters => _roomInfoCompleters;
   IqRequestManager get pendingIqs => _iqReqs;
 
   // --- Group invite emission ---
