@@ -149,20 +149,6 @@ class XmppContactService {
     );
   }
 
-  ContactStatus mapPresenceToShow(xmpp.PresenceShowElement? show) {
-    if (show == null || show == xmpp.PresenceShowElement.CHAT) {
-      return ContactStatus.online;
-    } else if (show == xmpp.PresenceShowElement.AWAY) {
-      return ContactStatus.away;
-    } else if (show == xmpp.PresenceShowElement.XA) {
-      return ContactStatus.xa;
-    } else if (show == xmpp.PresenceShowElement.DND) {
-      return ContactStatus.dnd;
-    } else {
-      return ContactStatus.offline;
-    }
-  }
-
   void handleXmppStreamError(dynamic e) {
     debugPrint('XMPP Stream Error: $e');
     _auth.xmppConnecting = false;

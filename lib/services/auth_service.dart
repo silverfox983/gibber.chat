@@ -38,6 +38,7 @@ import './xmpp_room_enhancements_service.dart';
 import './xmpp_server_info_service.dart';
 import './xmpp_sticker_service.dart';
 import './iq_request_manager.dart';
+import './presence_mapping.dart';
 import './xmpp_session_lookup.dart';
 
 enum ConnectionProtocol { xmpp, none }
@@ -568,7 +569,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
       if (_isUnavailableStatus(status)) {
         presence.type = xmpp.PresenceType.UNAVAILABLE;
       } else {
-        presence.show = _mapShowToPresence(status);
+        presence.show = mapStatusToPresenceShow(status);
       }
       presence.status = message ?? '';
       final xUpdate = xmpp.XmppElement();
@@ -942,7 +943,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
         if (_isUnavailableStatus(status)) {
           presence.type = xmpp.PresenceType.UNAVAILABLE;
         } else {
-          presence.show = _mapShowToPresence(status);
+          presence.show = mapStatusToPresenceShow(status);
         }
         presence.status = message ?? '';
         
@@ -1146,7 +1147,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
           _currentContacts[index].status = ContactStatus.offline;
           _currentContacts[index].presenceMessage = null;
         } else {
-          _currentContacts[index].status = _mapPresenceToShow(
+          _currentContacts[index].status = mapPresenceShowToStatus(
             presence.showElement,
           );
           _currentContacts[index].presenceMessage = presence.status;
@@ -1159,7 +1160,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
           name: barePid.split('@').first,
           status: presence.showElement == xmpp.PresenceShowElement.XA && presence.status == 'Unavailable'
               ? ContactStatus.offline
-              : _mapPresenceToShow(presence.showElement),
+              : mapPresenceShowToStatus(presence.showElement),
           presenceMessage: presence.status,
           protocol: 'XMPP',
         ));
@@ -1510,35 +1511,7 @@ class AuthService with ChangeNotifier implements XmppSessionLookup {
   }
 
   // Mappings
-  xmpp.PresenceShowElement _mapShowToPresence(ContactStatus status) {
-    switch (status) {
-      case ContactStatus.online:
-        return xmpp.PresenceShowElement.CHAT;
-      case ContactStatus.away:
-        return xmpp.PresenceShowElement.AWAY;
-      case ContactStatus.xa:
-        return xmpp.PresenceShowElement.XA;
-      case ContactStatus.dnd:
-        return xmpp.PresenceShowElement.DND;
-      case ContactStatus.offline:
-        return xmpp.PresenceShowElement.XA;
-    }
-  }
-
   bool _isUnavailableStatus(ContactStatus status) => status == ContactStatus.offline;
-
-  ContactStatus _mapPresenceToShow(xmpp.PresenceShowElement? show) {
-    if (show == null || show == xmpp.PresenceShowElement.CHAT) {
-      return ContactStatus.online;
-    } else if (show == xmpp.PresenceShowElement.AWAY) {
-      return ContactStatus.away;
-    } else if (show == xmpp.PresenceShowElement.XA) {
-      return ContactStatus.xa;
-    } else if (show == xmpp.PresenceShowElement.DND) {
-      return ContactStatus.dnd;
-    }
-    return ContactStatus.offline;
-  }
 
   void _handleXmppStreamError(dynamic e) {
     debugPrint('XMPP Stream Error: $e');
