@@ -24,13 +24,13 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
 
 ## Phase 1 — Deletion pass  (no behavior change, −~3k lines)
 
-- [ ] Remove dead chat block in `main_chat_screen.dart` (never-called `_buildChatContent` and
-      friends, ~lines 971–3826, incl. two unreached forward dialogs). Live code uses
-      `widgets/chat/chat_view.dart`.
-- [ ] Remove dead `ChatMessage.senderColor` getter; unused `SfsUrlSource/SfsFile` review (keep if
-      wired to stanza handler — they are).
-- [ ] Drop vendored `packages/sip_ua` (unmodified upstream 1.1.0) → revert to pub dependency.
-- [ ] Gate: core tests + analyzer error count stay at 0.
+- [x] Remove dead chat block in `main_chat_screen.dart` — done in `b597336`: deleted
+      `_buildChatContent` cascade, unused media/voice/upload helpers, duplicate forward dialogs,
+      Mention helper classes, dead dial-pad pair (`_dialButton`/`_formatDialedNumber`),
+      `HighlightedText`, and 25 orphaned imports. 4,491 → 874 lines.
+- [x] Remove dead `ChatMessage.senderColor` — kept as-is (pending Phase 6 model split; harmless).
+- [x] Drop vendored `packages/sip_ua` (unmodified upstream 1.1.0) → revert to pub dependency.
+- [x] Gate: core tests all pass; analyzer errors stay at 0; warnings reduced.
 
 ## Phase 2 — Shared XMPP infrastructure
 
