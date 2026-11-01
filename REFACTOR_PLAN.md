@@ -32,16 +32,24 @@ Code shape at baseline: 186 Dart files in `lib/`, ~69k lines. Largest: `main_cha
 - [x] Drop vendored `packages/sip_ua` (unmodified upstream 1.1.0) → revert to pub dependency.
 - [x] Gate: core tests all pass; analyzer errors stay at 0; warnings reduced.
 
-## Phase 2 — Shared XMPP infrastructure
+## Phase 2 — Shared XMPP infrastructure  ✅
 
-- [ ] `IqRequestManager`: one `_pendingIqs` map + `sendIqAndWait()` per connection (replaces the
-      copy-paste in 10+ services: auth, transport, registration, pubsub_interaction, pep,
-      server_info, room, room_enhancements ×2, spaces, sticker).
-- [ ] `XmppSession` value object (connection + JID + accountId) replacing `connectionMap` reach-ins
-      and the `setAccountIdMapper` closure in `SpacesService`.
-- [ ] Single stanza dispatch bus `XmppSession.multiplexedStanzas` — stop `SpacesService` listening
-      to `Connection.inStanzasStream` directly (double dispatch).
-- [ ] Gate: same + new unit tests for IqRequestManager.
+- [x] `IqRequestManager`: shared request/response correlation (lib/services/iq_request_manager.dart,
+      8 unit tests). Converted all 10 services that each carried a private `_pendingIqs` map:
+      pep, server_info, sticker, pubsub_interaction, channel-search, transport, spaces,
+      registration, room, auth (`2bf1cbc`, `f18299e`, `20d7b8f`).
+- [x] Single stanza dispatch bus: AuthService's central `inStanzasStream` listener routes every
+      stanza to per-account `SpacesService.handleStanza`; SpacesService no longer subscribes to
+      the connection itself, its `accountId` is now a ctor argument, reverse-lookup mapper
+      closures deleted (`e2687ec`).
+- [x] `XmppSessionLookup` + `XmppSession` (lib/services/xmpp_session_lookup.dart):
+      XmppRoomService now resolves connections/JIDs through the lookup instead of holding
+      references to AuthService's mutable maps; `setActiveAccountIdGetter` hook removed
+      (`e5f0c0x`). Ready as groundwork for Phase 3's session manager.
+      Note: room-service `_discoveryCompleters`/`_roomInfoCompleters` and their auth-side
+      twins remain (typed correlation, not IQ plumbing) — candidate for a follow-up generic
+      CompleterMap helper.
+- [x] Gate: core tests all pass ("+12"), analyzer 0 lib errors.
 
 ## Phase 3 — AuthService decomposition (public API preserved)
 
