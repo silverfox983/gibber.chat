@@ -15,139 +15,11 @@ import 'secure_storage_service.dart';
 import 'xmpp_omemo_service.dart';
 import 'xmpp_room_service.dart';
 
-class XmppContactServiceDependencies {
-  final Map<String, xmpp.Connection> xmppConnections;
-  final Map<String, String> xmppJids;
-  final String? Function() getActiveAccountId;
-  final List<Contact> currentContacts;
-  final Map<String, StreamSubscription> presenceSubs;
-  final Map<String, StreamSubscription> rosterSubs;
-  final StreamController<List<Contact>> contactStreamController;
-  final Map<String, StreamSubscription> xmppMessageSubs;
-  final Map<String, StreamSubscription> jingleEventSubs;
-  final Map<String, StreamSubscription> xmppStanzaSubs;
-  final List<SavedAccount> savedAccounts;
-  final XmppOmemoService omemoService;
-  final XmppRoomService roomService;
-  final SecureStorageService secureStorage;
-  final List<Map<String, String>> pendingSubscriptionRequests;
-  final StreamController<List<Map<String, String>>> subscriptionRequestController;
-  final StreamController<ChatMessage> messageStreamController;
-  final StreamController<List<SpaceNode>> joinedSpacesStreamController;
-  final List<SpaceNode> cachedJoinedSpaces;
-  final Map<String, bool> carbonsEnabled;
-  final Map<String, List<Map<String, dynamic>>> accountIceServers;
-  final Set<String> pendingVCardFetches;
-  final Map<String, DateTime> vCardLastFetch;
-  final Set<String> vCardUnsupportedJids;
-  final Map<String, String> contactAvatarHashes;
-  final StreamController<List<String>> blockedContactsController;
-  final List<String> currentBlockedContacts;
-  final bool xmppConnecting;
-  final String? Function() lastDiagnostic;
-  final void Function() notifyListeners;
-  final ContactStatus myStatus;
-  final String? myStatusMessage;
-  final UserProfile? currentProfile;
-  final Future<void> Function() loadSavedAccounts;
-  final Future<void> Function() saveSubscriptionRequests;
-  final Future<void> Function(ContactStatus, String?) setPresence;
-  final Future<void> Function({String? accountId}) fetchMyVCard;
-  final Future<void> Function(String, {String? accountId}) fetchContactVCard;
-  final Future<void> Function(String, String, String, {String? fileName, String? filePath, bool isGroup, String? replyToId, MessageType type}) sendMessage;
-
-  XmppContactServiceDependencies({
-    required this.xmppConnections,
-    required this.xmppJids,
-    required this.getActiveAccountId,
-    required this.currentContacts,
-    required this.presenceSubs,
-    required this.rosterSubs,
-    required this.contactStreamController,
-    required this.xmppMessageSubs,
-    required this.jingleEventSubs,
-    required this.xmppStanzaSubs,
-    required this.savedAccounts,
-    required this.omemoService,
-    required this.roomService,
-    required this.secureStorage,
-    required this.pendingSubscriptionRequests,
-    required this.subscriptionRequestController,
-    required this.messageStreamController,
-    required this.joinedSpacesStreamController,
-    required this.cachedJoinedSpaces,
-    required this.carbonsEnabled,
-    required this.accountIceServers,
-    required this.pendingVCardFetches,
-    required this.vCardLastFetch,
-    required this.vCardUnsupportedJids,
-    required this.contactAvatarHashes,
-    required this.blockedContactsController,
-    required this.currentBlockedContacts,
-    required this.xmppConnecting,
-    required this.lastDiagnostic,
-    required this.notifyListeners,
-    required this.myStatus,
-    required this.myStatusMessage,
-    required this.currentProfile,
-    required this.loadSavedAccounts,
-    required this.saveSubscriptionRequests,
-    required this.setPresence,
-    required this.fetchMyVCard,
-    required this.fetchContactVCard,
-    required this.sendMessage,
-  });
-
-  String? get activeAccountId => getActiveAccountId();
-}
 
 class XmppContactService {
   final AuthServiceContactDeps _auth;
-  late final XmppContactServiceDependencies _d;
 
-  XmppContactService(this._auth) {
-    _d = XmppContactServiceDependencies(
-      xmppConnections: _auth.xmppConnections,
-      xmppJids: _auth.xmppJids,
-      getActiveAccountId: () => _auth.activeAccountId,
-      currentContacts: _auth.currentContacts,
-      presenceSubs: _auth.presenceSubs,
-      rosterSubs: _auth.rosterSubs,
-      contactStreamController: _auth.contactStreamController,
-      xmppMessageSubs: _auth.xmppMessageSubs,
-      jingleEventSubs: _auth.jingleEventSubs,
-      xmppStanzaSubs: _auth.xmppStanzaSubs,
-      savedAccounts: _auth.savedAccounts,
-      omemoService: _auth.omemoService,
-      roomService: _auth.roomService,
-      secureStorage: _auth.secureStorage,
-      pendingSubscriptionRequests: _auth.pendingSubscriptionRequests,
-      subscriptionRequestController: _auth.subscriptionRequestController,
-      messageStreamController: _auth.messageStreamController,
-      joinedSpacesStreamController: _auth.joinedSpacesStreamController,
-      cachedJoinedSpaces: _auth.cachedJoinedSpaces,
-      carbonsEnabled: _auth.carbonsEnabled,
-      accountIceServers: _auth.accountIceServers,
-      pendingVCardFetches: _auth.pendingVCardFetches,
-      vCardLastFetch: _auth.vCardLastFetch,
-      vCardUnsupportedJids: _auth.vCardUnsupportedJids,
-      contactAvatarHashes: _auth.contactAvatarHashes,
-      blockedContactsController: _auth.blockedContactsController,
-      currentBlockedContacts: _auth.currentBlockedContacts,
-      xmppConnecting: _auth.xmppConnecting,
-      lastDiagnostic: () => _auth.lastDiagnostic,
-      notifyListeners: _auth.notifyListeners,
-      myStatus: _auth.myStatus,
-      myStatusMessage: _auth.myStatusMessage,
-      currentProfile: _auth.currentProfile,
-      loadSavedAccounts: _auth.loadSavedAccounts,
-      saveSubscriptionRequests: _auth.saveSubscriptionRequests,
-      setPresence: _auth.setPresence,
-      fetchMyVCard: _auth.fetchMyVCard,
-      fetchContactVCard: _auth.fetchContactVCard,
-      sendMessage: _auth.sendMessage,
-    );
-  }
+  XmppContactService(this._auth);
 
   void handleXmppStreamError(dynamic e) {
     debugPrint('XMPP Stream Error: $e');
@@ -157,11 +29,11 @@ class XmppContactService {
   }
 
   Future<bool> autoLogin() async {
-    await _d.loadSavedAccounts();
-    if (_d.savedAccounts.isEmpty) return false;
+    await _auth.loadSavedAccounts();
+    if (_auth.savedAccounts.isEmpty) return false;
 
-    final acc = _d.savedAccounts.first;
-    final pass = await _d.secureStorage.read(key: 'pass_${acc.fullJid}');
+    final acc = _auth.savedAccounts.first;
+    final pass = await _auth.secureStorage.read(key: 'pass_${acc.fullJid}');
 
     final prefs = await SharedPreferences.getInstance();
     final savedStatusIdx = prefs.getInt('my_presence_status');
@@ -182,7 +54,7 @@ class XmppContactService {
           configData: acc,
         );
 
-        _d.setPresence(_auth.myStatus, _auth.myStatusMessage);
+        _auth.setPresence(_auth.myStatus, _auth.myStatusMessage);
 
         return true;
       } catch (e) {
@@ -219,10 +91,10 @@ class XmppContactService {
   }
 
   void enableCarbons(String accountId) {
-    final conn = _d.xmppConnections[accountId];
-    if (conn == null || _d.carbonsEnabled[accountId] == true) return;
+    final conn = _auth.xmppConnections[accountId];
+    if (conn == null || _auth.carbonsEnabled[accountId] == true) return;
 
-    _d.carbonsEnabled[accountId] = true;
+    _auth.carbonsEnabled[accountId] = true;
     final iq = xmpp.IqStanza(
       'enable_carbons_${DateTime.now().millisecondsSinceEpoch}',
       xmpp.IqStanzaType.SET,
@@ -240,8 +112,8 @@ class XmppContactService {
     String? accountId,
     DateTime? since,
   }) async {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) return;
     try {
       final mamManager = xmpp.MessageArchiveManager.getInstance(conn);
@@ -258,7 +130,7 @@ class XmppContactService {
   void syncAllXmppData(String accountId, xmpp.Connection conn) {
     debugPrint('SYNC: Triggering full account sync for $accountId');
 
-    _d.fetchMyVCard(accountId: accountId);
+    _auth.fetchMyVCard(accountId: accountId);
 
     try {
       final iqId = 'mam_sync_${DateTime.now().millisecondsSinceEpoch}';
@@ -333,7 +205,7 @@ class XmppContactService {
     String? filePath,
     MessageType type = MessageType.call,
   }) {
-    _d.messageStreamController.add(
+    _auth.messageStreamController.add(
       ChatMessage(
         id: 'call_log_${DateTime.now().millisecondsSinceEpoch}',
         text: text,
@@ -342,19 +214,19 @@ class XmppContactService {
         filePath: filePath,
         isSent: isSent,
         senderId: isSent ? 'me' : targetId,
-        accountId: _d.activeAccountId,
+        accountId: _auth.activeAccountId,
         protocol: 'XMPP',
       ),
     );
   }
 
   Future<List<Map<String, dynamic>>> fetchIceServers(String accountId) async {
-    if (_d.accountIceServers.containsKey(accountId) &&
-        _d.accountIceServers[accountId]!.isNotEmpty) {
-      return _d.accountIceServers[accountId]!;
+    if (_auth.accountIceServers.containsKey(accountId) &&
+        _auth.accountIceServers[accountId]!.isNotEmpty) {
+      return _auth.accountIceServers[accountId]!;
     }
 
-    final conn = _d.xmppConnections[accountId];
+    final conn = _auth.xmppConnections[accountId];
     if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) return [];
 
     final iqId = 'extdisco_${DateTime.now().millisecondsSinceEpoch}';
@@ -404,7 +276,7 @@ class XmppContactService {
             }
           }
         }
-        _d.accountIceServers[accountId] = discovered;
+        _auth.accountIceServers[accountId] = discovered;
         completer.complete(discovered);
       }
     });
@@ -415,13 +287,13 @@ class XmppContactService {
       const Duration(seconds: 5),
       onTimeout: () {
         sub.cancel();
-        return _d.accountIceServers[accountId] ?? [];
+        return _auth.accountIceServers[accountId] ?? [];
       },
     );
   }
 
   Future<void> discoverServiceFeatures(String accountId, String domain) async {
-    final conn = _d.xmppConnections[accountId];
+    final conn = _auth.xmppConnections[accountId];
     if (conn == null) return;
 
     debugPrint('DISCO: Starting discovery for $domain');
@@ -450,10 +322,10 @@ class XmppContactService {
     conn.writeStanza(itemsIq);
   }
 
-  List<SpaceNode> get joinedSpaces => _d.cachedJoinedSpaces;
+  List<SpaceNode> get joinedSpaces => _auth.cachedJoinedSpaces;
 
   void emitJoinedSpaces() {
-    _d.joinedSpacesStreamController.add(joinedSpaces);
+    _auth.joinedSpacesStreamController.add(joinedSpaces);
   }
 
   Future<void> joinPersistedSpace(
@@ -461,10 +333,10 @@ class XmppContactService {
     String node,
     String name,
   ) async {
-    final index = _d.cachedJoinedSpaces.indexWhere((s) => s.domain == domain && s.node == node);
+    final index = _auth.cachedJoinedSpaces.indexWhere((s) => s.domain == domain && s.node == node);
     if (index == -1) {
       final space = SpaceNode(domain: domain, node: node, name: name, isSubscribed: true);
-      _d.cachedJoinedSpaces.add(space);
+      _auth.cachedJoinedSpaces.add(space);
       await DatabaseService().upsertSpace(space, isJoined: true);
       emitJoinedSpaces();
       _auth.notifyListeners();
@@ -472,16 +344,16 @@ class XmppContactService {
   }
 
   Future<void> leavePersistedSpace(String domain, String node) async {
-    _d.cachedJoinedSpaces.removeWhere((s) => s.domain == domain && s.node == node);
+    _auth.cachedJoinedSpaces.removeWhere((s) => s.domain == domain && s.node == node);
     await DatabaseService().deleteSpace(domain, node);
     emitJoinedSpaces();
     _auth.notifyListeners();
   }
 
   Future<void> updatePersistedSpace(SpaceNode space) async {
-    final index = _d.cachedJoinedSpaces.indexWhere((s) => s.domain == space.domain && s.node == space.node);
+    final index = _auth.cachedJoinedSpaces.indexWhere((s) => s.domain == space.domain && s.node == space.node);
     if (index != -1) {
-      _d.cachedJoinedSpaces[index] = space;
+      _auth.cachedJoinedSpaces[index] = space;
       await DatabaseService().upsertSpace(space, isJoined: true);
       emitJoinedSpaces();
       _auth.notifyListeners();
@@ -502,7 +374,7 @@ class XmppContactService {
   }
 
   Future<Map<String, String>> exportAccountSecrets() async {
-    final all = await _d.secureStorage.readAll();
+    final all = await _auth.secureStorage.readAll();
     final Map<String, String> secrets = {};
     for (var key in all.keys) {
       if (key.startsWith('pass_')) {
@@ -514,27 +386,27 @@ class XmppContactService {
 
   Future<void> importAccountSecrets(Map<String, String> secrets) async {
     for (var entry in secrets.entries) {
-      await _d.secureStorage.write(key: entry.key, value: entry.value);
+      await _auth.secureStorage.write(key: entry.key, value: entry.value);
     }
   }
 
   Future<void> importSavedAccounts(List<SavedAccount> accounts) async {
-    _d.savedAccounts.clear();
-    _d.savedAccounts.addAll(accounts);
+    _auth.savedAccounts.clear();
+    _auth.savedAccounts.addAll(accounts);
 
     final prefs = await SharedPreferences.getInstance();
-    final jsonList = _d.savedAccounts.map((a) => a.toJson()).toList();
+    final jsonList = _auth.savedAccounts.map((a) => a.toJson()).toList();
     await prefs.setString('saved_accounts_json', json.json.encode(jsonList));
     _auth.notifyListeners();
   }
 
   List<Map<String, dynamic>> exportContacts() {
-    return _d.currentContacts.map((c) => c.toJson()).toList();
+    return _auth.currentContacts.map((c) => c.toJson()).toList();
   }
 
   Future<void> importContacts(List<dynamic> contactsJson) async {
     final Map<String, Contact> newContacts = {};
-    for (var c in _d.currentContacts) {
+    for (var c in _auth.currentContacts) {
       newContacts[c.id] = c;
     }
 
@@ -560,9 +432,9 @@ class XmppContactService {
       }
     }
     
-    _d.currentContacts.clear();
-    _d.currentContacts.addAll(newContacts.values);
-    _d.contactStreamController.add(List.from(_d.currentContacts));
+    _auth.currentContacts.clear();
+    _auth.currentContacts.addAll(newContacts.values);
+    _auth.contactStreamController.add(List.from(_auth.currentContacts));
   }
 
   Future<Map<String, dynamic>> exportSettings() async {
@@ -591,12 +463,12 @@ class XmppContactService {
         await prefs.setStringList(entry.key, val);
       }
     }
-    await _d.loadSavedAccounts();
+    await _auth.loadSavedAccounts();
   }
 
   Future<void> fetchContactVCard(String jid, {String? accountId}) async {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null || conn.state != xmpp.XmppConnectionState.Ready) return;
 
     final iq = xmpp.IqStanza(
@@ -612,7 +484,7 @@ class XmppContactService {
   }
 
   void fetchAllVCards(String accountId) {
-    final jids = _d.currentContacts
+    final jids = _auth.currentContacts
         .where((c) => c.protocol == 'XMPP')
         .map((c) => c.id.split('/').first)
         .toSet();
@@ -627,11 +499,11 @@ class XmppContactService {
     }
   }
 
-  Stream<List<String>> get blockedContactsStream => _d.blockedContactsController.stream;
+  Stream<List<String>> get blockedContactsStream => _auth.blockedContactsController.stream;
 
   Future<void> fetchBlockedContacts({String? accountId}) async {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null) return;
 
     final iqId = 'get_blocklist_${DateTime.now().millisecondsSinceEpoch}';
@@ -650,8 +522,8 @@ class XmppContactService {
     String? message,
     String? accountId,
   }) async {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null) return;
 
     final hash = await _getAvatarHash(id);
@@ -721,8 +593,8 @@ class XmppContactService {
   }
 
   void acceptSubscription(String jid, {String? accountId}) {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null) return;
 
     final normalizedJid = jid.split('/').first.toLowerCase();
@@ -739,14 +611,14 @@ class XmppContactService {
     conn.writeStanza(subRequest);
 
     debugPrint('SOCIAL: Accepted subscription and requested mutual from $normalizedJid');
-    _d.pendingSubscriptionRequests.removeWhere((req) => req['jid'] == normalizedJid || req['jid'] == userAtDomain);
-    _d.subscriptionRequestController.add(List.from(_d.pendingSubscriptionRequests));
-    _d.saveSubscriptionRequests();
+    _auth.pendingSubscriptionRequests.removeWhere((req) => req['jid'] == normalizedJid || req['jid'] == userAtDomain);
+    _auth.subscriptionRequestController.add(List.from(_auth.pendingSubscriptionRequests));
+    _auth.saveSubscriptionRequests();
   }
 
   void declineSubscription(String jid, {String? accountId}) {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null) return;
 
     final normalizedJid = jid.split('/').first.toLowerCase();
@@ -763,14 +635,14 @@ class XmppContactService {
     conn.writeStanza(unsub);
 
     debugPrint('SOCIAL: Declined subscription from $normalizedJid');
-    _d.pendingSubscriptionRequests.removeWhere((req) => req['jid'] == normalizedJid || req['jid'] == userAtDomain);
-    _d.subscriptionRequestController.add(List.from(_d.pendingSubscriptionRequests));
-    _d.saveSubscriptionRequests();
+    _auth.pendingSubscriptionRequests.removeWhere((req) => req['jid'] == normalizedJid || req['jid'] == userAtDomain);
+    _auth.subscriptionRequestController.add(List.from(_auth.pendingSubscriptionRequests));
+    _auth.saveSubscriptionRequests();
   }
 
   Future<void> blockContact(String jid, {String? accountId}) async {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null) return;
 
     final normalizedJid = jid.split('/').first.toLowerCase();
@@ -792,15 +664,15 @@ class XmppContactService {
     conn.writeStanza(iq);
     debugPrint('SOCIAL: Sent XEP-0191 block command for $normalizedJid');
 
-    if (!_d.currentBlockedContacts.contains(normalizedJid)) {
-      _d.currentBlockedContacts.add(normalizedJid);
-      _d.blockedContactsController.add(List.from(_d.currentBlockedContacts));
+    if (!_auth.currentBlockedContacts.contains(normalizedJid)) {
+      _auth.currentBlockedContacts.add(normalizedJid);
+      _auth.blockedContactsController.add(List.from(_auth.currentBlockedContacts));
     }
   }
 
   Future<void> unblockContact(String jid, {String? accountId}) async {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null) return;
 
     final normalizedJid = jid.split('/').first.toLowerCase();
@@ -822,8 +694,8 @@ class XmppContactService {
     conn.writeStanza(iq);
     debugPrint('SOCIAL: Sent XEP-0191 unblock command for $normalizedJid');
 
-    _d.currentBlockedContacts.remove(normalizedJid);
-    _d.blockedContactsController.add(List.from(_d.currentBlockedContacts));
+    _auth.currentBlockedContacts.remove(normalizedJid);
+    _auth.blockedContactsController.add(List.from(_auth.currentBlockedContacts));
   }
 
   Future<void> renameContact(
@@ -831,8 +703,8 @@ class XmppContactService {
     String newName, {
     String? accountId,
   }) async {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null) return;
 
     final normalizedJid = jid.split('/').first.toLowerCase();
@@ -855,16 +727,16 @@ class XmppContactService {
     conn.writeStanza(iq);
     debugPrint('SOCIAL: Sent Roster Push to rename $normalizedJid to $newName');
 
-    final index = _d.currentContacts.indexWhere((c) => c.id.toLowerCase() == normalizedJid);
+    final index = _auth.currentContacts.indexWhere((c) => c.id.toLowerCase() == normalizedJid);
     if (index != -1) {
-      _d.currentContacts[index].name = newName;
-      _d.contactStreamController.add(List.from(_d.currentContacts));
+      _auth.currentContacts[index].name = newName;
+      _auth.contactStreamController.add(List.from(_auth.currentContacts));
     }
   }
 
   Future<void> removeContact(String jid, {String? accountId}) async {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null) return;
 
     final normalizedJid = jid.split('/').first.toLowerCase();
@@ -898,13 +770,13 @@ class XmppContactService {
 
     debugPrint('SOCIAL: Removed $normalizedJid from roster.');
 
-    _d.currentContacts.removeWhere((c) => c.id.toLowerCase() == normalizedJid);
-    _d.contactStreamController.add(List.from(_d.currentContacts));
+    _auth.currentContacts.removeWhere((c) => c.id.toLowerCase() == normalizedJid);
+    _auth.contactStreamController.add(List.from(_auth.currentContacts));
   }
 
   void addContact(String jid, {String? nickname, String? group, String? accountId}) {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null) return;
 
     final normalizedJid = jid.split('/').first.toLowerCase();
@@ -936,8 +808,8 @@ class XmppContactService {
     presence.type = xmpp.PresenceType.SUBSCRIBE;
     conn.writeStanza(presence);
 
-    if (!_d.currentContacts.any((c) => c.id.toLowerCase() == normalizedJid)) {
-      _d.currentContacts.add(
+    if (!_auth.currentContacts.any((c) => c.id.toLowerCase() == normalizedJid)) {
+      _auth.currentContacts.add(
         Contact(
           id: normalizedJid,
           name: nickname ?? jidObj.local,
@@ -945,7 +817,7 @@ class XmppContactService {
           groups: group != null && group.isNotEmpty ? [group] : [],
         ),
       );
-      _d.contactStreamController.add(List.from(_d.currentContacts));
+      _auth.contactStreamController.add(List.from(_auth.currentContacts));
       debugPrint('SOCIAL: Optimistically added $normalizedJid to _currentContacts.');
     }
 
@@ -953,8 +825,8 @@ class XmppContactService {
   }
 
   Future<List<String>> getBlockList({String? accountId}) async {
-    final id = accountId ?? _d.activeAccountId;
-    final conn = _d.xmppConnections[id];
+    final id = accountId ?? _auth.activeAccountId;
+    final conn = _auth.xmppConnections[id];
     if (conn == null) return [];
 
     final stanzaId = 'blocks_${DateTime.now().millisecondsSinceEpoch}';
@@ -994,11 +866,11 @@ class XmppContactService {
 
   Future<void> clearAllData() async {
     await _auth.logout();
-    await _d.omemoService.clearDatabase();
+    await _auth.omemoService.clearDatabase();
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
-    await _d.secureStorage.deleteAll();
-    _d.savedAccounts.clear();
+    await _auth.secureStorage.deleteAll();
+    _auth.savedAccounts.clear();
     _auth.currentProfile = null;
     _auth.clearVCardState();
     await AvatarCacheService().clearCache();
